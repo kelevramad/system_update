@@ -950,6 +950,13 @@ async function checkPathUpdates(apps, timeoutMs) {
         const res = await runCommand('winget', ['show', 'Microsoft.DotNet.SDK.9', '--accept-source-agreements'], { allowFailure: true, timeoutMs });
         const m = res.stdout.match(/Version:\s+([0-9.]+)/);
         if (m && m[1]) latest = m[1];
+      } else if (app.name === 'rustc' || app.name === 'cargo') {
+        const data = await fetchJson('https://api.github.com/repos/rust-lang/rust/releases/latest').catch(() => null);
+        if (data && data.tag_name) {
+          const m = data.tag_name.match(/([0-9.]+)/);
+          if (m && m[1]) latest = m[1];
+        }
+        if (!latest) latest = app.version;
       }
     } catch {
       // silently ignore individual fetch failures
