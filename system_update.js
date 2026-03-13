@@ -20,6 +20,8 @@ let CACHE_FILE = path.join(ACTIVE_DATA_DIR, 'cache.json');
 let LOG_FILE = path.join(ACTIVE_DATA_DIR, 'system.log');
 const IS_TTY = Boolean(process.stdout.isTTY);
 const SUPPORTS_COLOR = IS_TTY && process.env.NO_COLOR !== '1';
+let LOGGING_ENABLED = false;
+let DEBUG_ENABLED = false;
 
 const Status = Object.freeze({
   UP_TO_DATE: 'up_to_date',
@@ -62,10 +64,10 @@ const DEFAULT_CONFIG = {
 
 function switchToLocalDataDir() {
   const fallback = path.join(process.cwd(), '.system_update');
-  if (path.resolve(ACTIVE_DATA_DIR) === path.resolve(fallback)) return false;
   ACTIVE_DATA_DIR = fallback;
   CACHE_FILE = path.join(ACTIVE_DATA_DIR, 'cache.json');
   LOG_FILE = path.join(ACTIVE_DATA_DIR, 'system.log');
+  writeLog(`switched to local data dir: ${fallback}`);
   return true;
 }
 
@@ -193,9 +195,18 @@ function fetchJson(url) {
       let data = '';
       res.on('data', c => data += c);
       res.on('end', () => {
-        try { resolve(JSON.parse(data)); } catch (err) { reject(err); }
+        try {
+          const parsed = JSON.parse(data);
+          resolve(parsed);
+        } catch (err) {
+          writeLog(`fetchJson parse error: url=${url}, error=${err.message}`);
+          reject(err);
+        }
       });
-    }).on('error', reject);
+    }).on('error', (err) => {
+      writeLog(`fetchJson network error: url=${url}, error=${err.message}`);
+      reject(err);
+    });
   });
 }
 
@@ -203,8 +214,10 @@ async function ensureConfigDir() {
   try {
     await fs.mkdir(ACTIVE_DATA_DIR, { recursive: true });
   } catch (err) {
+    await writeLog(`ensureConfigDir primary failed: ${err.message}`);
     if (switchToLocalDataDir()) {
       await fs.mkdir(ACTIVE_DATA_DIR, { recursive: true });
+      await writeLog(`ensureConfigDir fallback success: ${ACTIVE_DATA_DIR}`);
       return;
     }
     throw err;
@@ -212,6 +225,7 @@ async function ensureConfigDir() {
 }
 
 async function writeLog(message) {
+  if (!LOGGING_ENABLED) return;
   const line = `${new Date().toISOString()} ${message}\n`;
   try {
     await fs.appendFile(LOG_FILE, line, 'utf8');
@@ -237,6 +251,13 @@ function runCommand(cmd, args = [], options = {}) {
   return new Promise((resolve) => {
     const command = normalizeCommand(cmd);
     const useShell = IS_WINDOWS && (command.endsWith('.cmd') || command.endsWith('.bat'));
+
+    if (DEBUG_ENABLED) {
+      const fullCmd = `${command} ${args.join(' ')}`.trim();
+      console.log(`${paint('[DEBUG]', ANSI.gray)} ${paint('Executing:', ANSI.bold)} ${fullCmd}`);
+      writeLog(`[DEBUG] Executing: ${fullCmd}`);
+    }
+
     let child;
     try {
       child = spawn(command, args, {
@@ -245,6 +266,7 @@ function runCommand(cmd, args = [], options = {}) {
         shell: useShell,
       });
     } catch (err) {
+      writeLog(`runCommand spawn error: cmd=${command}, error=${err.message}`);
       resolve({ ok: allowFailure, stdout: '', stderr: String(err), code: null });
       return;
     }
@@ -280,12 +302,16 @@ function runCommand(cmd, args = [], options = {}) {
       settled = true;
       clearTimeout(timer);
       const ok = allowFailure ? true : code === 0;
+      if (!ok) {
+        writeLog(`runCommand non-zero exit: cmd=${command}, code=${code}, stderr=${stderrData.trim().slice(0, 200)}`);
+      }
       resolve({ ok, stdout: stdoutData.trim(), stderr: stderrData.trim(), code });
     });
   });
 }
 
 function parseArgs(argv) {
+  writeLog(`parsing arguments: ${argv.slice(2).join(' ')}`);
   const args = {
     updateAll: false,
     dryRun: false,
@@ -300,6 +326,8 @@ function parseArgs(argv) {
     include: null,
     yes: false,
     help: false,
+    log: false,
+    debug: false,
   };
 
   for (let i = 2; i < argv.length; i += 1) {
@@ -346,6 +374,12 @@ function parseArgs(argv) {
       case '-h':
         args.help = true;
         break;
+      case '--log':
+        args.log = true;
+        break;
+      case '--debug':
+        args.debug = true;
+        break;
       default:
         throw new Error(`Unknown argument: ${token}`);
     }
@@ -372,6 +406,8 @@ Options:
   --clear-cache             Remove cache file and exit
   --export <json|csv>       Export scan results
   --output <file>           Output path for export
+  --log                     Enable logging to file
+  --debug                   Show all executed commands on screen and in log
   --include <csv>           Limit scan sources (e.g. winget,npm,pip)
   --yes, -y                 Skip confirmation prompts
   --help, -h                Show help
@@ -397,9 +433,38 @@ function getSourceToggle(config, source) {
 }
 
 async function isCommandAvailable(command) {
-  const lookup = IS_WINDOWS ? 'where' : 'which';
-  const result = await runCommand(lookup, [command], { allowFailure: true, timeoutMs: 10_000 });
-  return result.ok && Boolean(result.stdout);
+  if (!IS_WINDOWS) {
+    const result = await runCommand('which', [command], { allowFailure: true, timeoutMs: 10_000 });
+    const available = result.ok && Boolean(result.stdout);
+    await writeLog(`command check: cmd=${command}, available=${available} (via which)`);
+    return available;
+  }
+
+  // Windows strategy: try multiple fallbacks
+  // 1. where
+  let res = await runCommand('where', [command], { allowFailure: true, timeoutMs: 5_000 });
+  if (res.ok && res.stdout) {
+    await writeLog(`command check: cmd=${command}, available=true (via where)`);
+    return true;
+  }
+
+  // 2. where.exe (sometimes the alias 'where' is problematic)
+  res = await runCommand('where.exe', [command], { allowFailure: true, timeoutMs: 5_000 });
+  if (res.ok && res.stdout) {
+    await writeLog(`command check: cmd=${command}, available=true (via where.exe)`);
+    return true;
+  }
+
+  // 3. PowerShell Get-Command
+  const psCmd = `(Get-Command ${command} -ErrorAction SilentlyContinue).Path`;
+  res = await runCommand('powershell', ['-NoProfile', '-Command', psCmd], { allowFailure: true, timeoutMs: 10_000 });
+  if (res.ok && res.stdout) {
+    await writeLog(`command check: cmd=${command}, available=true (via Get-Command)`);
+    return true;
+  }
+
+  await writeLog(`command check: cmd=${command}, available=false`);
+  return false;
 }
 
 function parseWingetTable(output, includeAvailable = false) {
@@ -450,31 +515,45 @@ function parseWingetTable(output, includeAvailable = false) {
 }
 
 async function scanWinget(timeoutMs) {
+  await writeLog('scanner: winget started');
   const result = await runCommand('winget', ['list', '--accept-source-agreements'], { allowFailure: true, timeoutMs });
-  return parseWingetTable(result.stdout, false);
-}
-
-async function scanChocolatey(timeoutMs) {
-  const result = await runCommand('choco', ['list', '--local-only', '--limit-output'], { allowFailure: true, timeoutMs });
-  const apps = [];
-  if (!result.stdout) return apps;
-  for (const line of result.stdout.split(/\r?\n/)) {
-    const [name, version] = line.split('|');
-    if (!name || !version) continue;
-    apps.push({
-      name: name.trim(),
-      source: 'chocolatey',
-      version: version.trim(),
-      latestVersion: '',
-      appId: name.trim(),
-      status: Status.UNKNOWN,
-      scanTime: new Date().toISOString(),
-    });
-  }
+  const apps = parseWingetTable(result.stdout, false);
+  await writeLog(`scanner: winget finished, count=${apps.length}`);
   return apps;
 }
 
+async function scanChocolatey(timeoutMs) {
+  await writeLog('scanner: chocolatey started');
+  try {
+    const result = await runCommand('choco', ['list', '--limit-output'], { allowFailure: true, timeoutMs });
+    const apps = [];
+    if (!result.stdout) {
+      await writeLog('scanner: chocolatey no output');
+      return apps;
+    }
+    for (const line of result.stdout.split(/\r?\n/)) {
+      const [name, version] = line.split('|');
+      if (!name || !version) continue;
+      apps.push({
+        name: name.trim(),
+        source: 'chocolatey',
+        version: version.trim(),
+        latestVersion: '',
+        appId: name.trim(),
+        status: Status.UNKNOWN,
+        scanTime: new Date().toISOString(),
+      });
+    }
+    await writeLog(`scanner: chocolatey finished, count=${apps.length}`);
+    return apps;
+  } catch (err) {
+    await writeLog(`scanner: chocolatey error, ${err.message}`);
+    return [];
+  }
+}
+
 async function scanBun(timeoutMs) {
+  await writeLog('scanner: bun started');
   const result = await runCommand('bun', ['pm', 'ls', '-g'], { allowFailure: true, timeoutMs });
   const apps = [];
   if (!result.stdout) return apps;
@@ -493,10 +572,12 @@ async function scanBun(timeoutMs) {
       });
     }
   }
+  await writeLog(`scanner: bun finished, count=${apps.length}`);
   return apps;
 }
 
 async function scanYarn(timeoutMs) {
+  await writeLog('scanner: yarn started');
   const result = await runCommand('yarn', ['global', 'list'], { allowFailure: true, timeoutMs });
   const apps = [];
   if (!result.stdout) return apps;
@@ -515,10 +596,12 @@ async function scanYarn(timeoutMs) {
       });
     }
   }
+  await writeLog(`scanner: yarn finished, count=${apps.length}`);
   return apps;
 }
 
 async function scanNpm(timeoutMs) {
+  await writeLog('scanner: npm started');
   const result = await runCommand('npm', ['list', '-g', '--depth=0', '--json', '--silent'], { allowFailure: true, timeoutMs });
   const apps = [];
   if (!result.stdout) return apps;
@@ -539,10 +622,12 @@ async function scanNpm(timeoutMs) {
   } catch (err) {
     await writeLog(`parse npm list failed: ${err}`);
   }
+  await writeLog(`scanner: npm finished, count=${apps.length}`);
   return apps;
 }
 
 async function scanPnpm(timeoutMs) {
+  await writeLog('scanner: pnpm started');
   const result = await runCommand('pnpm', ['list', '-g', '--depth=0', '--json'], { allowFailure: true, timeoutMs });
   const apps = [];
   if (!result.stdout) return apps;
@@ -564,6 +649,7 @@ async function scanPnpm(timeoutMs) {
   } catch (err) {
     await writeLog(`parse pnpm list failed: ${err}`);
   }
+  await writeLog(`scanner: pnpm finished, count=${apps.length}`);
   return apps;
 }
 
@@ -583,9 +669,13 @@ async function runPip(args, timeoutMs) {
 }
 
 async function scanPip(timeoutMs) {
+  await writeLog('scanner: pip started');
   const result = await runPip(['list', '--format=json'], timeoutMs);
   const apps = [];
-  if (!result.stdout) return apps;
+  if (!result.stdout) {
+    await writeLog('scanner: pip no output');
+    return apps;
+  }
   try {
     const parsed = JSON.parse(result.stdout);
     for (const item of parsed) {
@@ -602,10 +692,12 @@ async function scanPip(timeoutMs) {
   } catch (err) {
     await writeLog(`parse pip list failed: ${err}`);
   }
+  await writeLog(`scanner: pip finished, count=${apps.length}`);
   return apps;
 }
 
 async function scanPath(timeoutMs) {
+  await writeLog('scanner: path started');
   const apps = [];
   const candidates = ['node', 'npm', 'pnpm', 'yarn', 'python', 'git', 'go', 'bun', 'deno', 'rustc', 'cargo', 'dotnet', 'java', 'pwsh'];
   for (const tool of candidates) {
@@ -629,11 +721,13 @@ async function scanPath(timeoutMs) {
       scanTime: new Date().toISOString(),
     });
   }
+  await writeLog(`scanner: path finished, count=${apps.length}`);
   return apps;
 }
 
 async function scanRegistry(timeoutMs) {
   if (!IS_WINDOWS) return [];
+  await writeLog('scanner: registry started');
   const script = [
     '$paths = @(',
     " 'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',",
@@ -654,7 +748,7 @@ async function scanRegistry(timeoutMs) {
   try {
     const parsed = JSON.parse(result.stdout);
     const rows = Array.isArray(parsed) ? parsed : [parsed];
-    return rows
+    const results = rows
       .filter((x) => x.DisplayName && x.DisplayVersion)
       .map((x) => ({
         name: String(x.DisplayName).trim(),
@@ -665,6 +759,8 @@ async function scanRegistry(timeoutMs) {
         status: Status.UNKNOWN,
         scanTime: new Date().toISOString(),
       }));
+    await writeLog(`scanner: registry finished, count=${results.length}`);
+    return results;
   } catch (err) {
     await writeLog(`parse registry failed: ${err}`);
     return [];
@@ -672,6 +768,7 @@ async function scanRegistry(timeoutMs) {
 }
 
 function uniqueApps(apps) {
+  writeLog(`filtering unique apps: input_count=${apps.length}`);
   const map = new Map();
   for (const app of apps) {
     const key = `${app.source}|${app.name}|${app.version}`.toLowerCase();
@@ -691,10 +788,17 @@ async function loadCache(config) {
 
     const ageMs = Date.now() - timestamp.getTime();
     const validMs = Number(config.cache.durationHours || 2) * 3600_000;
-    if (ageMs > validMs) return null;
+    if (ageMs > validMs) {
+      await writeLog(`cache expired: age=${(ageMs / 3600000).toFixed(1)}h, limit=${config.cache.durationHours}h`);
+      return null;
+    }
 
+    await writeLog(`cache loaded: ${parsed.apps.length} apps from ${parsed.timestamp}`);
     return Array.isArray(parsed.apps) ? parsed.apps : null;
-  } catch {
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      await writeLog(`cache load error: ${err.message}`);
+    }
     return null;
   }
 }
@@ -709,12 +813,15 @@ async function saveCache(apps) {
   };
   try {
     await fs.writeFile(CACHE_FILE, JSON.stringify(payload, null, 2), 'utf8');
+    await writeLog(`cache saved: ${apps.length} apps`);
   } catch (err) {
     if ((err && (err.code === 'EPERM' || err.code === 'EACCES')) && switchToLocalDataDir()) {
       await ensureConfigDir();
       await fs.writeFile(CACHE_FILE, JSON.stringify(payload, null, 2), 'utf8');
+      await writeLog(`cache saved (fallback): ${apps.length} apps`);
       return;
     }
+    await writeLog(`cache save failed: ${err.message}`);
     throw err;
   }
 }
@@ -722,14 +829,18 @@ async function saveCache(apps) {
 async function clearCache() {
   try {
     await fs.unlink(CACHE_FILE);
-  } catch {
-    // no-op if file doesn't exist
+    await writeLog('cache manual clear');
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      await writeLog(`cache clear error: ${err.message}`);
+    }
   }
 }
 
 async function checkWingetUpdates(apps, timeoutMs) {
   const target = apps.filter((a) => a.source === 'winget');
   if (!target.length) return 0;
+  await writeLog('checking winget updates');
 
   const result = await runCommand('winget', ['upgrade', '--accept-source-agreements'], { allowFailure: true, timeoutMs });
   const updates = parseWingetTable(result.stdout, true);
@@ -742,15 +853,16 @@ async function checkWingetUpdates(apps, timeoutMs) {
     app.status = Status.UPDATE_AVAILABLE;
     count += 1;
   }
+  await writeLog(`update check: winget finished, updates=${count}`);
   return count;
 }
 
 async function checkRegistryUpdates(apps, timeoutMs) {
   const target = apps.filter((a) => a.source === 'registry');
   if (!target.length) return 0;
+  await writeLog('checking registry updates (via winget)');
 
   // winget internally queries the Registry to build its upgrade list.
-  // Cross-reference Registry apps against `winget upgrade` by name.
   const result = await runCommand('winget', ['upgrade', '--accept-source-agreements'], { allowFailure: true, timeoutMs });
   const upgrades = parseWingetTable(result.stdout, true);
 
@@ -771,12 +883,14 @@ async function checkRegistryUpdates(apps, timeoutMs) {
       app.status = Status.UP_TO_DATE;
     }
   }
+  await writeLog(`update check: registry finished, updates=${count}`);
   return count;
 }
 
 async function checkChocolateyUpdates(apps, timeoutMs) {
   const target = apps.filter((a) => a.source === 'chocolatey');
   if (!target.length) return 0;
+  await writeLog('checking chocolatey updates');
 
   const result = await runCommand('choco', ['outdated', '--limit-output'], { allowFailure: true, timeoutMs });
   let count = 0;
@@ -789,19 +903,21 @@ async function checkChocolateyUpdates(apps, timeoutMs) {
     app.status = Status.UPDATE_AVAILABLE;
     count += 1;
   }
+  await writeLog(`update check: chocolatey finished, updates=${count}`);
   return count;
 }
 
 async function checkNpmUpdates(apps, timeoutMs) {
   const target = apps.filter((a) => a.source === 'npm');
   if (!target.length) return 0;
+  await writeLog('checking npm updates');
 
   const result = await runCommand('npm', ['outdated', '-g', '--json', '--silent'], { allowFailure: true, timeoutMs });
   if (!result.stdout) return 0;
 
+  let count = 0;
   try {
     const parsed = JSON.parse(result.stdout);
-    let count = 0;
     for (const [name, details] of Object.entries(parsed)) {
       const app = target.find((a) => a.name === name);
       if (!app) continue;
@@ -809,30 +925,24 @@ async function checkNpmUpdates(apps, timeoutMs) {
       app.status = Status.UPDATE_AVAILABLE;
       count += 1;
     }
-    return count;
   } catch (err) {
     await writeLog(`parse npm outdated failed: ${err}`);
-    return 0;
   }
+  await writeLog(`update check: npm finished, updates=${count}`);
+  return count;
 }
 
 async function checkPnpmUpdates(apps, timeoutMs) {
   const target = apps.filter((a) => a.source === 'pnpm');
   if (!target.length) return 0;
+  await writeLog('checking pnpm updates');
 
   const result = await runCommand('pnpm', ['outdated', '-g', '--json'], { allowFailure: true, timeoutMs });
   if (!result.stdout) return 0;
 
+  let count = 0;
   try {
     const parsed = JSON.parse(result.stdout);
-    let entries = [];
-    if (Array.isArray(parsed)) {
-      entries = parsed.map((x) => [x.name, x]);
-    } else {
-      entries = Object.entries(parsed);
-    }
-
-    let count = 0;
     for (const [name, details] of entries) {
       const app = target.find((a) => a.name === name);
       if (!app) continue;
@@ -840,16 +950,17 @@ async function checkPnpmUpdates(apps, timeoutMs) {
       app.status = Status.UPDATE_AVAILABLE;
       count += 1;
     }
-    return count;
   } catch (err) {
     await writeLog(`parse pnpm outdated failed: ${err}`);
-    return 0;
   }
+  await writeLog(`update check: pnpm finished, updates=${count}`);
+  return count;
 }
 
 async function checkBunUpdates(apps, timeoutMs) {
   const target = apps.filter((a) => a.source === 'bun');
   if (!target.length) return 0;
+  await writeLog('checking bun updates (via npm info)');
 
   let count = 0;
   for (const app of target) {
@@ -861,12 +972,14 @@ async function checkBunUpdates(apps, timeoutMs) {
       count += 1;
     }
   }
+  await writeLog(`update check: bun finished, updates=${count}`);
   return count;
 }
 
 async function checkYarnUpdates(apps, timeoutMs) {
   const target = apps.filter((a) => a.source === 'yarn');
   if (!target.length) return 0;
+  await writeLog('checking yarn updates (via npm info)');
 
   let count = 0;
   for (const app of target) {
@@ -878,19 +991,21 @@ async function checkYarnUpdates(apps, timeoutMs) {
       count += 1;
     }
   }
+  await writeLog(`update check: yarn finished, updates=${count}`);
   return count;
 }
 
 async function checkPipUpdates(apps, timeoutMs) {
   const target = apps.filter((a) => a.source === 'pip');
   if (!target.length) return 0;
+  await writeLog('checking pip updates');
 
   const result = await runPip(['list', '--outdated', '--format=json'], timeoutMs);
   if (!result.stdout) return 0;
 
+  let count = 0;
   try {
     const parsed = JSON.parse(result.stdout);
-    let count = 0;
     for (const item of parsed) {
       const app = target.find((a) => a.name.toLowerCase() === String(item.name).toLowerCase());
       if (!app) continue;
@@ -898,16 +1013,17 @@ async function checkPipUpdates(apps, timeoutMs) {
       app.status = Status.UPDATE_AVAILABLE;
       count += 1;
     }
-    return count;
   } catch (err) {
     await writeLog(`parse pip outdated failed: ${err}`);
-    return 0;
   }
+  await writeLog(`update check: pip finished, updates=${count}`);
+  return count;
 }
 
 async function checkPathUpdates(apps, timeoutMs) {
   const target = apps.filter((a) => a.source === 'path');
   if (!target.length) return 0;
+  await writeLog('checking path updates');
 
   let count = 0;
   for (const app of target) {
@@ -974,6 +1090,7 @@ async function checkPathUpdates(apps, timeoutMs) {
       }
     }
   }
+  await writeLog(`update check: path finished, updates=${count}`);
   return count;
 }
 
@@ -1022,14 +1139,24 @@ async function scanSystem(config, args) {
   });
 
   const progress = createProgress(selected.length, `${emoji('scan')} Scanning`);
+  await writeLog(`scan started: sources=${selected.map(([s]) => s).join(',')}`);
+
   const chunks = await Promise.all(selected.map(async ([source, fn]) => {
-    const apps = await fn(timeoutMs);
-    progress.tick(`${sourceBadge(source)} ${paint(String(apps.length).padStart(4), ANSI.bold)} apps`);
-    return apps;
+    try {
+      const apps = await fn(timeoutMs);
+      progress.tick(`${sourceBadge(source)} ${paint(String(apps.length).padStart(4), ANSI.bold)} apps`);
+      await writeLog(`scan source: ${source}, found=${apps.length}`);
+      return apps;
+    } catch (err) {
+      await writeLog(`scan source error: ${source}, error=${err.message}`);
+      return [];
+    }
   }));
   progress.done(paint(`${emoji('ok')} scan complete`, ANSI.green));
 
-  return uniqueApps(chunks.flat());
+  const unique = uniqueApps(chunks.flat());
+  await writeLog(`scan complete: total_unique=${unique.length}`);
+  return unique;
 }
 
 async function checkUpdates(apps, config) {
@@ -1047,20 +1174,31 @@ async function checkUpdates(apps, config) {
   ];
 
   const progress = createProgress(checks.length, `${emoji('update')} Checking updates`);
+  await writeLog('update check started');
+
   const counts = await Promise.all(checks.map(async ([source, fn]) => {
-    const count = await fn();
-    const msg = `${sourceBadge(source)} ${count > 0 ? paint(`${count} update(s)`, ANSI.yellow, ANSI.bold) : paint('none', ANSI.gray)}`;
-    progress.tick(msg);
-    return count;
+    try {
+      const count = await fn();
+      const msg = `${sourceBadge(source)} ${count > 0 ? paint(`${count} update(s)`, ANSI.yellow, ANSI.bold) : paint('none', ANSI.gray)}`;
+      progress.tick(msg);
+      if (count > 0) await writeLog(`update check: source=${source}, updates=${count}`);
+      return count;
+    } catch (err) {
+      await writeLog(`update check error: source=${source}, error=${err.message}`);
+      return 0;
+    }
   }));
   progress.done(paint(`${emoji('ok')} update checks complete`, ANSI.green));
 
   finalizeStatuses(apps);
-  return counts.reduce((sum, n) => sum + n, 0);
+  const total = counts.reduce((sum, n) => sum + n, 0);
+  await writeLog(`update check complete: total_updates=${total}`);
+  return total;
 }
 
 async function checkSecurityVulnerabilities(apps, config) {
   if (!config.security?.enabled) return [];
+  await writeLog(`security analysis started: threshold=${config.security.severityThreshold}`);
 
   const timeoutMs = Number(config.performance.timeoutSeconds || 45) * 1000;
   const vulnerabilities = [];
@@ -1069,6 +1207,8 @@ async function checkSecurityVulnerabilities(apps, config) {
 
   const npmVulns = await checkNpmVulnerabilities(apps, timeoutMs);
   const pipVulns = await checkPipVulnerabilities(apps, timeoutMs);
+
+  await writeLog(`security check: npm_found=${npmVulns.length}, pip_found=${pipVulns.length}`);
 
   for (const vuln of [...npmVulns, ...pipVulns]) {
     const severityLevel = severityOrder[vuln.severity.toLowerCase()] || 1;
@@ -1081,12 +1221,19 @@ async function checkSecurityVulnerabilities(apps, config) {
     }
   }
 
+  if (vulnerabilities.length > 0) {
+    await writeLog(`security warning: detected ${vulnerabilities.length} vulnerabilities above threshold`);
+  } else {
+    await writeLog('security check: clean');
+  }
+
   return vulnerabilities;
 }
 
 async function checkNpmVulnerabilities(apps, timeoutMs) {
   const npmApps = apps.filter((a) => a.source === 'npm');
   if (!npmApps.length) return [];
+  await writeLog('checking npm vulnerabilities');
 
   const result = await runCommand('npm', ['audit', '--json', '--silent'], { allowFailure: true, timeoutMs });
   if (!result.stdout) return [];
@@ -1118,6 +1265,7 @@ async function checkNpmVulnerabilities(apps, timeoutMs) {
 async function checkPipVulnerabilities(apps, timeoutMs) {
   const pipApps = apps.filter((a) => a.source === 'pip');
   if (!pipApps.length) return [];
+  await writeLog('checking pip vulnerabilities');
 
   const result = await runPip(['check', '--format=json'], timeoutMs);
   if (!result.stdout) return [];
@@ -1154,6 +1302,7 @@ function truncate(value, size) {
 }
 
 function printAppsTable(apps) {
+  writeLog(`printing apps table: count=${apps.length}`);
   const cols = [
     { key: 'name', title: 'Package', width: 30 },
     { key: 'source', title: 'Source', width: 12 },
@@ -1183,6 +1332,7 @@ function printAppsTable(apps) {
 
 function printSecurityTable(vulnerabilities) {
   if (!vulnerabilities.length) return;
+  writeLog(`printing security table: count=${vulnerabilities.length}`);
 
   console.log(`\n${paint('┌'.padEnd(74, '─') + '┐', ANSI.cyan)}`);
   console.log(paint(`│ ${emoji('fire')} Security Vulnerabilities Detected`.padEnd(72) + '│', ANSI.bold, ANSI.red));
@@ -1234,6 +1384,7 @@ async function exportResults(apps, format, output) {
     return outputPath;
   }
 
+  await writeLog(`export failed: unsupported format ${format}`);
   throw new Error(`Unsupported export format: ${format}`);
 }
 
@@ -1315,7 +1466,9 @@ async function executeSingleUpdate(app, dryRun, timeoutMs) {
 
   const result = await runCommand(command, args, { allowFailure: true, timeoutMs });
   if (!result.ok) {
-    await writeLog(`update failed: ${app.name} (${app.source}) stderr=${result.stderr}`);
+    await writeLog(`update failed: ${app.name} (${app.source}) code=${result.code} stderr=${result.stderr}`);
+  } else {
+    await writeLog(`update ok: ${app.name} (${app.source})`);
   }
   return result.ok;
 }
@@ -1324,6 +1477,7 @@ async function executeUpdates(apps, args, config) {
   const timeoutMs = Number(config.performance.timeoutSeconds || 45) * 1000;
   let success = 0;
   const progress = createProgress(apps.length, `${emoji('gear')} Applying updates`);
+  await writeLog(`update execution started: count=${apps.length}, dry_run=${args.dryRun}`);
 
   for (const app of apps) {
     const label = `${app.name} (${app.source})`;
@@ -1331,13 +1485,16 @@ async function executeUpdates(apps, args, config) {
     if (ok) {
       success += 1;
       progress.tick(`${paint(emoji('ok'), ANSI.green)} ${paint(label, ANSI.bold)}`);
+      await writeLog(`update success: package=${app.name}, source=${app.source}`);
     } else {
       progress.tick(`${paint(emoji('fail'), ANSI.red)} ${paint(label, ANSI.bold)}`);
+      await writeLog(`update failed: package=${app.name}, source=${app.source}`);
     }
   }
 
   progress.done(paint(`${emoji('sparkle')} finished`, ANSI.cyan));
   console.log(`\n${emoji('chart')} Completed: ${paint(`${success}/${apps.length}`, ANSI.bold)} successful.`);
+  await writeLog(`update execution finished: successful=${success}/${apps.length}`);
 }
 
 function selectPackage(apps, packageName, source) {
@@ -1368,6 +1525,10 @@ async function main() {
 
   const config = DEFAULT_CONFIG;
   await ensureConfigDir();
+  LOGGING_ENABLED = args.log;
+  DEBUG_ENABLED = args.debug;
+  await writeLog(`session start: v${VERSION}, platform=${process.platform}, node=${process.version}`);
+  await writeLog(`args: ${process.argv.slice(2).join(' ')}`);
 
   if (args.clearCache) {
     await clearCache();
@@ -1492,7 +1653,10 @@ async function main() {
   if (args.export) {
     const file = await exportResults(apps, args.export, args.output);
     console.log(`\n${emoji('export')} ${paint(`Exported results to: ${file}`, ANSI.green, ANSI.bold)}`);
+    await writeLog(`export: format=${args.export}, file=${file}`);
   }
+
+  await writeLog(`session end: duration=${((Date.now() - start) / 1000).toFixed(2)}s`);
 }
 
 main().catch(async (err) => {
