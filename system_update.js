@@ -51,6 +51,7 @@ const DEFAULT_CONFIG = {
     yarn: true,
     path: true,
     registry: true,
+    rust: true,
   },
   security: {
     enabled: true,
@@ -122,18 +123,19 @@ function statusBadge(status) {
 
 function sourceBadge(source) {
   const value = String(source || 'unknown');
-  const color = {
-    winget: ANSI.blue,
-    chocolatey: ANSI.yellow,
-    npm: ANSI.red,
-    pnpm: ANSI.magenta,
-    bun: ANSI.magenta,
-    yarn: ANSI.blue,
-    pip: ANSI.cyan,
-    path: ANSI.green,
-    registry: ANSI.gray,
-  }[value] || ANSI.gray;
-  return paint(value, color, ANSI.bold);
+  const cfg = {
+    winget: [ANSI.blue],
+    chocolatey: [ANSI.yellow],
+    npm: [ANSI.red],
+    pnpm: [ANSI.purple],
+    pip: [ANSI.cyan],
+    bun: [ANSI.orange],
+    yarn: [ANSI.white],
+    rust: [ANSI.magenta],
+    path: [ANSI.green],
+    registry: [ANSI.gray],
+  }[value] || [ANSI.gray];
+  return paint(value, ...cfg);
 }
 
 function hr(ch = '─', width = 72) {
@@ -397,10 +399,10 @@ Usage:
 
 Options:
   --update-all              Update every package with updates
-  --update-source <source>  Update all from a source (winget,choco,npm,pnpm,pip,bun,yarn,path,registry)
+  --update-source <source>  Update all from a source (winget,choco,npm,pnpm,pip,bun,yarn,path,rust,registry)
   --package <name>          Update one package by name
   --version <ver>           Target version (with --package)
-  --source <source>         Source filter for --package (winget,choco,npm,pnpm,pip,bun,yarn,path,registry)
+  --source <source>         Source filter for --package (winget,choco,npm,pnpm,pip,bun,yarn,path,rust,registry)
   --dry-run                 Print planned updates without executing
   --no-cache                Force fresh scan
   --clear-cache             Remove cache file and exit
@@ -413,7 +415,7 @@ Options:
   --help, -h                Show help
 
 Features:
-  • Package Discovery: Winget, Chocolatey, NPM, PNPM, Bun, Yarn, Pip, Registry
+  • Package Discovery: Winget, Chocolatey, NPM, PNPM, Bun, Yarn, Pip, Rust, Registry
   • Toolchain Detection: Node.js, Python, Rust, Go, Deno, .NET, Java, Git, PWSH
   • Security vulnerability scanning for NPM and PIP packages
   • Parallel scanning for optimal performance
@@ -768,6 +770,66 @@ async function scanRegistry(timeoutMs) {
   }
 }
 
+async function scanRust(timeoutMs) {
+  await writeLog('scanner: rust started');
+  const result = await runCommand('cargo', ['install', '--list'], { allowFailure: true, timeoutMs });
+  const apps = [];
+  if (!result.stdout) return apps;
+
+  // Format: package-name v1.2.3:
+  for (const line of result.stdout.split(/\r?\n/)) {
+    const match = line.match(/^([^\s]+)\s+v([^\s:]+):/);
+    if (match) {
+      apps.push({
+        name: match[1],
+        source: 'rust',
+        version: match[2],
+        latestVersion: '',
+        appId: match[1],
+        status: Status.UNKNOWN,
+        scanTime: new Date().toISOString(),
+      });
+    }
+  }
+  await writeLog(`scanner: rust finished, count=${apps.length}`);
+  return apps;
+}
+
+async function checkRustUpdates(apps, timeoutMs) {
+  const target = apps.filter((a) => a.source === 'rust');
+  if (!target.length) return 0;
+  await writeLog('checking rust updates (via cargo install-update)');
+
+  const result = await runCommand('cargo', ['install-update', '-l'], { allowFailure: true, timeoutMs });
+  if (!result.stdout) return 0;
+
+  let count = 0;
+  const lines = result.stdout.split(/\r?\n/);
+  // Find header: Package | Installed | Latest | Needs update
+  const headerIdx = lines.findIndex((l) => l.includes('Package') && l.includes('Latest'));
+  if (headerIdx === -1) return 0;
+
+  for (let i = headerIdx + 1; i < lines.length; i += 1) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const parts = line.split(/\s+/).filter(Boolean);
+    if (parts.length < 4) continue;
+
+    const [name, installed, latest, needsUpdate] = parts;
+    if (needsUpdate.toLowerCase() === 'yes') {
+      const app = target.find((a) => a.name === name);
+      if (app) {
+        app.latestVersion = latest.startsWith('v') ? latest.slice(1) : latest;
+        app.status = Status.UPDATE_AVAILABLE;
+        count += 1;
+      }
+    }
+  }
+
+  await writeLog(`update check: rust finished, updates=${count}`);
+  return count;
+}
+
 function uniqueApps(apps) {
   writeLog(`filtering unique apps: input_count=${apps.length}`);
   const map = new Map();
@@ -1099,7 +1161,7 @@ function finalizeStatuses(apps) {
   for (const app of apps) {
     if (app.status === Status.UPDATE_AVAILABLE) continue;
     if (app.status === Status.UP_TO_DATE) continue;
-    if (app.latestVersion || ['winget', 'chocolatey', 'npm', 'pnpm', 'bun', 'yarn', 'pip'].includes(app.source)) {
+    if (app.latestVersion || ['winget', 'chocolatey', 'npm', 'pnpm', 'bun', 'yarn', 'pip', 'rust'].includes(app.source)) {
       app.status = Status.UP_TO_DATE;
     } else {
       app.status = Status.UNKNOWN;
@@ -1131,6 +1193,7 @@ async function scanSystem(config, args) {
     ['pip', scanPip],
     ['path', scanPath],
     ['registry', scanRegistry],
+    ['rust', scanRust],
   ];
 
   const selected = jobs.filter(([source]) => {
@@ -1172,6 +1235,7 @@ async function checkUpdates(apps, config) {
     ['pip', () => checkPipUpdates(apps, timeoutMs)],
     ['path', () => checkPathUpdates(apps, timeoutMs)],
     ['registry', () => checkRegistryUpdates(apps, timeoutMs)],
+    ['rust', () => checkRustUpdates(apps, timeoutMs)],
   ];
 
   const progress = createProgress(checks.length, `${emoji('update')} Checking updates`);
@@ -1438,6 +1502,9 @@ async function executeSingleUpdate(app, dryRun, timeoutMs) {
       ? { ok: true, stdout: `[dry-run] py -m pip ${pipArgs.join(' ')}`, stderr: '', code: 0 }
       : await runPip(pipArgs, timeoutMs);
     return result.ok;
+  } else if (src === 'rust') {
+    command = 'cargo';
+    args = ['install-update', app.name];
   } else if (src === 'path') {
     if (app.name === 'bun') {
       command = 'bun';
