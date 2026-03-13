@@ -529,7 +529,7 @@ class PackageScanner:
     def scan_winget() -> List[AppInfo]:
         """Scan Winget packages with improved parsing."""
         apps = []
-        output = run_command(["winget", "list", "--accept-source-agreements"])
+        output = run_command(["winget", "list", "--accept-source-agreements"], allow_failure=True)
         if not output:
             return apps
 
@@ -547,6 +547,11 @@ class PackageScanner:
             return apps
 
         header = lines[header_index]
+        # Adjust header to start from "Name" position (match Node.js behavior)
+        name_match = re.search(r"Name\s+Id", header)
+        if name_match:
+            header = header[name_match.start():]
+
         positions = {
             "name": 0,
             "id": header.find("Id"),
@@ -556,13 +561,12 @@ class PackageScanner:
         }
 
         for line in lines[header_index + 2 :]:
-            if not line.strip() or line.startswith("-"):
+            if not line.strip():
                 continue
 
             try:
-                name = line[positions["name"] : positions["id"]].strip()
-                app_id = line[positions["id"] : positions["version"]].strip()
-                version_start = positions["version"]
+                name = line[0 : max(positions["id"], 0)].strip()
+                app_id = line[positions["id"] : positions["version"]].strip() if positions["version"] > 0 else ""
                 version_end = (
                     positions["available"]
                     if positions["available"] != -1
@@ -570,18 +574,21 @@ class PackageScanner:
                     if positions["source"] != -1
                     else len(line)
                 )
-                version = line[version_start:version_end].strip()
+                version = line[positions["version"]:version_end].strip() if positions["version"] != -1 else ""
 
-                if name and app_id and version:
-                    apps.append(
-                        AppInfo(
-                            name=name,
-                            source="Winget",
-                            version=version,
-                            app_id=app_id,
-                            update_status=UpdateStatus.UNKNOWN,
-                        )
+                # Skip entries without name, app_id, or version (match Node.js behavior)
+                if not name or not app_id or not version:
+                    continue
+
+                apps.append(
+                    AppInfo(
+                        name=name,
+                        source="Winget",
+                        version=version,
+                        app_id=app_id,
+                        update_status=UpdateStatus.UNKNOWN,
                     )
+                )
             except Exception:
                 continue
 
@@ -591,7 +598,7 @@ class PackageScanner:
     def scan_chocolatey() -> List[AppInfo]:
         """Scan Chocolatey packages."""
         apps = []
-        output = run_command(["choco", "list", "--local-only", "--limit-output"])
+        output = run_command(["choco", "list", "--local-only", "--limit-output"], allow_failure=True)
         if not output:
             return apps
 
@@ -613,7 +620,7 @@ class PackageScanner:
     def scan_npm() -> List[AppInfo]:
         """Scan NPM global packages."""
         apps = []
-        output = run_command(["npm", "list", "-g", "--depth=0", "--json", "--silent"])
+        output = run_command(["npm", "list", "-g", "--depth=0", "--json", "--silent"], allow_failure=True)
         if not output:
             return apps
 
@@ -638,7 +645,7 @@ class PackageScanner:
     def scan_pnpm() -> List[AppInfo]:
         """Scan PNPM global packages."""
         apps = []
-        output = run_command(["pnpm", "list", "-g", "--depth=0", "--json"])
+        output = run_command(["pnpm", "list", "-g", "--depth=0", "--json"], allow_failure=True)
         if not output:
             return apps
 
@@ -665,7 +672,7 @@ class PackageScanner:
     def scan_bun() -> List[AppInfo]:
         """Scan Bun global packages."""
         apps = []
-        output = run_command(["bun", "pm", "ls", "-g"])
+        output = run_command(["bun", "pm", "ls", "-g"], allow_failure=True)
         if not output:
             return apps
 
@@ -687,7 +694,7 @@ class PackageScanner:
     def scan_yarn() -> List[AppInfo]:
         """Scan Yarn global packages."""
         apps = []
-        output = run_command(["yarn", "global", "list"])
+        output = run_command(["yarn", "global", "list"], allow_failure=True)
         if not output:
             return apps
 
@@ -709,7 +716,19 @@ class PackageScanner:
     def scan_pip() -> List[AppInfo]:
         """Scan PIP packages."""
         apps = []
-        output = run_command([sys.executable, "-m", "pip", "list", "--format=json"])
+        # Try multiple pip command patterns like Node.js does
+        pip_commands = [
+            [sys.executable, "-m", "pip", "list", "--format=json"],
+            ["pip", "list", "--format=json"],
+            ["pip3", "list", "--format=json"],
+        ]
+        
+        output = None
+        for cmd in pip_commands:
+            output = run_command(cmd, allow_failure=True)
+            if output:
+                break
+        
         if not output:
             return apps
 
@@ -752,9 +771,9 @@ class PackageScanner:
 
         for exe in executables:
             cmd = ["where", exe] if platform.system() == "Windows" else ["which", exe]
-            path = run_command(cmd)
+            path = run_command(cmd, allow_failure=True)
             if path:
-                version_output = run_command([exe, "--version"])
+                version_output = run_command([exe, "--version"], allow_failure=True)
                 if version_output:
                     match = re.search(r"(\d+\.\d+(\.\d+)*([-.].*)?)", version_output)
                     if match:
@@ -790,7 +809,7 @@ class PackageScanner:
             ConvertTo-Json
         """
 
-        output = run_command(["powershell", "-NoProfile", "-Command", ps_script])
+        output = run_command(["powershell", "-NoProfile", "-Command", ps_script], allow_failure=True)
         if output:
             try:
                 data = json.loads(output)
@@ -807,14 +826,7 @@ class PackageScanner:
             except Exception:
                 pass
 
-        # Remove duplicates
-        unique_apps = {}
-        for app in apps:
-            key = f"{app.name}|{app.version}"
-            if key not in unique_apps:
-                unique_apps[key] = app
-
-        return sorted(unique_apps.values(), key=lambda x: x.name)
+        return apps
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -893,7 +905,7 @@ class UpdateChecker:
     def _check_winget_updates(apps: List[AppInfo]) -> int:
         """Check Winget package updates."""
         updates = 0
-        output = run_command(["winget", "upgrade", "--accept-source-agreements"])
+        output = run_command(["winget", "upgrade", "--accept-source-agreements"], allow_failure=True)
         if not output:
             return updates
 
@@ -906,6 +918,11 @@ class UpdateChecker:
             return updates
 
         header = lines[header_index]
+        # Adjust header to start from "Name" position (match Node.js behavior)
+        name_match = re.search(r"Name\s+Id", header)
+        if name_match:
+            header = header[name_match.start():]
+
         positions = {
             "id": header.find("Id"),
             "version": header.find("Version"),
@@ -918,12 +935,16 @@ class UpdateChecker:
                 continue
 
             try:
-                app_id = line[positions["id"] : positions["version"]].strip()
+                app_id = line[positions["id"] : positions["version"]].strip() if positions["version"] > 0 else ""
                 if positions["available"] != -1:
                     avail_end = (
                         positions["source"] if positions["source"] != -1 else len(line)
                     )
                     latest = line[positions["available"] : avail_end].strip()
+
+                    # Skip entries without app_id or latest version
+                    if not app_id or not latest:
+                        continue
 
                     if app_id and latest:
                         for app in apps:
@@ -999,7 +1020,7 @@ class UpdateChecker:
     def _check_choco_updates(apps: List[AppInfo]) -> int:
         """Check Chocolatey package updates."""
         updates = 0
-        output = run_command(["choco", "outdated", "--limit-output"])
+        output = run_command(["choco", "outdated", "--limit-output"], allow_failure=True)
         if not output:
             return updates
 
@@ -1102,7 +1123,7 @@ class UpdateChecker:
         """Check Bun package updates."""
         updates = 0
         for app in apps:
-            output = run_command(["npm", "info", app.name, "version"])
+            output = run_command(["npm", "info", app.name, "version"], allow_failure=True)
             if output:
                 latest = output.strip()
                 if latest and latest != app.version and "ERR" not in latest:
@@ -1116,7 +1137,7 @@ class UpdateChecker:
         """Check Yarn package updates."""
         updates = 0
         for app in apps:
-            output = run_command(["npm", "info", app.name, "version"])
+            output = run_command(["npm", "info", app.name, "version"], allow_failure=True)
             if output:
                 latest = output.strip()
                 if latest and latest != app.version and "ERR" not in latest:
@@ -1159,7 +1180,7 @@ class UpdateChecker:
                         else:
                             latest = app.version
                 elif app.name in ("yarn", "npm", "pnpm", "node"):
-                    output = run_command(["npm", "view", app.name, "version"])
+                    output = run_command(["npm", "view", app.name, "version"], allow_failure=True)
                     if output and "ERR" not in output:
                         latest = output.strip()
                 elif app.name == "python":
@@ -1180,7 +1201,7 @@ class UpdateChecker:
                     if data and data.get("tag_name"):
                         latest = data["tag_name"].replace("v", "")
                 elif app.name == "dotnet":
-                    output = run_command(["winget", "show", "Microsoft.DotNet.SDK.9", "--accept-source-agreements"])
+                    output = run_command(["winget", "show", "Microsoft.DotNet.SDK.9", "--accept-source-agreements"], allow_failure=True)
                     if output:
                         match = re.search(r"Version:\s+([0-9.]+)", output)
                         if match:
@@ -1378,9 +1399,11 @@ class SystemUpdateApp:
                 source_name = future_to_source[future]
                 try:
                     apps = future.result()
-                    all_apps.extend(apps)
+                    # Deduplicate by source|name|version before reporting count
+                    unique_apps = list({f"{a.source}|{a.name}|{a.version}".lower(): a for a in apps}.values())
+                    all_apps.extend(unique_apps)
                     progress.console.print(
-                        f"  [green]✓[/green] Found {len(apps)} in {source_name}"
+                        f"  [green]✓[/green] Found {len(unique_apps)} in {source_name}"
                     )
                 except Exception as e:
                     progress.console.print(f"  [red]✗[/red] {source_name} failed: {e}")
@@ -1457,8 +1480,8 @@ class SystemUpdateApp:
                 # Scan system
                 apps = self.scan_system(progress, args.source)
 
-                # Deduplicate
-                unique_apps = list({f"{a.name}|{a.version}": a for a in apps}.values())
+                # Deduplicate by source|name|version (same as Node.js)
+                unique_apps = list({f"{a.source}|{a.name}|{a.version}".lower(): a for a in apps}.values())
                 apps = sorted(unique_apps, key=lambda x: (x.source, x.name))
 
                 # Check updates
