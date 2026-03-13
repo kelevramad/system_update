@@ -397,10 +397,10 @@ Usage:
 
 Options:
   --update-all              Update every package with updates
-  --update-source <source>  Update all packages from one source (winget|chocolatey|npm|pnpm|pip|path)
+  --update-source <source>  Update all from a source (winget,choco,npm,pnpm,pip,bun,yarn,path,registry)
   --package <name>          Update one package by name
   --version <ver>           Target version (with --package)
-  --source <source>         Source filter for --package
+  --source <source>         Source filter for --package (winget,choco,npm,pnpm,pip,bun,yarn,path,registry)
   --dry-run                 Print planned updates without executing
   --no-cache                Force fresh scan
   --clear-cache             Remove cache file and exit
@@ -408,12 +408,13 @@ Options:
   --output <file>           Output path for export
   --log                     Enable logging to file
   --debug                   Show all executed commands on screen and in log
-  --include <csv>           Limit scan sources (e.g. winget,npm,pip)
+  --include <source>        Limit scan sources (e.g. winget,npm,path,registry)
   --yes, -y                 Skip confirmation prompts
   --help, -h                Show help
 
 Features:
-  • Multi-source package discovery (Winget, Chocolatey, NPM, PNPM, PIP, PATH, Registry)
+  • Package Discovery: Winget, Chocolatey, NPM, PNPM, Bun, Yarn, Pip, Registry
+  • Toolchain Detection: Node.js, Python, Rust, Go, Deno, .NET, Java, Git, PWSH
   • Security vulnerability scanning for NPM and PIP packages
   • Parallel scanning for optimal performance
   • Flexible export options (JSON, CSV)
