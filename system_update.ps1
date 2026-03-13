@@ -7,22 +7,24 @@
            .\system_update.ps1 -Package git -Source chocolatey
            .\system_update.ps1 -Export json -Output report.json
 #>
+
 [CmdletBinding()]
 param(
-    [switch]$UpdateAll,
-    [switch]$DryRun,
-    [switch]$NoCache,
-    [switch]$ClearCache,
-    [string]$Export,
-    [string]$Output,
-    [string]$Package,
-    [string]$Version,
-    [string]$Source,
-    [string]$UpdateSource,
-    [string]$Include,
-    [switch]$Yes,
-    [switch]$Help
+    [parameter(Mandatory = $false)][switch]$UpdateAll,
+    [parameter(Mandatory = $false)][switch]$DryRun,
+    [parameter(Mandatory = $false)][switch]$NoCache,
+    [parameter(Mandatory = $false)][switch]$ClearCache,
+    [parameter(Mandatory = $false)][switch]$Yes,
+    [parameter(Mandatory = $false)][switch]$Help,
+    [parameter(Mandatory = $false)][string]$Export,
+    [parameter(Mandatory = $false)][string]$Output,
+    [parameter(Mandatory = $false)][string]$Package,
+    [parameter(Mandatory = $false)][string]$Version,
+    [parameter(Mandatory = $false)][string]$Source,
+    [parameter(Mandatory = $false)][string]$UpdateSource,
+    [parameter(Mandatory = $false)][string]$Include
 )
+
 Set-StrictMode -Version 2
 $ErrorActionPreference = 'Stop'
 
@@ -425,7 +427,12 @@ function Load-Cache {
     try {
         $j = Get-Content $CACHE_FILE -Raw -Encoding UTF8 | ConvertFrom-Json
         if (([datetime]::UtcNow - [datetime]::Parse($j.timestamp)).TotalHours -gt $CFG_CACHE_HOURS) { return $null }
-        return $j.apps
+        $apps = @($j.apps | ForEach-Object {
+            if (-not $_.PSObject.Properties['Status']) { $_ | Add-Member -NotePropertyName 'Status' -NotePropertyValue $S_UNK }
+            if (-not $_.PSObject.Properties['LatestVersion']) { $_ | Add-Member -NotePropertyName 'LatestVersion' -NotePropertyValue '' }
+            $_
+        })
+        return $apps
     }
     catch { return $null }
 }
@@ -694,6 +701,7 @@ function Print-VulnTable([array]$Vulns) {
 function Export-Results([array]$Apps, [string]$Fmt, [string]$Out) {
     $ts = Get-Date -f 'yyyy-MM-ddTHH-mm-ss'
     $fmt = $Fmt.ToLower()
+    if ($fmt -ne 'json' -and $fmt -ne 'csv') { throw "Unsupported format: $Fmt. Valid formats: json, csv" }
     $file = if ($Out) { $Out } else { Join-Path (Get-Location) "system_update_$ts.$fmt" }
     if ($fmt -eq 'json') {
         @{scanTime = (Get-Date -f 'o'); totalApps = $Apps.Count; apps = $Apps } | ConvertTo-Json -Depth 10 | Set-Content $file -Encoding UTF8
@@ -701,7 +709,6 @@ function Export-Results([array]$Apps, [string]$Fmt, [string]$Out) {
     elseif ($fmt -eq 'csv') {
         $Apps | Select-Object Name, Source, Version, LatestVersion, Status, AppId | Export-Csv $file -NoTypeInformation -Encoding UTF8
     }
-    else { throw "Unsupported format: $Fmt" }
     return $file
 }
 
@@ -921,8 +928,16 @@ function Main {
     }
 
     if ($Export) {
-        $f = Export-Results $apps $Export $Output
-        Write-Host "`n$(E 'export') $(green (bold "Exported to: $f"))"
+        $exportFmt = $Export.Trim().ToLower()
+        # Handle case where Export might have leading dashes or unexpected format
+        if ($exportFmt -like '*json*') { $exportFmt = 'json' }
+        elseif ($exportFmt -like '*csv*') { $exportFmt = 'csv' }
+        if ($exportFmt -eq 'json' -or $exportFmt -eq 'csv') {
+            $f = Export-Results $apps $exportFmt $Output
+            Write-Host "`n$(E 'export') $(green (bold "Exported to: $f"))"
+        } else {
+            Write-Host "`n$(E 'warn') $(yellow "Invalid export format: '$Export'. Use: json or csv")"
+        }
     }
 }
 
