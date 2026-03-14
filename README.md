@@ -78,4 +78,13 @@ python system_update.py --dry-run
 
 ## 📝 License
 
-These tools are provided as-is for system administration and package management. Contributions and enhancements are always welcome!
+These tools are provided as-is for system administration and package management.
+
+---
+
+## 🆕 Latest Changes (v1.0.1)
+
+- **New `--show-all` flag**: Show all packages including up-to-date ones (default shows only updates)
+- **Improved output format**: "💾 Showing" line now appears after the package table
+- **New "🎯 Found" message**: Clear indication of available updates count at the end
+- **Target emoji (🎯) added**: Better visual distinction for update notifications Contributions and enhancements are always welcome!
