@@ -608,8 +608,9 @@ function Check-PathUpdates([array]$Apps) {
                     $v = $r.Stdout.Trim(); if ($v -and $v -notmatch 'ERR') { $latest = $v }
                 }
                 'python' {
-                    $d = gh-release 'https://api.github.com/repos/python/cpython/releases/latest'
-                    if ($d -and $d.tag_name -match 'v?([0-9.]+)') { $latest = $Matches[1] }
+                    # Python uses tags, not releases - get latest tag
+                    $d = gh-release 'https://api.github.com/repos/python/cpython/tags?per_page=1'
+                    if ($d -and $d[0] -and $d[0].name -match 'v?([0-9.]+)') { $latest = $Matches[1] }
                     if (-not $latest) { $latest = $app.Version }
                 }
                 'git' {
@@ -625,24 +626,76 @@ function Check-PathUpdates([array]$Apps) {
                     $r = Invoke-NativeCmd 'winget' @('show', 'Microsoft.DotNet.SDK.9', '--accept-source-agreements') -AllowFail
                     if ($r.Stdout -match 'Version:\s+([0-9.]+)') { $latest = $Matches[1] }
                 }
+                { $_ -in @('rustc', 'cargo') } {
+                    $d = gh-release 'https://api.github.com/repos/rust-lang/rust/releases/latest'
+                    if ($d -and $d.tag_name -match '([0-9.]+)') { $latest = $Matches[1] }
+                    if (-not $latest) { $latest = $app.Version }
+                }
             }
         }
         catch {}
         if ($latest) {
             $cv = $app.Version -replace '^[^\d]+', ''; $cl = $latest -replace '^[^\d]+', ''
             $app.LatestVersion = $cl
-            if ($cl -ne $cv -and -not $app.Version.Contains($cl)) { $app.Status = $S_UPD; $n++ } else { $app.Status = $S_OK }
+            # Use proper version comparison to avoid suggesting downgrades
+            if (Is-NewerVersion $app.Version $latest) { $app.Status = $S_UPD; $n++ } else { $app.Status = $S_OK }
+        } else {
+            # No latest version found, mark as up-to-date (don't show unknown)
+            $app.LatestVersion = '-'
+            $app.Status = $S_OK
         }
     }
     return $n
 }
 
 function Finalize([array]$Apps) {
-    $managed = @('winget', 'chocolatey', 'npm', 'pnpm', 'bun', 'yarn', 'pip', 'registry', 'rust')
+    $managed = @('winget', 'chocolatey', 'npm', 'pnpm', 'bun', 'yarn', 'pip', 'registry', 'rust', 'path')
     foreach ($a in $Apps) {
         if ($a.Status -in @($S_UPD, $S_OK)) { continue }
         if ($a.LatestVersion -or $a.Source -in $managed) { $a.Status = $S_OK } else { $a.Status = $S_UNK }
     }
+}
+
+# Parse version string into comparable array [major, minor, patch, isStable]
+function Parse-Version([string]$verStr) {
+    $clean = $verStr -replace '^[^\d]+', ''
+    if ($clean -match '^(\d+)\.(\d+)\.(\d+)') {
+        $isStable = $verStr -notmatch 'preview|rc|beta|alpha|-pre'
+        return @([int]$Matches[1], [int]$Matches[2], [int]$Matches[3], $isStable)
+    }
+    if ($clean -match '^(\d+)\.(\d+)') {
+        $isStable = $verStr -notmatch 'preview|rc|beta|alpha|-pre'
+        return @([int]$Matches[1], [int]$Matches[2], 0, $isStable)
+    }
+    return @(0, 0, 0, $false)
+}
+
+# Check if latest is actually newer than current (handles previews and downgrades)
+function Is-NewerVersion([string]$current, [string]$latest) {
+    $curr = Parse-Version $current
+    $lat = Parse-Version $latest
+
+    # If current is a newer major version preview, don't suggest downgrade
+    if ($curr[0] -gt $lat[0]) { return $false }
+    # If current is a newer minor in same major, don't suggest downgrade
+    if ($curr[0] -eq $lat[0] -and $curr[1] -gt $lat[1]) { return $false }
+
+    # Both stable: standard comparison
+    if ($curr[3] -and $lat[3]) {
+        return $lat[0] -gt $curr[0] -or `
+               ($lat[0] -eq $curr[0] -and $lat[1] -gt $curr[1]) -or `
+               ($lat[0] -eq $curr[0] -and $lat[1] -eq $curr[1] -and $lat[2] -gt $curr[2])
+    }
+
+    # Current is preview but same base version as latest stable
+    if (-not $curr[3] -and $curr[0] -eq $lat[0] -and $curr[1] -eq $lat[1] -and $curr[2] -eq $lat[2]) {
+        return $false
+    }
+
+    # Latest stable is newer than current stable
+    return $lat[0] -gt $curr[0] -or `
+           ($lat[0] -eq $curr[0] -and $lat[1] -gt $curr[1]) -or `
+           ($lat[0] -eq $curr[0] -and $lat[1] -eq $curr[1] -and $lat[2] -gt $curr[2])
 }
 
 # ── Security ───────────────────────────────────────────────────────────────────
@@ -697,6 +750,16 @@ function Check-PipVulns([array]$Apps) {
 # ── Output ─────────────────────────────────────────────────────────────────────
 function trunc([string]$V, [int]$N) { if ($V.Length -le $N) { $V } else { $V.Substring(0, $N - 1) + '…' } }
 
+function stripAnsi([string]$Text) {
+    return $Text -replace '\x1b\[[0-9;]*m', ''
+}
+
+function padAnsi([string]$Text, [int]$Width) {
+    $visible = stripAnsi $Text
+    $padding = [Math]::Max(0, $Width - $visible.Length)
+    return $Text + (' ' * $padding)
+}
+
 function Print-Table([array]$Apps) {
     $cols = @(
         @{K = 'Name'; T = 'Package'; W = 30 }
@@ -712,11 +775,21 @@ function Print-Table([array]$Apps) {
         $row = $cols | ForEach-Object {
             $col = $_
             switch ($col.K) {
-                'Source' { (srcBadge (trunc ($app.Source ?? '-') $col.W).Trim()).PadRight($col.W + 11) }
-                'Status' { (statusBadge $app.Status).PadRight($col.W + 10) }
-                'Name' { bold (trunc ($app.Name ?? '-') $col.W).PadRight($col.W) }
-                'LatestVersion' { $v = (trunc ($app.LatestVersion ?? '-') $col.W).PadRight($col.W); if ($app.Status -eq $S_UPD) { yellow $v } else { $v } }
-                default { (trunc ($app.($col.K) ?? '-') $col.W).PadRight($col.W) }
+                'Source' { padAnsi (srcBadge (trunc ($app.Source ?? '-') $col.W).Trim()) $col.W }
+                'Status' { padAnsi (statusBadge $app.Status) $col.W }
+                'Name' { padAnsi (bold (trunc ($app.Name ?? '-') $col.W)) $col.W }
+                'LatestVersion' {
+                    if ($app.Status -eq $S_OK) {
+                        padAnsi '-' $col.W
+                    }
+                    elseif ($app.Status -eq $S_UPD) {
+                        padAnsi (yellow (trunc ($app.LatestVersion ?? '-') $col.W)) $col.W
+                    }
+                    else {
+                        padAnsi (trunc ($app.LatestVersion ?? '-') $col.W) $col.W
+                    }
+                }
+                default { padAnsi (trunc ($app.($col.K) ?? '-') $col.W) $col.W }
             }
         }
         Write-Host ($row -join $sep)
