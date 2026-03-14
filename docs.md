@@ -2,10 +2,10 @@
 
 ## Overview
 
-`system_update.js` is a cross-platform command-line tool that scans and updates packages from multiple package managers on your system. It provides a unified interface to manage updates across different package sources including Winget, Chocolatey, NPM, PNPM, Yarn, Bun, PIP, PATH-based installs, and Windows Registry.
+`system_update.js` is a cross-platform command-line tool that scans and updates packages from multiple package managers on your system. It provides a unified interface to manage updates across different package sources including Winget, Chocolatey, NPM, PNPM, Yarn, Bun, PIP, Rust, PATH-based installs, and Windows Registry.
 
-**Version:** 1.0.1  
-**Language:** Node.js (ES6+)  
+**Version:** 1.0.1
+**Language:** Node.js (ES6+)
 **Platform:** Windows, Linux, macOS (partial support)
 
 ---
@@ -14,7 +14,7 @@
 
 ### Core Capabilities
 
-- **Multi-Source Scanning**: Discover installed packages from multiple package managers
+- **Multi-Source Scanning**: Discover installed packages from 10 different package managers
 - **Update Detection**: Check for available updates across all sources
 - **Security Scanning**: Vulnerability detection for NPM and PIP packages
 - **Caching**: Intelligent caching to speed up repeated scans (2-hour default)
@@ -22,6 +22,8 @@
 - **Export Support**: Export results to JSON or CSV formats
 - **Dry Run Mode**: Preview updates before applying them
 - **Selective Updates**: Update all, by source, or specific packages
+- **Logging**: Optional file logging with `--log` flag
+- **Debug Mode**: Show all executed commands with `--debug` flag
 
 ### Supported Sources
 
@@ -36,6 +38,7 @@
 | PIP | ✅ | ✅ | ✅ |
 | PATH | ✅ | ✅ | ❌ |
 | Registry | ✅ | ✅ | ❌ |
+| Rust | ✅ | ✅ | ❌ |
 
 ---
 
@@ -77,7 +80,7 @@ npm run help
 | Option | Description |
 |--------|-------------|
 | `--update-all` | Update every package with available updates |
-| `--update-source <source>` | Update all packages from one source (e.g., `winget`, `chocolatey`, `npm`, `pnpm`, `pip`, `path`) |
+| `--update-source <source>` | Update all packages from one source (e.g., `winget`, `chocolatey`, `npm`, `pnpm`, `pip`, `bun`, `yarn`, `path`, `rust`, `registry`) |
 | `--package <name>` | Update a specific package by name |
 | `--version <ver>` | Target version (used with `--package`) |
 | `--source <source>` | Source filter for `--package` (disambiguates packages with same name) |
@@ -87,6 +90,8 @@ npm run help
 | `--export <json\|csv>` | Export scan results to JSON or CSV format |
 | `--output <file>` | Output path for export (default: stdout for JSON, file for CSV) |
 | `--include <csv>` | Limit scan sources (comma-separated, e.g., `winget,npm,pip`) |
+| `--log` | Enable logging to file |
+| `--debug` | Show all executed commands on screen and in log |
 | `--yes, -y` | Skip confirmation prompts (auto-approve) |
 | `--help, -h` | Show help message |
 
@@ -114,6 +119,7 @@ const DEFAULT_CONFIG = {
     yarn: true,
     path: true,
     registry: true,
+    rust: true,
   },
   security: {
     enabled: true,            // Security scanning on/off
@@ -135,18 +141,35 @@ const DEFAULT_CONFIG = {
 | Status | Emoji | Color | Meaning |
 |--------|-------|-------|---------|
 | `up_to_date` | ✅ | green | Package is current |
-| `update_available` | ⬆️ | yellow | Update available |
+| `update_available` | ⬆️ | yellow (bold) | Update available |
 | `error` | ❌ | red | Scan/update failed |
 | `vulnerable` | 🔥 | red (bold) | Security vulnerability found |
 | `security_update_available` | 🔒 | magenta (bold) | Security update available |
 | `unknown` | ❔ | gray | Status could not be determined |
+
+### Source Badges
+
+Each source is displayed with a unique color:
+
+| Source | Color |
+|--------|-------|
+| Winget | Blue |
+| Chocolatey | Yellow |
+| NPM | Red |
+| PNPM | Magenta |
+| Bun | Orange |
+| Yarn | White |
+| PIP | Cyan |
+| Rust | Magenta |
+| PATH | Green |
+| Registry | Gray |
 
 ### Main Table Columns
 
 - **Package**: Package name
 - **Source**: Package manager source (winget, npm, pip, etc.)
 - **Current**: Currently installed version
-- **Latest**: Latest available version
+- **Latest**: Latest available version (shows `-` when up-to-date)
 - **Status**: Update/vulnerability status
 
 ### Summary Section
@@ -185,21 +208,40 @@ The script stores cache in the following locations (in order of preference):
 
 ## Error Handling & Logging
 
+### Logging Modes
+
+| Mode | Flag | Description |
+|------|------|-------------|
+| Disabled | (default) | No logging to file |
+| Enabled | `--log` | All operations logged to file |
+| Debug | `--debug` | All executed commands shown on screen AND logged |
+
 ### Error Handling Strategy
 
 - Commands use **timeouts** (45s default) to prevent hangs
 - Optional commands (like `winget list`) use `allowFailure: true`
 - Errors are logged to `system.log` but don't crash the CLI
 - Non-critical failures continue processing other sources
+- Debug mode shows all executed commands with `[DEBUG]` prefix
 
 ### Log File Format
 
 ```
 2026-03-11T12:34:56.789Z Command timed out: winget list
 2026-03-11T12:35:01.234Z update failed: nodejs (npm) stderr=...
+2026-03-11T12:35:05.000Z [DEBUG] Executing: winget upgrade --id Git.Git
 ```
 
 Log location: `{data-directory}/system.log`
+
+### Debug Output
+
+When `--debug` is enabled, all executed commands are displayed:
+
+```
+[DEBUG] Executing: winget upgrade --id Git.Git --accept-source-agreements
+[DEBUG] Executing: npm outdated -g --json
+```
 
 ---
 
@@ -240,34 +282,38 @@ Vulnerable packages receive `VULNERABLE` status and are highlighted in red.
 5. **Security Checker** (`checkSecurityVulnerabilities`) - Runs vulnerability scans
 6. **Executor** (`executeUpdates`) - Applies updates sequentially
 7. **UI Renderer** (`printAppsTable`, `printSecurityTable`) - Displays results
+8. **Logger** (`writeLog`) - Optional file logging with `--log` flag
+9. **Debug Mode** (`DEBUG_ENABLED`) - Shows all executed commands
 
 ### Source Scanners
 
 Each source has a dedicated scanner function:
 
 - `scanWinget()` - Windows only, uses `winget list --accept-source-agreements`
-- `scanChocolatey()` - Windows only, uses `choco list --local-only --limit-output`
+- `scanChocolatey()` - Windows only, uses `choco list --limit-output`
 - `scanNpm()` - Uses `npm list -g --depth=0 --json --silent`
 - `scanPnpm()` - Uses `pnpm list -g --depth=0 --json`
-- `scanYarn()` - Uses `yarn global list --json`
+- `scanYarn()` - Uses `yarn global list`
 - `scanBun()` - Uses `bun pm ls -g`
-- `scanPip()` - Uses `pip list --format=json` (with fallback to `pip freeze`)
-- `scanPath()` - Scans `PATH` for known executables (bun, deno, git, pwsh, yarn, etc.)
+- `scanPip()` - Uses `pip list --format=json` (with fallbacks: py, python, python3)
+- `scanPath()` - Scans PATH for known executables (node, npm, pnpm, yarn, python, git, go, bun, deno, rustc, cargo, dotnet, java, pwsh)
 - `scanRegistry()` - Windows only, scans installed programs from registry (HKLM/HKCU)
+- `scanRust()` - Uses `cargo install --list`
 
 ### Update Checkers
 
 Each source has an update checker:
 
-- `checkWingetUpdates()` - Uses `winget upgrade`
-- `checkChocolateyUpdates()` - Uses `choco outdated`
-- `checkNpmUpdates()` - Uses `npm outdated -g --json`
+- `checkWingetUpdates()` - Uses `winget upgrade --accept-source-agreements`
+- `checkChocolateyUpdates()` - Uses `choco outdated --limit-output`
+- `checkNpmUpdates()` - Uses `npm outdated -g --json --silent`
 - `checkPnpmUpdates()` - Uses `pnpm outdated -g --json`
-- `checkBunUpdates()` - Uses `bpm update --global --json` or `bun update --global`
-- `checkYarnUpdates()` - Parses `yarn outdated` (no JSON support)
+- `checkBunUpdates()` - Uses `npm info <package> version`
+- `checkYarnUpdates()` - Uses `npm info <package> version`
 - `checkPipUpdates()` - Uses `pip list --outdated --format=json`
-- `checkPathUpdates()` - Connects to source-specific upgrade endpoints
-- `checkRegistryUpdates()` - Queries Windows registry for update detection
+- `checkPathUpdates()` - Uses GitHub API, winget, or source-specific commands
+- `checkRegistryUpdates()` - Cross-references with winget upgrade output
+- `checkRustUpdates()` - Uses `cargo install-update -l` (requires cargo-update)
 
 ### Command Execution
 
@@ -327,10 +373,11 @@ progress.done(message);  // Complete
 
 1. **Platform Support**: Some sources are Windows-only (Winget, Chocolatey, Registry scanning)
 2. **Security Scanning**: Only NPM and PIP have vulnerability detection
-3. **Yarn Updates**: Relies on text parsing `yarn outdated` (no JSON output)
-4. **Bun Updates**: Depends on `bpm` (Bun Package Manager) availability
+3. **Rust Updates**: Requires `cargo-update` to be installed (`cargo install cargo-update`)
+4. **Yarn/Bun Updates**: Relies on `npm info` for version checking
 5. **Registry**: Windows registry scanning may miss some applications
 6. **PATH**: Limited to known executables; not all PATH-installed tools are detected
+7. **Logging**: Disabled by default; must use `--log` flag to enable
 
 ---
 
@@ -355,6 +402,28 @@ progress.done(message);  // Complete
 - Verify package manager CLI is in PATH
 - Check if source is enabled in config
 
+**Rust Updates Not Working**
+- Ensure `cargo-update` is installed: `cargo install cargo-update`
+- Verify cargo is in PATH
+
+**Logging Not Working**
+- Ensure `--log` flag is used to enable logging
+- Check write permissions to data directory
+
+### Using Debug Mode
+
+For detailed troubleshooting, use `--debug` to see all executed commands:
+
+```bash
+node system_update.js --debug
+```
+
+This will show each command as it's executed:
+```
+[DEBUG] Executing: winget list --accept-source-agreements
+[DEBUG] Executing: npm list -g --depth=0 --json --silent
+```
+
 ---
 
 ## Development & Testing
@@ -371,6 +440,9 @@ node system_update.js --dry-run --update-all
 # Test single package
 node system_update.js --package <name> --source npm
 
+# Test Rust packages
+node system_update.js --update-source rust
+
 # Test caching
 node system_update.js --no-cache
 
@@ -379,6 +451,12 @@ node system_update.js --export json
 
 # Export to CSV
 node system_update.js --export csv --output updates.csv
+
+# Enable logging
+node system_update.js --log
+
+# Debug mode (show all commands)
+node system_update.js --debug
 ```
 
 ### Code Quality
@@ -393,6 +471,8 @@ node system_update.js --export csv --output updates.csv
 
 Part of the **System Update** multi-platform CLI project.
 
+**Version:** 1.0.1
+
 For Python and PowerShell implementations, see:
 - `system_update.py` - Python version with Rich UI
 - `system_update.ps1` - PowerShell native version
@@ -401,4 +481,8 @@ For Python and PowerShell implementations, see:
 
 ## Support
 
-For issues, feature requests, or contributions, refer to the project repository.
+For issues, feature requests, or contributions:
+1. Check the log file at `~/.system_update/system.log`
+2. Run with `--no-cache` to rule out cache issues
+3. Use `--debug` to see all executed commands
+4. Verify package managers are installed and accessible
