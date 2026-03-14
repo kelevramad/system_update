@@ -22,7 +22,8 @@ param(
     [parameter(Mandatory = $false)][string]$Version,
     [parameter(Mandatory = $false)][string]$Source,
     [parameter(Mandatory = $false)][string]$UpdateSource,
-    [parameter(Mandatory = $false)][string]$Include
+    [parameter(Mandatory = $false)][string]$Include,
+    [parameter(Mandatory = $false)][switch]$ShowAll
 )
 
 Set-StrictMode -Version 2
@@ -79,6 +80,7 @@ function E([string]$n) {
         'lock' { [char]::ConvertFromUtf32(0x1F512) }
         'fire' { [char]::ConvertFromUtf32(0x1F525) }
         'shield' { "$([char]::ConvertFromUtf32(0x1F6E1))$([char]0xFE0F)" }
+        'target' { [char]::ConvertFromUtf32(0x1F3AF) }
         'unknown' { '❔' }
         default { '' }
     }
@@ -760,7 +762,10 @@ function padAnsi([string]$Text, [int]$Width) {
     return $Text + (' ' * $padding)
 }
 
-function Print-Table([array]$Apps) {
+function Print-Table([array]$Apps, [switch]$ShowAll) {
+    # Filter apps: by default show only updates/vulnerable, unless ShowAll is true
+    $displayApps = if ($ShowAll) { $Apps } else { @($Apps | Where-Object { $_.Status -eq $S_UPD -or $_.Status -eq $S_VULN }) }
+    
     $cols = @(
         @{K = 'Name'; T = 'Package'; W = 30 }
         @{K = 'Source'; T = 'Source'; W = 12 }
@@ -771,7 +776,7 @@ function Print-Table([array]$Apps) {
     $sep = '  '
     $hdr = ($cols | ForEach-Object { c '1;36' $_.T.PadRight($_.W) }) -join $sep
     Write-Host $hdr; Write-Host (gray ('─' * ($hdr.Length)))
-    foreach ($app in $Apps) {
+    foreach ($app in $displayApps) {
         $row = $cols | ForEach-Object {
             $col = $_
             switch ($col.K) {
@@ -897,6 +902,15 @@ Options:
   -Include <csv>          Limit scan to specific sources (e.g. winget,npm,rust)
   -Yes                    Skip confirmation prompts
   -Help                   Show this help
+  -ShowAll                Show all packages (including up-to-date)
+
+Examples:
+  .\system_update.ps1
+  .\system_update.ps1 -UpdateAll -Yes
+  .\system_update.ps1 -Package git -Source chocolatey
+  .\system_update.ps1 -UpdateSource winget -DryRun
+  .\system_update.ps1 -Export json -Output report.json
+  .\system_update.ps1 -ShowAll
 "@
 }
 
@@ -997,6 +1011,7 @@ function Main {
     if ($Include) { $inc = @($Include.ToLower().Split(',')); $apps = @($apps | Where-Object { $_.Source.ToLower() -in $inc }) }
 
     $updApps = @($apps | Where-Object { $_.Status -eq $S_UPD })
+    $vulnApps = @($apps | Where-Object { $_.Status -eq $S_VULN })
     $bySrc = @($apps | Group-Object Source | ForEach-Object { "$($_.Name):$($_.Count)" })
     $el = ([datetime]::Now - $start).TotalSeconds
 
@@ -1008,7 +1023,14 @@ function Main {
     Write-Host "$(E 'gear') sources         $($bySrc -join ', ')"
     Write-Host ''
 
-    Print-Table $apps
+    Print-Table $apps -ShowAll:$ShowAll
+
+    # Display showing status after table (matching JS behavior)
+    if ($ShowAll) {
+        Write-Host "`n$(E 'disk') $(dim 'Showing: all packages')"
+    } else {
+        Write-Host "`n$(E 'disk') $(dim 'Showing: updates only')"
+    }
 
     $va = @($apps | Where-Object { $_.Status -eq $S_VULN })
     if ($va -and $CFG_SECURITY) {
@@ -1017,7 +1039,7 @@ function Main {
 
     if (-not $Package -and -not $UpdateAll -and -not $UpdateSource) {
         if ($updApps.Count -eq 0) { Write-Host "`n$(E 'sparkle') $(green 'System is up to date!')" }
-        else { Write-Host "`n$(E 'update') $(yellow "Found $($updApps.Count) available updates")" }
+        else { Write-Host "`n$(E 'target') $(yellow (bold "Found $($updApps.Count) available updates"))" }
     }
 
     if ($Package) {
