@@ -54,19 +54,14 @@ from rich.text import Text
 from rich.prompt import Confirm
 from rich.progress import (
     Progress,
-    SpinnerColumn,
     TextColumn,
     BarColumn,
-    TaskID,
     TimeElapsedColumn,
     MofNCompleteColumn,
+    TaskID,
 )
-from rich.align import Align
 from rich.style import Style
 from rich import box
-from rich.layout import Layout
-from rich.columns import Columns
-from rich.tree import Tree
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -385,7 +380,7 @@ def run_command(cmd: List[str], timeout: int = 45, allow_failure: bool = False, 
 
 def source_badge(source: str) -> str:
     """Return source name with Rich style tags matching JS sourceBadge().
-    
+
     Color pattern (from JS version):
     - winget: blue
     - chocolatey: yellow
@@ -412,7 +407,6 @@ def source_badge(source: str) -> str:
         "registry": "dim white",
     }
     style = style_map.get(source_lower, "dim white")
-    # Return source name with style tags (e.g., "[bold blue]winget[/bold blue]")
     return f"[{style}]{source_lower}[/{style}]"
 
 
@@ -497,12 +491,21 @@ class UISystem:
                 UpdateStatus.UNKNOWN: "dim white",
             }
             status_style = status_styles.get(app.update_status, "white")
-            
+
+            # Latest version column: yellow bold when update available (matching JS)
+            # Show "-" when up-to-date (no update needed)
+            if app.latest_version and app.update_status == UpdateStatus.UPDATE_AVAILABLE:
+                latest_text = Text(app.latest_version, style="bold yellow")
+            elif app.update_status == UpdateStatus.UP_TO_DATE:
+                latest_text = "-"
+            else:
+                latest_text = app.latest_version or "-"
+
             table.add_row(
                 app.name[:30],
                 Text(app.source, style=source_style),
                 app.version,
-                app.latest_version or "N/A",
+                latest_text,
                 f"[{status_style}]{app.status_display}[/{status_style}]",
             )
 
@@ -886,63 +889,73 @@ class UpdateChecker:
     """Enhanced update checking system."""
 
     @staticmethod
-    def check_all_updates(
-        apps: List[AppInfo], progress: Progress, task_id: TaskID
-    ) -> int:
-        """Check updates for all supported package managers."""
+    def check_all_updates(apps: List[AppInfo]) -> int:
+        """Check updates for all supported package managers matching JS checkUpdates."""
         total_updates = 0
 
-        # Group apps by source for batch processing
+        # Group apps by source for batch processing (matching JS order)
         sources = {
-            "Winget": [a for a in apps if a.source == "Winget"],
-            "Chocolatey": [a for a in apps if a.source == "Chocolatey"],
-            "NPM": [a for a in apps if a.source == "NPM"],
-            "PNPM": [a for a in apps if a.source == "PNPM"],
-            "Bun": [a for a in apps if a.source == "Bun"],
-            "Yarn": [a for a in apps if a.source == "Yarn"],
-            "PIP": [a for a in apps if a.source == "PIP"],
-            "PATH": [a for a in apps if a.source == "PATH"],
-            "Registry": [a for a in apps if a.source == "Registry"],
-            "Rust": [a for a in apps if a.source == "Rust"],
+            "winget": [a for a in apps if a.source.lower() == "winget"],
+            "chocolatey": [a for a in apps if a.source.lower() == "chocolatey"],
+            "npm": [a for a in apps if a.source.lower() == "npm"],
+            "pnpm": [a for a in apps if a.source.lower() == "pnpm"],
+            "bun": [a for a in apps if a.source.lower() == "bun"],
+            "yarn": [a for a in apps if a.source.lower() == "yarn"],
+            "pip": [a for a in apps if a.source.lower() == "pip"],
+            "path": [a for a in apps if a.source.lower() == "path"],
+            "registry": [a for a in apps if a.source.lower() == "registry"],
+            "rust": [a for a in apps if a.source.lower() == "rust"],
         }
 
-        # Check updates for each source
-        for source_name, source_apps in sources.items():
-            if not source_apps:
-                continue
+        # Filter to only sources with apps
+        active_sources = [(name, apps_list) for name, apps_list in sources.items() if apps_list]
 
-            progress.update(task_id, extra=f"Checking {source_badge(source_name)}...")
+        # Check updates for each source using Rich Progress
+        with Progress(
+            TextColumn("{task.description}"),
+            BarColumn(bar_width=26, complete_style="white", style="dim white", finished_style="white"),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            TextColumn("{task.fields[extra]}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("⬆️ Checking updates", total=len(active_sources), extra="")
 
-            source_updates = 0
-            # ... (rest of the source checks)
-            if source_name == "Winget":
-                source_updates = UpdateChecker._check_winget_updates(source_apps)
-            elif source_name == "Chocolatey":
-                source_updates = UpdateChecker._check_choco_updates(source_apps)
-            elif source_name == "NPM":
-                source_updates = UpdateChecker._check_npm_updates(source_apps)
-            elif source_name == "PNPM":
-                source_updates = UpdateChecker._check_pnpm_updates(source_apps)
-            elif source_name == "Bun":
-                source_updates = UpdateChecker._check_bun_updates(source_apps)
-            elif source_name == "Yarn":
-                source_updates = UpdateChecker._check_yarn_updates(source_apps)
-            elif source_name == "PIP":
-                source_updates = UpdateChecker._check_pip_updates(source_apps)
-            elif source_name == "PATH":
-                source_updates = UpdateChecker._check_path_updates(source_apps)
-            elif source_name == "Registry":
-                source_updates = UpdateChecker._check_registry_updates(source_apps)
-            elif source_name == "Rust":
-                source_updates = UpdateChecker._check_rust_updates(source_apps)
+            for source_name, source_apps in active_sources:
+                source_updates = 0
 
-            total_updates += source_updates
-            # Use source_badge for colored source name (matching JS version)
-            update_msg = f"{source_badge(source_name)}: [bold yellow]{source_updates}[/bold yellow] update(s)" if source_updates > 0 else f"{source_badge(source_name)}: [dim white]none[/dim white]"
-            progress.update(task_id, extra=update_msg)
-            progress.advance(task_id, 10)
-            # Give a small moment to see the number before the next source starts
-            time.sleep(0.05)
+                if source_name == "winget":
+                    source_updates = UpdateChecker._check_winget_updates(source_apps)
+                elif source_name == "chocolatey":
+                    source_updates = UpdateChecker._check_choco_updates(source_apps)
+                elif source_name == "npm":
+                    source_updates = UpdateChecker._check_npm_updates(source_apps)
+                elif source_name == "pnpm":
+                    source_updates = UpdateChecker._check_pnpm_updates(source_apps)
+                elif source_name == "bun":
+                    source_updates = UpdateChecker._check_bun_updates(source_apps)
+                elif source_name == "yarn":
+                    source_updates = UpdateChecker._check_yarn_updates(source_apps)
+                elif source_name == "pip":
+                    source_updates = UpdateChecker._check_pip_updates(source_apps)
+                elif source_name == "path":
+                    source_updates = UpdateChecker._check_path_updates(source_apps)
+                elif source_name == "registry":
+                    source_updates = UpdateChecker._check_registry_updates(source_apps)
+                elif source_name == "rust":
+                    source_updates = UpdateChecker._check_rust_updates(source_apps)
+
+                total_updates += source_updates
+
+                # Match JS: source_badge + count or "none"
+                if source_updates > 0:
+                    progress.update(task, advance=1, extra=f"{source_badge(source_name)}: [bold yellow]{source_updates}[/bold yellow] update(s)")
+                else:
+                    progress.update(task, advance=1, extra=f"{source_badge(source_name)}: [dim white]none[/dim white]")
+
+            # Mark complete matching JS
+            progress.update(task, extra="✅ [bold green]update checks complete[/bold green]")
 
         # Mark apps with proper status (match JavaScript logic)
         for app in apps:
@@ -951,12 +964,10 @@ class UpdateChecker:
             if app.update_status == UpdateStatus.UP_TO_DATE:
                 continue
             # Sources that perform update checks should be marked UP_TO_DATE if no update found
-            # PATH is checked individually so only mark UP_TO_DATE if latest_version was set
-            if app.latest_version or app.source in ["Winget", "Chocolatey", "NPM", "PNPM", "Bun", "Yarn", "PIP", "Registry", "Rust"]:
+            if app.latest_version or app.source.lower() in ["winget", "chocolatey", "npm", "pnpm", "bun", "yarn", "pip", "registry", "rust", "path"]:
                 app.update_status = UpdateStatus.UP_TO_DATE
             else:
                 app.update_status = UpdateStatus.UNKNOWN
-
 
         return total_updates
 
@@ -1227,6 +1238,43 @@ class UpdateChecker:
             except Exception:
                 return None
 
+        def parse_version(ver_str: str) -> Tuple:
+            """Parse version string into comparable tuple (major, minor, patch, is_stable)."""
+            # Remove leading non-digits
+            ver_str = re.sub(r'^[^\d]+', '', ver_str).strip()
+            # Extract main version numbers
+            match = re.match(r'(\d+)\.(\d+)\.(\d+)', ver_str)
+            if not match:
+                match = re.match(r'(\d+)\.(\d+)', ver_str)
+                if match:
+                    return (int(match.group(1)), int(match.group(2)), 0, 'preview' not in ver_str.lower())
+                return (0, 0, 0, False)
+            # Check if it's a preview/rc/beta version
+            is_stable = not any(x in ver_str.lower() for x in ['preview', 'rc', 'beta', 'alpha', '-pre'])
+            return (int(match.group(1)), int(match.group(2)), int(match.group(3)), is_stable)
+
+        def is_newer_version(current: str, latest: str) -> bool:
+            """Check if latest is actually newer than current (handles previews)."""
+            curr_parts = parse_version(current)
+            latest_parts = parse_version(latest)
+
+            # If current is a newer major/minor preview, don't suggest downgrade to stable
+            if curr_parts[0] > latest_parts[0]:  # Newer major version
+                return False
+            if curr_parts[0] == latest_parts[0] and curr_parts[1] > latest_parts[1]:  # Newer minor in same major
+                return False
+
+            # Standard comparison for stable versions
+            if curr_parts[3] and latest_parts[3]:  # Both stable
+                return latest_parts[:3] > curr_parts[:3]
+
+            # If current is preview but same base version, don't update
+            if not curr_parts[3] and curr_parts[:3] == latest_parts[:3]:
+                return False
+
+            # Latest stable is newer than current stable
+            return latest_parts[:3] > curr_parts[:3]
+
         for app in apps:
             latest = ""
             try:
@@ -1294,13 +1342,21 @@ class UpdateChecker:
                     clean_version = re.sub(r'^[^\d]+', '', app.version).strip()
                     clean_latest = re.sub(r'^[^\d]+', '', latest).strip()
                     app.latest_version = clean_latest
-                    if clean_latest != clean_version and clean_latest not in app.version:
+
+                    # Use proper version comparison that handles previews
+                    if is_newer_version(app.version, latest):
                         app.update_status = UpdateStatus.UPDATE_AVAILABLE
                         updates += 1
                     else:
                         app.update_status = UpdateStatus.UP_TO_DATE
+                else:
+                    # No latest version found, mark as up-to-date (don't show unknown)
+                    app.latest_version = "-"
+                    app.update_status = UpdateStatus.UP_TO_DATE
             except Exception:
-                pass
+                # On error, mark as up-to-date rather than unknown
+                app.latest_version = "-"
+                app.update_status = UpdateStatus.UP_TO_DATE
         return updates
 
     @staticmethod
@@ -1350,44 +1406,42 @@ class UpdateExecutor:
 
     @staticmethod
     def execute_updates(apps: List[AppInfo], dry_run: bool = False):
-        """Execute updates with enhanced feedback."""
+        """Execute updates with enhanced feedback matching JS executeUpdates."""
+        success_count = 0
+
         with Progress(
             TextColumn("{task.description}"),
-            BarColumn(bar_width=26),
+            BarColumn(bar_width=26, complete_style="white", style="dim white", finished_style="white"),
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TextColumn("({task.completed}/{task.total})"),
-            TextColumn("⏱️ {task.elapsed:.1f}s"),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
             TextColumn("{task.fields[extra]}"),
             console=console,
         ) as progress:
-            task = progress.add_task("⬆️ Processing updates...", total=len(apps), extra="")
-            success_count = 0
+            task = progress.add_task("⚙️ Applying updates", total=len(apps), extra="")
 
             for app in apps:
-                progress.update(task, description=f"⬆️ Updating {app.name}...", extra=f"{app.source}")
+                label = f"{app.name} ({app.source})"
 
                 if dry_run:
                     time.sleep(0.3)
                     success_count += 1
-                    console.print(
-                        f"[yellow]🔍 DRY RUN[/yellow]: {app.name} → {app.latest_version}"
-                    )
+                    console.print(f"[yellow]🔍 DRY RUN[/yellow]: {app.name} → {app.latest_version}")
+                    progress.update(task, advance=1, extra="✅ [bold]" + label + "[/bold]")
                 else:
                     success = UpdateExecutor._execute_single_update(app)
                     if success:
                         success_count += 1
-                        console.print(
-                            f"[green]✅[/green] {app.name} updated to {app.latest_version}"
-                        )
+                        console.print(f"[green]✅[/green] {app.name} updated to {app.latest_version}")
+                        progress.update(task, advance=1, extra="✅ [bold]" + label + "[/bold]")
                     else:
                         console.print(f"[red]❌[/red] Failed to update {app.name}")
+                        progress.update(task, advance=1, extra="❌ [bold]" + label + "[/bold]")
 
-                progress.advance(task)
+            # Final summary matching JS
+            progress.update(task, extra="✨ [bold cyan]finished[/bold cyan]")
 
-            # Final summary
-            console.print(
-                f"\n[bold green]🎉 Completed: {success_count}/{len(apps)} updates successful![/bold green]"
-            )
+        console.print(f"\n📊 Completed: [bold]{success_count}/{len(apps)}[/bold] successful.")
 
     @staticmethod
     def _execute_single_update(app: AppInfo) -> bool:
@@ -1478,20 +1532,20 @@ class SystemUpdateApp:
             config.cache_file, config.settings["cache"]["duration_hours"]
         )
 
-    def scan_system(self, progress: Progress, source_filter: Optional[str] = None) -> Tuple[List[AppInfo], TaskID]:
-        """Perform comprehensive system scan."""
-        # Map source names to scanner methods
+    def scan_system(self, source_filter: Optional[str] = None) -> List[AppInfo]:
+        """Perform comprehensive system scan matching JS scanSystem."""
+        # Map source names to scanner methods (matching JS order)
         scanners = {
-            "Winget": self.scanner.scan_winget,
-            "Chocolatey": self.scanner.scan_chocolatey,
-            "NPM": self.scanner.scan_npm,
-            "PNPM": self.scanner.scan_pnpm,
-            "Bun": self.scanner.scan_bun,
-            "Yarn": self.scanner.scan_yarn,
-            "PIP": self.scanner.scan_pip,
-            "PATH": self.scanner.scan_path,
-            "Registry": self.scanner.scan_registry,
-            "Rust": self.scanner.scan_rust,
+            "winget": self.scanner.scan_winget,
+            "chocolatey": self.scanner.scan_chocolatey,
+            "npm": self.scanner.scan_npm,
+            "pnpm": self.scanner.scan_pnpm,
+            "bun": self.scanner.scan_bun,
+            "yarn": self.scanner.scan_yarn,
+            "pip": self.scanner.scan_pip,
+            "path": self.scanner.scan_path,
+            "registry": self.scanner.scan_registry,
+            "rust": self.scanner.scan_rust,
         }
 
         # Filter by source if specified
@@ -1503,37 +1557,51 @@ class SystemUpdateApp:
             )
             if matched_source:
                 scanners = {matched_source: scanners[matched_source]}
-                progress.console.print(f"[cyan]🔍 Filtering by source: {matched_source}[/cyan]")
+                console.print(f"[cyan]🔍 Filtering by source: {matched_source}[/cyan]")
             else:
-                progress.console.print(f"[yellow]⚠️  Unknown source '{source_filter}', scanning all sources[/yellow]")
+                console.print(f"[yellow]⚠️  Unknown source '{source_filter}', scanning all sources[/yellow]")
 
-        total_sources = len(scanners)
-        task_scan = progress.add_task("🔎 Scanning", total=total_sources, extra="")
+        # Filter by enabled sources in config
+        selected = [
+            (name, func) for name, func in scanners.items()
+            if config.settings["sources"].get(name, True)
+        ]
 
         all_apps = []
         max_workers = config.settings["performance"]["max_workers"]
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_source = {
-                executor.submit(func): name
-                for name, func in scanners.items()
-                if config.settings["sources"].get(name.lower(), True)
-            }
+        # Scan in parallel like JS Promise.all using Rich Progress
+        with Progress(
+            TextColumn("{task.description}"),
+            BarColumn(bar_width=26, complete_style="white", style="dim white", finished_style="white"),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            TextColumn("{task.fields[extra]}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("🔎 Scanning", total=len(selected), extra="")
 
-            for future in as_completed(future_to_source):
-                source_name = future_to_source[future]
-                try:
-                    apps = future.result()
-                    # Deduplicate by source|name|version before reporting count
-                    unique_apps = list({f"{a.source}|{a.name}|{a.version}".lower(): a for a in apps}.values())
-                    all_apps.extend(unique_apps)
-                    # Use source_badge for colored source name (matching JS version)
-                    progress.update(task_scan, extra=f"{source_badge(source_name)} [bold cyan]{len(unique_apps)}[/bold cyan] app(s)")
-                except Exception as e:
-                    progress.console.print(f"  [red]✗[/red] {source_name} failed: {e}")
-                progress.advance(task_scan)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_source = {executor.submit(func): name for name, func in selected}
 
-        return all_apps, task_scan
+                for future in as_completed(future_to_source):
+                    source_name = future_to_source[future]
+                    try:
+                        apps = future.result()
+                        # Deduplicate by source|name|version
+                        unique_apps = list({f"{a.source}|{a.name}|{a.version}".lower(): a for a in apps}.values())
+                        all_apps.extend(unique_apps)
+                        # Match JS: source_badge + count
+                        progress.update(task, advance=1, extra=f"{source_badge(source_name)} [bold cyan]{str(len(unique_apps)).rjust(4)}[/bold cyan] apps")
+                    except Exception as e:
+                        console.print(f"  [red]✗[/red] {source_name} failed: {e}")
+
+            # Mark complete matching JS
+            progress.update(task, extra="✅ [bold green]scan complete[/bold green]")
+
+        # Return unique apps sorted like JS
+        return sorted(all_apps, key=lambda x: f"{x.source}{x.name}")
 
     def export_results(
         self, apps: List[AppInfo], format_type: str, output_file: Optional[str] = None
@@ -1593,41 +1661,19 @@ class SystemUpdateApp:
 
         if apps is None:
             start_time = time.time()
-            
+
             # --- PHASE 1: SCANNING ---
             console.print("[bold cyan]🔎 Scanning sources...[/bold cyan]")
-            with Progress(
-                TextColumn("{task.description}"),
-                BarColumn(bar_width=30, style="dim white", complete_style="white", finished_style="white"),
-                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                TextColumn("({task.completed}/{task.total})"),
-                TextColumn("⏱️ {task.elapsed:.1f}s"),
-                TextColumn("{task.fields[extra]}"),
-                console=console,
-            ) as progress:
-                # Scan system
-                apps, task_scan = self.scan_system(progress, args.source)
-                progress.update(task_scan, completed=10, extra="✅ [bold green]scan complete[/bold green]")
-                
+            # Scan system (progress bar handled internally)
+            apps = self.scan_system(args.source)
+
             # Report discovered count (match JS flow)
             console.print(f"\n📦 [bold]Discovered {len(apps)} unique apps.[/bold]")
-            
+
             # --- PHASE 2: UPDATE CHECKING ---
             console.print("[bold cyan]⬆️ Checking for updates...[/bold cyan]")
-            with Progress(
-                TextColumn("{task.description}"),
-                BarColumn(bar_width=30, style="dim white", complete_style="white", finished_style="white"),
-                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                TextColumn("({task.completed}/{task.total})"),
-                TextColumn("⏱️ {task.elapsed:.1f}s"),
-                TextColumn("{task.fields[extra]}"),
-                console=console,
-            ) as progress:
-                task_check = progress.add_task("⬆️ Checking updates", total=100, extra="")
-                total_updates = self.checker.check_all_updates(
-                    apps, progress, task_check
-                )
-                progress.update(task_check, completed=100, extra=f"✅ [bold green]found {total_updates} updates[/bold green]")
+            # Check updates (progress bar handled internally)
+            total_updates = self.checker.check_all_updates(apps)
 
             console.print(f"[bold magenta]📊 Detected {total_updates} update candidates.[/bold magenta]\n")
 
@@ -1645,7 +1691,7 @@ class SystemUpdateApp:
             sources_count = {}
             for app in apps:
                 sources_count[app.source] = sources_count.get(app.source, 0) + 1
-            
+
             self.ui.display_summary(len(apps), total_updates, scan_time, sources_count)
 
         # Handle single package update
