@@ -1,9 +1,9 @@
 # Product Requirements Document (PRD)
 ## System Update Node CLI
 
-**Document Version:** 1.0  
-**Last Updated:** March 9, 2026  
-**Author:** Qwen Code  
+**Document Version:** 1.1
+**Last Updated:** March 13, 2026
+**Author:** Qwen Code
 **Based On:** `system_update.js` v1.0.1
 
 ---
@@ -31,9 +31,9 @@
 
 ## 1. Executive Summary
 
-**System Update Node CLI** is a comprehensive command-line tool designed to scan, discover, and update software packages across multiple package managers and system sources on Windows and Unix-like systems. It provides a unified interface for managing updates from Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, system PATH tools, and Windows Registry installations.
+**System Update Node CLI** is a comprehensive command-line tool designed to scan, discover, and update software packages across multiple package managers and system sources on Windows and Unix-like systems. It provides a unified interface for managing updates from Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Rust, system PATH tools, and Windows Registry installations.
 
-The tool features parallel scanning, security vulnerability detection, intelligent caching, flexible export options, and a polished terminal UI with real-time progress indicators.
+The tool features parallel scanning, security vulnerability detection, intelligent caching, flexible export options, detailed logging, debug mode, and a polished terminal UI with real-time progress indicators.
 
 ---
 
@@ -65,11 +65,12 @@ A single CLI tool that:
 
 ### 2.3 Key Differentiators
 
-- **Multi-source support**: 9 different package sources
+- **Multi-source support**: 10 different package sources including Rust
 - **Security-first**: Built-in vulnerability scanning for NPM and PIP
 - **Performance**: Parallel scanning with configurable timeouts
 - **Developer experience**: Rich terminal UI with colors, emojis, and progress bars
 - **Flexibility**: Extensive CLI options for targeted operations
+- **Observability**: Optional logging with `--log` and debug mode with `--debug`
 
 ---
 
@@ -129,74 +130,86 @@ A single CLI tool that:
 | F-08 | Scan PATH tools (node, python, git, etc.) | P1 | Implemented |
 | F-09 | Scan Windows Registry applications | P1 | Implemented |
 | F-10 | Deduplicate results across sources | P0 | Implemented |
+| F-11 | Scan Rust packages (cargo install) | P1 | Implemented |
 
 ### 5.2 Update Detection
 
 | ID | Requirement | Priority | Status |
 |----|-------------|----------|--------|
-| F-11 | Check Winget for available upgrades | P0 | Implemented |
-| F-12 | Check Chocolatey for outdated packages | P0 | Implemented |
-| F-13 | Check NPM for outdated packages | P0 | Implemented |
-| F-14 | Check PNPM for outdated packages | P0 | Implemented |
-| F-15 | Check Bun for latest versions | P1 | Implemented |
-| F-16 | Check Yarn for latest versions | P1 | Implemented |
-| F-17 | Check PIP for outdated packages | P0 | Implemented |
-| F-18 | Check PATH tools via GitHub API / commands | P1 | Implemented |
-| F-19 | Cross-reference Registry with Winget | P1 | Implemented |
+| F-12 | Check Winget for available upgrades | P0 | Implemented |
+| F-13 | Check Chocolatey for outdated packages | P0 | Implemented |
+| F-14 | Check NPM for outdated packages | P0 | Implemented |
+| F-15 | Check PNPM for outdated packages | P0 | Implemented |
+| F-16 | Check Bun for latest versions | P1 | Implemented |
+| F-17 | Check Yarn for latest versions | P1 | Implemented |
+| F-18 | Check PIP for outdated packages | P0 | Implemented |
+| F-19 | Check PATH tools via GitHub API / commands | P1 | Implemented |
+| F-20 | Cross-reference Registry with Winget | P1 | Implemented |
+| F-21 | Check Rust for updates (cargo install-update) | P1 | Implemented |
 
 ### 5.3 Security Features
 
 | ID | Requirement | Priority | Status |
 |----|-------------|----------|--------|
-| F-20 | Scan NPM packages for vulnerabilities | P0 | Implemented |
-| F-21 | Scan PIP packages for vulnerabilities | P1 | Implemented |
-| F-22 | Filter by severity threshold | P1 | Implemented |
-| F-23 | Display CVE identifiers | P1 | Implemented |
-| F-24 | Mark vulnerable packages in UI | P0 | Implemented |
+| F-22 | Scan NPM packages for vulnerabilities | P0 | Implemented |
+| F-23 | Scan PIP packages for vulnerabilities | P1 | Implemented |
+| F-24 | Filter by severity threshold | P1 | Implemented |
+| F-25 | Display CVE identifiers | P1 | Implemented |
+| F-26 | Mark vulnerable packages in UI | P0 | Implemented |
 
 ### 5.4 Update Execution
 
 | ID | Requirement | Priority | Status |
 |----|-------------|----------|--------|
-| F-25 | Update all packages | P0 | Implemented |
-| F-26 | Update single package by name | P0 | Implemented |
-| F-27 | Update by source filter | P1 | Implemented |
-| F-28 | Specify target version | P1 | Implemented |
-| F-29 | Dry-run mode | P0 | Implemented |
-| F-30 | Confirmation prompts | P0 | Implemented |
-| F-31 | Skip prompts with --yes flag | P1 | Implemented |
+| F-27 | Update all packages | P0 | Implemented |
+| F-28 | Update single package by name | P0 | Implemented |
+| F-29 | Update by source filter | P1 | Implemented |
+| F-30 | Specify target version | P1 | Implemented |
+| F-31 | Dry-run mode | P0 | Implemented |
+| F-32 | Confirmation prompts | P0 | Implemented |
+| F-33 | Skip prompts with --yes flag | P1 | Implemented |
+| F-34 | Update Rust packages (cargo install-update) | P1 | Implemented |
 
 ### 5.5 Caching System
 
 | ID | Requirement | Priority | Status |
 |----|-------------|----------|--------|
-| F-32 | Cache scan results | P1 | Implemented |
-| F-33 | Configurable cache duration | P1 | Implemented |
-| F-34 | Load from cache on subsequent runs | P1 | Implemented |
-| F-35 | Clear cache manually | P1 | Implemented |
-| F-36 | Bypass cache with --no-cache | P1 | Implemented |
+| F-35 | Cache scan results | P1 | Implemented |
+| F-36 | Configurable cache duration | P1 | Implemented |
+| F-37 | Load from cache on subsequent runs | P1 | Implemented |
+| F-38 | Clear cache manually | P1 | Implemented |
+| F-39 | Bypass cache with --no-cache | P1 | Implemented |
 
 ### 5.6 Export Features
 
 | ID | Requirement | Priority | Status |
 |----|-------------|----------|--------|
-| F-37 | Export to JSON format | P1 | Implemented |
-| F-38 | Export to CSV format | P1 | Implemented |
-| F-39 | Custom output path | P1 | Implemented |
-| F-40 | Include scan metadata | P2 | Implemented |
+| F-40 | Export to JSON format | P1 | Implemented |
+| F-41 | Export to CSV format | P1 | Implemented |
+| F-42 | Custom output path | P1 | Implemented |
+| F-43 | Include scan metadata | P2 | Implemented |
 
 ### 5.7 User Interface
 
 | ID | Requirement | Priority | Status |
 |----|-------------|----------|--------|
-| F-41 | Color-coded terminal output | P0 | Implemented |
-| F-42 | Emoji indicators | P2 | Implemented |
-| F-43 | Progress bars for scanning | P1 | Implemented |
-| F-44 | Status badges per package | P1 | Implemented |
-| F-45 | Source badges with colors | P2 | Implemented |
-| F-46 | Summary statistics | P0 | Implemented |
-| F-47 | Security vulnerability table | P0 | Implemented |
-| F-48 | Graceful degradation for non-TTY | P1 | Implemented |
+| F-44 | Color-coded terminal output | P0 | Implemented |
+| F-45 | Emoji indicators | P2 | Implemented |
+| F-46 | Progress bars for scanning | P1 | Implemented |
+| F-47 | Status badges per package | P1 | Implemented |
+| F-48 | Source badges with colors | P2 | Implemented |
+| F-49 | Summary statistics | P0 | Implemented |
+| F-50 | Security vulnerability table | P0 | Implemented |
+| F-51 | Graceful degradation for non-TTY | P1 | Implemented |
+
+### 5.8 Logging and Debugging
+
+| ID | Requirement | Priority | Status |
+|----|-------------|----------|--------|
+| F-52 | Optional logging to file with --log | P1 | Implemented |
+| F-53 | Debug mode to show executed commands | P2 | Implemented |
+| F-54 | Log file with timestamps | P1 | Implemented |
+| F-55 | Debug output includes full command details | P2 | Implemented |
 
 ---
 
@@ -215,14 +228,14 @@ A single CLI tool that:
 │  ┌─────────┬─────────┬─────────┬─────────┬─────────────┐   │
 │  │ Winget  │ Choco   │  NPM    │  PNPM   │  Bun/Yarn   │   │
 │  ├─────────┼─────────┼─────────┼─────────┼─────────────┤   │
-│  │  PIP    │  PATH   │Registry │ Security│   Export    │   │
+│  │  PIP    │  PATH   │Registry │  Rust   │   Security  │   │
 │  └─────────┴─────────┴─────────┴─────────┴─────────────┘   │
 ├─────────────────────────────────────────────────────────────┤
 │                  Command Execution Layer                    │
 │              (spawn, timeout handling, parsing)             │
 ├─────────────────────────────────────────────────────────────┤
 │                    Output Layer                             │
-│         (UI rendering, logging, file export)                │
+│         (UI rendering, logging, debug mode, file export)    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -238,7 +251,7 @@ A single CLI tool that:
 
 ### 6.3 Data Flow
 
-1. **Initialization**: Parse args → Load config → Ensure data directory
+1. **Initialization**: Parse args → Load config → Ensure data directory → Initialize logging
 2. **Cache Check**: Load cached results if valid
 3. **Scan Phase**: Parallel source scanning → Deduplication
 4. **Update Check**: Query each source for available updates
@@ -247,6 +260,7 @@ A single CLI tool that:
 7. **Execution**: Apply updates (if requested) with confirmation
 8. **Export**: Write results to file (if requested)
 9. **Cache**: Save results for next run
+10. **Logging**: All operations logged to file (if --log enabled)
 
 ---
 
@@ -259,9 +273,11 @@ A single CLI tool that:
 - Yellow (`#ffff00`): Updates available, warnings
 - Red (`#ff0000`): Errors, vulnerabilities
 - Cyan (`#00ffff`): Headers, borders
-- Magenta (`#ff00ff`): Security updates
+- Magenta (`#ff00ff`): Security updates, Rust, PNPM sources
 - Blue (`#0000ff`): Winget, Yarn sources
-- Gray: Dimmed text, unknown status
+- Orange (`#ffa500`): Bun source
+- White (`#ffffff`): Yarn source
+- Gray: Dimmed text, unknown status, Registry source
 
 **Typography:**
 - Bold: Package names, counts, important info
@@ -304,7 +320,24 @@ requests                      pip           2.31.0              -               
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 7.3 Accessibility
+### 7.4 Source Badges
+
+Each source is displayed with a unique color badge:
+
+| Source | Color |
+|--------|-------|
+| Winget | Blue |
+| Chocolatey | Yellow |
+| NPM | Red |
+| PNPM | Magenta |
+| Bun | Orange |
+| Yarn | White |
+| PIP | Cyan |
+| Rust | Magenta |
+| PATH | Green |
+| Registry | Gray |
+
+### 7.5 Accessibility
 
 - **Non-TTY mode**: Falls back to plain text output
 - **NO_COLOR support**: Respects `NO_COLOR=1` environment variable
@@ -383,7 +416,8 @@ requests                      pip           2.31.0              -               
     yarn: boolean,
     pip: boolean,
     path: boolean,
-    registry: boolean
+    registry: boolean,
+    rust: boolean
   },
   security: {
     enabled: boolean,
@@ -501,6 +535,7 @@ const DEFAULT_CONFIG = {
     pip: true,
     path: true,
     registry: true,
+    rust: true,
   },
   security: {
     enabled: true,
@@ -553,6 +588,8 @@ node system_update.js [options]
 | `--export <format>` | - | String | Export scan results (json\|csv) |
 | `--output <file>` | - | String | Output path for export |
 | `--include <sources>` | - | String | Limit scan sources (comma-separated) |
+| `--log` | - | Flag | Enable logging to file |
+| `--debug` | - | Flag | Show all executed commands on screen and in log |
 | `--yes` | `-y` | Flag | Skip confirmation prompts |
 | `--help` | `-h` | Flag | Show help message |
 
@@ -567,6 +604,7 @@ node system_update.js [options]
 - `pip`
 - `path`
 - `registry`
+- `rust`
 
 ### 12.4 Example Commands
 
@@ -583,6 +621,9 @@ node system_update.js --update-all --yes
 # Update specific package
 node system_update.js --package git --source chocolatey
 
+# Update all Rust packages only
+node system_update.js --update-source rust --yes
+
 # Update all Winget packages only
 node system_update.js --update-source winget --dry-run
 
@@ -598,6 +639,12 @@ node system_update.js --no-cache
 
 # Clear cache
 node system_update.js --clear-cache
+
+# Enable logging for debugging
+node system_update.js --log
+
+# Show all executed commands
+node system_update.js --debug
 ```
 
 ---
@@ -712,16 +759,27 @@ Errors are displayed with appropriate styling:
 ```
 2026-03-09T10:30:00.000Z parse npm list failed: SyntaxError: Unexpected token
 2026-03-09T10:30:05.000Z update failed: git (chocolatey) stderr=error message
+2026-03-09T10:30:10.000Z [DEBUG] Executing: winget upgrade --id Git.Git
 ```
 
-### 15.2 Logged Events
+### 15.2 Logging Modes
+
+| Mode | Flag | Description |
+|------|------|-------------|
+| Disabled | (default) | No logging to file |
+| Enabled | `--log` | All operations logged to file |
+| Debug | `--debug` | All executed commands shown on screen AND logged |
+
+### 15.3 Logged Events
 
 - Configuration load failures
 - Command parse errors
 - Update failures (command + stderr)
 - Fatal errors (with stack trace)
+- All executed commands (in debug mode)
+- Session start/end with duration
 
-### 15.3 Resilience
+### 15.4 Resilience
 
 - Logging failures do not interrupt execution
 - Errors are caught and logged, not thrown
@@ -769,7 +827,7 @@ Errors are displayed with appropriate styling:
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0.0 | - | Initial release |
-| 1.0.1 | - | Bug fixes, performance improvements |
+| 1.0.1 | March 2026 | Added Rust source support, --log and --debug flags, enhanced PATH version detection, Registry updates via winget, updated source badge colors |
 
 ## Appendix B: Glossary
 
@@ -782,6 +840,7 @@ Errors are displayed with appropriate styling:
 | **Bun** | JavaScript runtime and package manager |
 | **Yarn** | Alternative JavaScript package manager |
 | **PIP** | Python package installer |
+| **Rust/Cargo** | Rust programming language package manager |
 | **CVE** | Common Vulnerabilities and Exposures identifier |
 | **TTY** | Teletypewriter - interactive terminal |
 
@@ -792,6 +851,8 @@ Errors are displayed with appropriate styling:
 - [NPM Audit](https://docs.npmjs.com/auditing-package-dependencies-for-security-vulnerabilities)
 - [PIP Vulnerability Checking](https://pip.pypa.io/en/stable/cli/pip_check/)
 - [GitHub Releases API](https://docs.github.com/rest/releases/releases)
+- [Cargo Documentation](https://doc.rust-lang.org/cargo/)
+- [Cargo Update](https://github.com/nabijaczleweli/cargo-update)
 
 ---
 
