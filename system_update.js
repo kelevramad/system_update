@@ -108,6 +108,7 @@ function emoji(name) {
     lock: '🔒',
     fire: '🔥',
     shield: '🛡️',
+    target: '🎯',
   };
   return map[name] || '';
 }
@@ -330,6 +331,7 @@ function parseArgs(argv) {
     help: false,
     log: false,
     debug: false,
+    showAll: false,
   };
 
   for (let i = 2; i < argv.length; i += 1) {
@@ -382,6 +384,9 @@ function parseArgs(argv) {
       case '--debug':
         args.debug = true;
         break;
+      case '--show-all':
+        args.showAll = true;
+        break;
       default:
         throw new Error(`Unknown argument: ${token}`);
     }
@@ -413,6 +418,7 @@ Options:
   --include <source>        Limit scan sources (e.g. winget,npm,path,registry)
   --yes, -y                 Skip confirmation prompts
   --help, -h                Show help
+  --show-all                Show all packages (including up-to-date)
 
 Features:
   • Package Discovery: Winget, Chocolatey, NPM, PNPM, Bun, Yarn, Pip, Rust, Registry
@@ -428,6 +434,7 @@ Examples:
   node system_update.js --package git --source chocolatey
   node system_update.js --update-source winget --dry-run
   node system_update.js --export json --output report.json
+  node system_update.js --show-all
 `);
 }
 
@@ -1422,8 +1429,12 @@ function padAnsi(text, width) {
   return text + ' '.repeat(padding);
 }
 
-function printAppsTable(apps) {
-  writeLog(`printing apps table: count=${apps.length}`);
+function printAppsTable(apps, showAll = false) {
+  writeLog(`printing apps table: count=${apps.length}, showAll=${showAll}`);
+  
+  // Filter apps: by default show only updates, unless showAll is true
+  const displayApps = showAll ? apps : apps.filter((a) => a.status === Status.UPDATE_AVAILABLE || a.status === Status.VULNERABLE);
+  
   const cols = [
     { key: 'name', title: 'Package', width: 30 },
     { key: 'source', title: 'Source', width: 12 },
@@ -1436,7 +1447,7 @@ function printAppsTable(apps) {
   console.log(header);
   console.log(paint('─'.repeat(header.length), ANSI.gray));
 
-  for (const app of apps) {
+  for (const app of displayApps) {
     const row = cols
       .map((c) => {
         // Latest column: show "-" when up-to-date, yellow bold when update available
@@ -1716,6 +1727,8 @@ async function main() {
   }
 
   const appsWithUpdates = apps.filter((a) => a.status === Status.UPDATE_AVAILABLE);
+  const appsWithVulnerabilities = apps.filter((a) => a.status === Status.VULNERABLE);
+  const displayApps = args.showAll ? apps : appsWithUpdates.concat(appsWithVulnerabilities);
   const bySource = apps.reduce((acc, a) => {
     acc[a.source] = (acc[a.source] || 0) + 1;
     return acc;
@@ -1728,7 +1741,14 @@ async function main() {
   console.log(`${emoji('gear')} sources         ${Object.entries(bySource).map(([s, n]) => `${s}:${n}`).join(', ')}`);
   console.log('');
 
-  printAppsTable(apps);
+  printAppsTable(apps, args.showAll);
+
+  // Display showing status after table (matching desired format)
+  if (args.showAll) {
+    console.log(`\n${emoji('disk')} Showing: all packages`);
+  } else {
+    console.log(`\n${emoji('disk')} Showing: updates only`);
+  }
 
   const vulnerableApps = apps.filter((a) => a.status === Status.VULNERABLE);
   if (vulnerableApps.length && config.security?.enabled) {
@@ -1739,6 +1759,15 @@ async function main() {
       description: 'Security update recommended',
     }));
     printSecurityTable(vulnerabilities);
+  }
+
+  // Display found updates message after table
+  if (!args.packageName && !args.updateSource && !args.updateAll) {
+    if (!appsWithUpdates.length) {
+      console.log(`\n${emoji('sparkle')} ${paint('System is up to date!', ANSI.green)}`);
+    } else {
+      console.log(`\n${emoji('target')} ${paint(`Found ${appsWithUpdates.length} available updates`, ANSI.yellow, ANSI.bold)}`);
+    }
   }
 
   if (args.packageName) {
