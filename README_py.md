@@ -83,6 +83,7 @@ python system_update.py --export json --output report.json
 | `--include <csv>` | Limit scan to specific sources (e.g., `winget,npm,pip`) |
 | `--yes`, `-y` | Skip confirmation prompts |
 | `--help`, `-h` | Show help message |
+| `--show-all` | Show all packages (including up-to-date) |
 
 ### Examples
 
@@ -116,6 +117,9 @@ python system_update.py --export csv --output updates.csv
 
 # Force fresh scan and export
 python system_update.py --no-cache --export json
+
+# Show all packages (including up-to-date)
+python system_update.py --show-all
 ```
 
 ---
