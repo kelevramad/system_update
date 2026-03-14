@@ -1088,6 +1088,45 @@ async function checkPathUpdates(apps, timeoutMs) {
   if (!target.length) return 0;
   await writeLog('checking path updates');
 
+  // Parse version string into comparable array [major, minor, patch, isStable]
+  function parseVersion(verStr) {
+    const clean = String(verStr).replace(/^[^\d]+/, '').trim();
+    const match = clean.match(/^(\d+)\.(\d+)\.(\d+)/);
+    if (!match) {
+      const match2 = clean.match(/^(\d+)\.(\d+)/);
+      if (match2) {
+        return [parseInt(match2[1]), parseInt(match2[2]), 0, !/preview|rc|beta|alpha|-pre/i.test(verStr)];
+      }
+      return [0, 0, 0, false];
+    }
+    const isStable = !/preview|rc|beta|alpha|-pre/i.test(verStr);
+    return [parseInt(match[1]), parseInt(match[2]), parseInt(match[3]), isStable];
+  }
+
+  // Check if latest is actually newer than current (handles previews)
+  function isNewerVersion(current, latest) {
+    const curr = parseVersion(current);
+    const lat = parseVersion(latest);
+
+    // If current is a newer major version preview, don't suggest downgrade
+    if (curr[0] > lat[0]) return false;
+    // If current is a newer minor in same major, don't suggest downgrade
+    if (curr[0] === lat[0] && curr[1] > lat[1]) return false;
+
+    // Both stable: standard comparison
+    if (curr[3] && lat[3]) {
+      return lat[0] > curr[0] || (lat[0] === curr[0] && lat[1] > curr[1]) || (lat[0] === curr[0] && lat[1] === curr[1] && lat[2] > curr[2]);
+    }
+
+    // Current is preview but same base version as latest stable
+    if (!curr[3] && curr[0] === lat[0] && curr[1] === lat[1] && curr[2] === lat[2]) {
+      return false;
+    }
+
+    // Latest stable is newer than current stable
+    return lat[0] > curr[0] || (lat[0] === curr[0] && lat[1] > curr[1]) || (lat[0] === curr[0] && lat[1] === curr[1] && lat[2] > curr[2]);
+  }
+
   let count = 0;
   for (const app of target) {
     let latest = '';
@@ -1145,12 +1184,18 @@ async function checkPathUpdates(apps, timeoutMs) {
       const cleanVersion = app.version.replace(/^[^\d]+/, '').trim();
       const cleanLatest = latest.replace(/^[^\d]+/, '').trim();
       app.latestVersion = cleanLatest;
-      if (cleanLatest !== cleanVersion && !app.version.includes(cleanLatest)) {
+
+      // Use proper version comparison that handles previews
+      if (isNewerVersion(app.version, latest)) {
         app.status = Status.UPDATE_AVAILABLE;
         count += 1;
       } else {
         app.status = Status.UP_TO_DATE;
       }
+    } else {
+      // No latest version found, mark as up-to-date (don't show unknown)
+      app.latestVersion = '-';
+      app.status = Status.UP_TO_DATE;
     }
   }
   await writeLog(`update check: path finished, updates=${count}`);
@@ -1161,7 +1206,7 @@ function finalizeStatuses(apps) {
   for (const app of apps) {
     if (app.status === Status.UPDATE_AVAILABLE) continue;
     if (app.status === Status.UP_TO_DATE) continue;
-    if (app.latestVersion || ['winget', 'chocolatey', 'npm', 'pnpm', 'bun', 'yarn', 'pip', 'rust'].includes(app.source)) {
+    if (app.latestVersion || ['winget', 'chocolatey', 'npm', 'pnpm', 'bun', 'yarn', 'pip', 'rust', 'path'].includes(app.source)) {
       app.status = Status.UP_TO_DATE;
     } else {
       app.status = Status.UNKNOWN;
@@ -1366,6 +1411,16 @@ function truncate(value, size) {
   return text.length <= size ? text : `${text.slice(0, size - 1)}…`;
 }
 
+function stripAnsi(text) {
+  return text.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+function padAnsi(text, width) {
+  const visibleLength = stripAnsi(text).length;
+  const padding = Math.max(0, width - visibleLength);
+  return text + ' '.repeat(padding);
+}
+
 function printAppsTable(apps) {
   writeLog(`printing apps table: count=${apps.length}`);
   const cols = [
@@ -1383,12 +1438,21 @@ function printAppsTable(apps) {
   for (const app of apps) {
     const row = cols
       .map((c) => {
-        const raw = truncate(app[c.key] || '-', c.width).padEnd(c.width);
-        if (c.key === 'source') return sourceBadge(raw.trim()).padEnd(c.width + 11);
-        if (c.key === 'status') return statusBadge(app.status).padEnd(c.width + 10);
-        if (c.key === 'name') return paint(raw, ANSI.bold);
-        if (c.key === 'latestVersion' && app.status === Status.UPDATE_AVAILABLE) return paint(raw, ANSI.yellow);
-        return raw;
+        // Latest column: show "-" when up-to-date, yellow bold when update available
+        if (c.key === 'latestVersion') {
+          if (app.status === Status.UP_TO_DATE) {
+            return '-'.padEnd(c.width);
+          }
+          if (app.status === Status.UPDATE_AVAILABLE) {
+            return padAnsi(paint(truncate(app.latestVersion || '-', c.width), ANSI.yellow, ANSI.bold), c.width);
+          }
+          return truncate(app.latestVersion || '-', c.width).padEnd(c.width);
+        }
+        const raw = truncate(app[c.key] || '-', c.width);
+        if (c.key === 'source') return padAnsi(sourceBadge(raw), c.width);
+        if (c.key === 'status') return padAnsi(statusBadge(app.status), c.width);
+        if (c.key === 'name') return padAnsi(paint(raw, ANSI.bold), c.width);
+        return raw.padEnd(c.width);
       })
       .join('  ');
     console.log(row);
