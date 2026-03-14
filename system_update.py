@@ -118,12 +118,12 @@ console = Console()
 class UpdateStatus(Enum):
     """Package update status enumeration."""
 
-    UP_TO_DATE = "✅"
-    UPDATE_AVAILABLE = "⬆️"
-    UNKNOWN = "❓"
-    ERROR = "❌"
-    VULNERABLE = "🔥"
-    SECURITY_UPDATE_AVAILABLE = "🔒"
+    UP_TO_DATE = "up_to_date"
+    UPDATE_AVAILABLE = "update_available"
+    UNKNOWN = "unknown"
+    ERROR = "error"
+    VULNERABLE = "vulnerable"
+    SECURITY_UPDATE_AVAILABLE = "security_update_available"
 
 
 @dataclass
@@ -146,8 +146,16 @@ class AppInfo:
 
     @property
     def status_display(self) -> str:
-        """Get formatted status for display."""
-        return self.update_status.value
+        """Get formatted status for display with emoji and text."""
+        mapping = {
+            UpdateStatus.UP_TO_DATE: "✅ up-to-date",
+            UpdateStatus.UPDATE_AVAILABLE: "⬆️ update",
+            UpdateStatus.UNKNOWN: "❓ unknown",
+            UpdateStatus.ERROR: "❌ error",
+            UpdateStatus.VULNERABLE: "🔥 vulnerable",
+            UpdateStatus.SECURITY_UPDATE_AVAILABLE: "🔒 security update",
+        }
+        return mapping.get(self.update_status, "❓ unknown")
 
     def to_dict(self) -> Dict:
         data = asdict(self)
@@ -211,6 +219,7 @@ class SystemConfig:
                 "yarn": True,
                 "path": True,
                 "registry": True,
+                "rust": True,
             },
             "security": {
                 "enabled": True,
@@ -470,12 +479,35 @@ class UISystem:
         table.add_column("📊 Status", justify="center")
 
         for app in sorted(apps, key=lambda x: (x.source, x.name)):
-            status_style = (
-                "green" if app.update_status == UpdateStatus.UP_TO_DATE else "yellow"
-            )
+            # Source-based coloring (Rich styles)
+            src_styles = {
+                "winget": "bold blue",
+                "chocolatey": "bold yellow",
+                "npm": "bold red",
+                "pnpm": "bold magenta",
+                "bun": "yellow",
+                "yarn": "bold white",
+                "pip": "bold cyan",
+                "rust": "bold magenta",
+                "path": "bold green",
+                "registry": "dim white",
+            }
+            source_lower = app.source.lower()
+            source_style = src_styles.get(source_lower, "white")
+            # Status-based coloring
+            status_styles = {
+                UpdateStatus.UP_TO_DATE: "green",
+                UpdateStatus.UPDATE_AVAILABLE: "bold yellow",
+                UpdateStatus.ERROR: "bold red",
+                UpdateStatus.VULNERABLE: "bold red",
+                UpdateStatus.SECURITY_UPDATE_AVAILABLE: "bold magenta",
+                UpdateStatus.UNKNOWN: "dim white",
+            }
+            status_style = status_styles.get(app.update_status, "white")
+            
             table.add_row(
                 app.name[:30],
-                app.source,
+                Text(app.source, style=source_style),
                 app.version,
                 app.latest_version or "N/A",
                 f"[{status_style}]{app.status_display}[/{status_style}]",
@@ -789,6 +821,29 @@ class PackageScanner:
         return apps
 
     @staticmethod
+    def scan_rust() -> List[AppInfo]:
+        """Scan Rust packages installed via cargo."""
+        apps = []
+        output = run_command(["cargo", "install", "--list"], allow_failure=True)
+        if not output:
+            return apps
+
+        for line in output.splitlines():
+            # Format: package-name v1.2.3:
+            match = re.match(r"^([^\s]+)\s+v([^\s:]+):", line)
+            if match:
+                apps.append(
+                    AppInfo(
+                        name=match.group(1),
+                        source="Rust",
+                        version=match.group(2),
+                        app_id=match.group(1),
+                    )
+                )
+
+        return apps
+
+    @staticmethod
     def scan_registry() -> List[AppInfo]:
         """Scan Windows Registry for installed applications."""
         if platform.system() != "Windows":
@@ -855,6 +910,7 @@ class UpdateChecker:
             "PIP": [a for a in apps if a.source == "PIP"],
             "PATH": [a for a in apps if a.source == "PATH"],
             "Registry": [a for a in apps if a.source == "Registry"],
+            "Rust": [a for a in apps if a.source == "Rust"],
         }
 
         # Check updates for each source
@@ -882,6 +938,8 @@ class UpdateChecker:
                 total_updates += UpdateChecker._check_path_updates(source_apps)
             elif source_name == "Registry":
                 total_updates += UpdateChecker._check_registry_updates(source_apps)
+            elif source_name == "Rust":
+                total_updates += UpdateChecker._check_rust_updates(source_apps)
 
             progress.advance(task_id, 10)
 
@@ -893,7 +951,7 @@ class UpdateChecker:
                 continue
             # Sources that perform update checks should be marked UP_TO_DATE if no update found
             # PATH is checked individually so only mark UP_TO_DATE if latest_version was set
-            if app.latest_version or app.source in ["Winget", "Chocolatey", "NPM", "PNPM", "Bun", "Yarn", "PIP", "Registry"]:
+            if app.latest_version or app.source in ["Winget", "Chocolatey", "NPM", "PNPM", "Bun", "Yarn", "PIP", "Registry", "Rust"]:
                 app.update_status = UpdateStatus.UP_TO_DATE
             else:
                 app.update_status = UpdateStatus.UNKNOWN
@@ -1096,10 +1154,18 @@ class UpdateChecker:
     def _check_pip_updates(apps: List[AppInfo]) -> int:
         """Check PIP package updates."""
         updates = 0
-        output = run_command(
+        pip_commands = [
             [sys.executable, "-m", "pip", "list", "--outdated", "--format=json"],
-            allow_failure=True,
-        )
+            ["pip", "list", "--outdated", "--format=json"],
+            ["pip3", "list", "--outdated", "--format=json"],
+        ]
+
+        output = None
+        for cmd in pip_commands:
+            output = run_command(cmd, allow_failure=True)
+            if output:
+                break
+
         if not output:
             return updates
 
@@ -1109,7 +1175,7 @@ class UpdateChecker:
                 name = item.get("name")
                 latest = item.get("latest_version")
                 for app in apps:
-                    if app.name == name:
+                    if app.name.lower() == name.lower():
                         app.latest_version = latest
                         app.update_status = UpdateStatus.UPDATE_AVAILABLE
                         updates += 1
@@ -1183,6 +1249,8 @@ class UpdateChecker:
                     output = run_command(["npm", "view", app.name, "version"], allow_failure=True)
                     if output and "ERR" not in output:
                         latest = output.strip()
+                    if not latest:
+                        latest = app.version
                 elif app.name == "python":
                     data = fetch_json("https://api.github.com/repos/python/cpython/releases/latest")
                     if data and data.get("tag_name"):
@@ -1196,16 +1264,30 @@ class UpdateChecker:
                     if data and data.get("tag_name"):
                         match = re.search(r"v?([0-9.]+?)(?:\.windows)", data["tag_name"])
                         latest = match.group(1) if match else data["tag_name"].replace("v", "")
+                    if not latest:
+                        latest = app.version
                 elif app.name == "pwsh":
                     data = fetch_json("https://api.github.com/repos/PowerShell/PowerShell/releases/latest")
                     if data and data.get("tag_name"):
                         latest = data["tag_name"].replace("v", "")
+                    if not latest:
+                        latest = app.version
                 elif app.name == "dotnet":
                     output = run_command(["winget", "show", "Microsoft.DotNet.SDK.9", "--accept-source-agreements"], allow_failure=True)
                     if output:
                         match = re.search(r"Version:\s+([0-9.]+)", output)
                         if match:
                             latest = match.group(1)
+                    if not latest:
+                        latest = app.version
+                elif app.name in ("rustc", "cargo"):
+                    data = fetch_json("https://api.github.com/repos/rust-lang/rust/releases/latest")
+                    if data and data.get("tag_name"):
+                        match = re.search(r"([0-9.]+)", data["tag_name"])
+                        if match:
+                            latest = match.group(1)
+                    if not latest:
+                        latest = app.version
 
                 if latest:
                     clean_version = re.sub(r'^[^\d]+', '', app.version).strip()
@@ -1218,6 +1300,42 @@ class UpdateChecker:
                         app.update_status = UpdateStatus.UP_TO_DATE
             except Exception:
                 pass
+        return updates
+
+    @staticmethod
+    def _check_rust_updates(apps: List[AppInfo]) -> int:
+        """Check Rust package updates via cargo install-update."""
+        updates = 0
+        output = run_command(["cargo", "install-update", "-l"], allow_failure=True)
+        if not output:
+            return updates
+
+        lines = output.splitlines()
+        # Find header: Package | Installed | Latest | Needs update
+        header_idx = -1
+        for i, line in enumerate(lines):
+            if "Package" in line and "Latest" in line:
+                header_idx = i
+                break
+
+        if header_idx == -1:
+            return updates
+
+        for line in lines[header_idx + 1:]:
+            l = line.strip()
+            if not l:
+                continue
+            parts = l.split()
+            if len(parts) < 4:
+                continue
+
+            name, installed, latest, needs_update = parts[0], parts[1], parts[2], parts[3]
+            if needs_update.lower() == "yes":
+                for app in apps:
+                    if app.name == name:
+                        app.latest_version = latest[1:] if latest.startswith('v') else latest
+                        app.update_status = UpdateStatus.UPDATE_AVAILABLE
+                        updates += 1
         return updates
 
 
@@ -1313,6 +1431,9 @@ class UpdateExecutor:
             if not target_ver:
                 cmd.append("--upgrade")
 
+        elif app.source == "Rust":
+            cmd = ["cargo", "install-update", app.name]
+
         elif app.source == "PATH":
             if app.name == "bun":
                 cmd = ["bun", "upgrade"]
@@ -1367,6 +1488,7 @@ class SystemUpdateApp:
             "PIP": self.scanner.scan_pip,
             "PATH": self.scanner.scan_path,
             "Registry": self.scanner.scan_registry,
+            "Rust": self.scanner.scan_rust,
         }
 
         # Filter by source if specified
@@ -1596,6 +1718,7 @@ Examples:
   python system_update.py --update-all      # Update all packages
   python system_update.py --dry-run          # Preview updates
   python system_update.py --package git     # Update specific package
+  python system_update.py --source rust      # Filter by source
   python system_update.py --export json     # Export results to JSON
         """,
     )
