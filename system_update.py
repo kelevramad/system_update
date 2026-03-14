@@ -459,10 +459,10 @@ class UISystem:
             pad_edge=False,
         )
 
-        table.add_column("Package", style="bold white", width=30)
-        table.add_column("Source", width=12)
-        table.add_column("Current", width=20, style="white")
-        table.add_column("Latest", width=20)
+        table.add_column("Package", style="bold white", width=30, justify="left")
+        table.add_column("Source", width=12, justify="left")
+        table.add_column("Current", width=20, style="white", justify="left")
+        table.add_column("Latest", width=20, justify="left")
         table.add_column("Status", width=17, justify="left")
 
         for app in sorted(apps, key=lambda x: (x.source, x.name)):
@@ -1301,9 +1301,10 @@ class UpdateChecker:
                     if not latest:
                         latest = app.version
                 elif app.name == "python":
-                    data = fetch_json("https://api.github.com/repos/python/cpython/releases/latest")
-                    if data and data.get("tag_name"):
-                        match = re.search(r"v?([0-9.]+)", data["tag_name"])
+                    # Python uses tags, not releases - get latest tag
+                    data = fetch_json("https://api.github.com/repos/python/cpython/tags?per_page=1")
+                    if data and isinstance(data, list) and len(data) > 0 and data[0].get("name"):
+                        match = re.search(r"v?([0-9.]+)", data[0]["name"])
                         if match:
                             latest = match.group(1)
                     if not latest:
