@@ -101,11 +101,12 @@ function srcBadge([string]$s) {
         'chocolatey' { c '33;1' $s }
         'npm' { c '31;1' $s }
         'pnpm' { c '35;1' $s }
-        'bun' { c '35;1' $s }
-        'yarn' { c '34;1' $s }
+        'bun' { c '33' $s }
+        'yarn' { c '37;1' $s }
         'pip' { c '36;1' $s }
+        'rust' { c '35;1' $s }
         'path' { c '32;1' $s }
-        'registry' { c '90;1' $s }
+        'registry' { gray $s }
         default { gray $s }
     }
 }
@@ -380,6 +381,18 @@ function Scan-Path {
     return $apps
 }
 
+function Scan-Rust {
+    $r = Invoke-Cmd 'cargo' @('install', '--list') -AllowFail
+    $apps = @()
+    if (-not $r.Stdout) { return $apps }
+    $r.Stdout -split "`r?`n" | ForEach-Object {
+        if ($_ -match '^([^\s]+)\s+v([^\s:]+):') {
+            $apps += [PSCustomObject]@{Name = $Matches[1]; Source = 'rust'; Version = $Matches[2]; LatestVersion = ''; AppId = $Matches[1]; Status = $S_UNK }
+        }
+    }
+    return $apps
+}
+
 function Scan-Registry {
     $seen = @{}
     $paths = @(
@@ -530,6 +543,34 @@ function Check-Yarn([array]$Apps) {
     }; return $n
 }
 
+function Check-Rust([array]$Apps) {
+    $t = @($Apps | Where-Object { $_.Source -eq 'rust' }); if (-not $t) { return 0 }
+    $r = Invoke-Cmd 'cargo' @('install-update', '-l') -AllowFail
+    if (-not $r.Stdout) { return 0 }
+    $lines = $r.Stdout -split "`r?`n"
+    $hi = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match 'Package' -and $lines[$i] -match 'Latest') { $hi = $i; break }
+    }
+    if ($hi -lt 0) { return 0 }
+    $n = 0
+    foreach ($line in $lines[($hi + 1)..($lines.Count - 1)]) {
+        $l = $line.Trim()
+        if (-not $l) { continue }
+        $p = $l -split '\s+' | Where-Object { $_ }
+        if ($p.Count -lt 4) { continue }
+        $name = $p[0]; $latest = $p[2]; $needs = $p[3]
+        if ($needs.ToLower() -eq 'yes') {
+            $a = $t | Where-Object { $_.Name -eq $name } | Select-Object -First 1
+            if ($a) {
+                $a.LatestVersion = if ($latest.StartsWith('v')) { $latest.Substring(1) } else { $latest }
+                $a.Status = $S_UPD; $n++
+            }
+        }
+    }
+    return $n
+}
+
 function Check-Pip([array]$Apps) {
     $t = @($Apps | Where-Object { $_.Source -eq 'pip' }); if (-not $t) { return 0 }; $n = 0
     foreach ($run in @('py', 'python', 'python3', 'pip')) {
@@ -597,7 +638,7 @@ function Check-PathUpdates([array]$Apps) {
 }
 
 function Finalize([array]$Apps) {
-    $managed = @('winget', 'chocolatey', 'npm', 'pnpm', 'bun', 'yarn', 'pip', 'registry')
+    $managed = @('winget', 'chocolatey', 'npm', 'pnpm', 'bun', 'yarn', 'pip', 'registry', 'rust')
     foreach ($a in $Apps) {
         if ($a.Status -in @($S_UPD, $S_OK)) { continue }
         if ($a.LatestVersion -or $a.Source -in $managed) { $a.Status = $S_OK } else { $a.Status = $S_UNK }
@@ -728,6 +769,7 @@ function Exec-Update([PSCustomObject]$App, [switch]$Dry) {
             if ($Dry) { Write-Host "[dry-run] pip install $pkg"; return $true }
             return (Invoke-Cmd 'pip' @('install', $pkg) -AllowFail).Ok
         }
+        'rust' { $cmd = 'cargo'; $ca = @('install-update', $App.Name) }
         'path' {
             switch ($App.Name) {
                 'bun' { $cmd = 'bun'; $ca = @('upgrade') }
@@ -770,16 +812,16 @@ Usage:  .\system_update.ps1 [options]
 
 Options:
   -UpdateAll              Update all packages with available updates
-  -UpdateSource <src>     Update all packages from one source
+  -UpdateSource <src>     Update all packages from one source (winget|choco|npm|pnpm|pip|bun|yarn|path|rust|registry)
   -Package <name>         Update a specific package by name
   -Version <ver>          Target version (with -Package)
-  -Source <src>           Filter by source (winget|chocolatey|npm|pnpm|bun|yarn|pip|path|registry)
+  -Source <src>           Filter by source (winget|chocolatey|npm|pnpm|bun|yarn|pip|path|rust|registry)
   -DryRun                 Show planned updates without executing
   -NoCache                Force fresh scan
   -ClearCache             Remove cache file and exit
   -Export <json|csv>      Export results to file
   -Output <file>          Output path for export
-  -Include <csv>          Limit scan to specific sources (e.g. winget,npm)
+  -Include <csv>          Limit scan to specific sources (e.g. winget,npm,rust)
   -Yes                    Skip confirmation prompts
   -Help                   Show this help
 "@
@@ -818,6 +860,7 @@ function Main {
             pip        = { Scan-Pip }
             path       = { Scan-Path }
             registry   = { Scan-Registry }
+            rust       = { Scan-Rust }
         }
         $sel = @($scanners.Keys | Where-Object { $sf.Count -eq 0 -or $sf.ContainsKey($_) })
         $prog = New-Progress $sel.Count "$(E 'scan') Scanning"
@@ -843,6 +886,7 @@ function Main {
             pip        = { Check-Pip $apps }
             path       = { Check-PathUpdates $apps }
             registry   = { Check-Registry $apps }
+            rust       = { Check-Rust $apps }
         }
         $prog2 = New-Progress $checkers.Count "$(E 'update') Checking updates"
         $total = 0
