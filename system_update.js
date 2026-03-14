@@ -1149,9 +1149,10 @@ async function checkPathUpdates(apps, timeoutMs) {
         const ver = res.stdout.trim();
         if (ver && !ver.includes('ERR')) latest = ver;
       } else if (app.name === 'python') {
-        const data = await fetchJson('https://api.github.com/repos/python/cpython/releases/latest').catch(() => null);
-        if (data && data.tag_name) {
-          const m = data.tag_name.match(/v?([0-9.]+)/);
+        // Python uses tags, not releases - get latest tag
+        const data = await fetchJson('https://api.github.com/repos/python/cpython/tags?per_page=1').catch(() => null);
+        if (data && Array.isArray(data) && data[0] && data[0].name) {
+          const m = data[0].name.match(/v?([0-9.]+)/);
           if (m && m[1]) latest = m[1];
         }
         if (!latest) latest = app.version;
