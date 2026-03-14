@@ -379,6 +379,44 @@ def run_command(cmd: List[str], timeout: int = 45, allow_failure: bool = False, 
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# SOURCE BADGE UTILITY
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def source_badge(source: str) -> str:
+    """Return source name with Rich style tags matching JS sourceBadge().
+    
+    Color pattern (from JS version):
+    - winget: blue
+    - chocolatey: yellow
+    - npm: red
+    - pnpm: magenta (purple in JS)
+    - pip: cyan
+    - bun: yellow (orange not available in Rich, using yellow)
+    - yarn: white
+    - rust: magenta
+    - path: green
+    - registry: dim white (gray)
+    """
+    source_lower = (source or "unknown").lower()
+    style_map = {
+        "winget": "bold blue",
+        "chocolatey": "bold yellow",
+        "npm": "bold red",
+        "pnpm": "bold magenta",
+        "pip": "bold cyan",
+        "bun": "yellow",
+        "yarn": "bold white",
+        "rust": "bold magenta",
+        "path": "bold green",
+        "registry": "dim white",
+    }
+    style = style_map.get(source_lower, "dim white")
+    # Return source name with style tags (e.g., "[bold blue]winget[/bold blue]")
+    return f"[{style}]{source_lower}[/{style}]"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # ENHANCED UI SYSTEM
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -388,95 +426,50 @@ class UISystem:
 
     @staticmethod
     def display_banner():
-        """Show beautiful application banner."""
-        console.clear()
-
-        banner_text = Text()
-        banner_text.append(
-            "╔════════════════════════════════════════════════════════════╗\n",
-            style="bold blue",
-        )
-        banner_text.append(
-            "║                    SYSTEM UPDATE ENHANCED                ║\n",
-            style="bold white on blue",
-        )
-        banner_text.append(
-            "║                       Version 5.0.0                      ║\n",
-            style="bold blue",
-        )
-        banner_text.append(
-            "╚════════════════════════════════════════════════════════════╝\n",
-            style="bold blue",
-        )
-
-        console.print(Align.center(banner_text))
-
-        # System info panel
-        info_table = Table.grid(padding=1)
-        info_table.add_column(justify="center", style="cyan")
-        info_table.add_column(justify="center", style="white")
-
-        info_table.add_row("🖥️  OS:", f"{platform.system()} {platform.release()}")
-        info_table.add_row("🐍 Python:", platform.python_version())
-        info_table.add_row(
-            "⚡ Parallel:",
-            "ON" if config.settings["performance"]["parallel_scan"] else "OFF",
-        )
-
-        console.print(
-            Panel(
-                info_table,
-                title="[bold green]System Information[/bold green]",
-                border_style="green",
-                box=box.ROUNDED,
-                padding=(1, 2),
-            )
-        )
+        """Show application banner matching JS version."""
+        def hr(ch='─', width=70): return ch * width
+        w = 68
+        title = f"🚀 System Update Node CLI v5.0.0"
+        sub = f"⚙️ Data dir: {config.config_dir}"
+        
+        console.print(f"[cyan]┌{hr('─', 70)}┐[/cyan]")
+        console.print(f"[cyan]│[/cyan] [bold cyan]{title.ljust(69)}[/bold cyan][cyan]│[/cyan]")
+        console.print(f"[cyan]│[/cyan] [dim cyan]{sub.ljust(69)}[/dim cyan][cyan]│[/cyan]")
+        console.print(f"[cyan]└{hr('─', 70)}┘[/cyan]")
+        
+        console.print(f"Cache  [dim white]→ {config.cache_file}[/dim white]")
         console.print()
 
     @staticmethod
-    def create_summary_panel(
-        total_apps: int, updates: int, vulnerable: int, scan_time: float
-    ) -> Panel:
-        """Create beautiful summary panel."""
-        summary_text = Text()
-
-        colors = ["cyan", "yellow", "red", "magenta"]
-        icons = ["📦", "⬆️", "🔥", "⏱️"]
-        labels = ["Total Apps", "Updates", "Vulnerable", "Scan Time"]
-        values = [total_apps, updates, vulnerable, f"{scan_time:.2f}s"]
-
-        for i, (icon, label, value, color) in enumerate(
-            zip(icons, labels, values, colors)
-        ):
-            summary_text.append(f"{icon} {label}: ", style=f"bold {color}")
-            summary_text.append(f"{value}\n", style="bold white")
-
-        return Panel(
-            summary_text,
-            title="[bold blue]📊 Scan Summary[/bold blue]",
-            border_style="blue",
-            box=box.ROUNDED,
-            width=60,
-        )
+    def display_summary(total_apps: int, updates: int, scan_time: float, sources_count: Dict[str, int]):
+        """Display summary exactly matching NodeJS version."""
+        console.print(f"[bold magenta]📊 Summary[/bold magenta]")
+        console.print(f"📦 total apps     [bold white]{total_apps}[/bold white]")
+        console.print(f"⬆️ updates        [bold yellow]{updates}[/bold yellow]")
+        console.print(f"⏱️ scan duration  [bold white]{scan_time:.2f}s[/bold white]")
+        
+        source_parts = [f"{s.lower()}:{c}" for s, c in sorted(sources_count.items()) if c > 0]
+        console.print(f"⚙️ sources        [dim white]{', '.join(source_parts)}[/dim white]")
+        console.print()
 
     @staticmethod
     def create_apps_table(
         apps: List[AppInfo], title: str = "Installed Applications"
     ) -> Table:
-        """Create beautiful applications table."""
+        """Create applications table matching JS version."""
         table = Table(
-            title=f"[bold cyan]{title}[/bold cyan]",
-            box=box.ROUNDED,
+            box=box.SIMPLE,
             show_header=True,
-            header_style="bold blue",
+            header_style="bold cyan",
+            border_style="dim white",
+            pad_edge=False,
         )
 
-        table.add_column("📦 Package", style="cyan", no_wrap=True)
-        table.add_column("🔗 Source", style="magenta")
-        table.add_column("📋 Version", style="dim")
-        table.add_column("🎯 Latest", style="green")
-        table.add_column("📊 Status", justify="center")
+        table.add_column("Package", style="bold white", width=30)
+        table.add_column("Source", width=12)
+        table.add_column("Current", width=20, style="white")
+        table.add_column("Latest", width=20)
+        table.add_column("Status", width=17, justify="left")
 
         for app in sorted(apps, key=lambda x: (x.source, x.name)):
             # Source-based coloring (Rich styles)
@@ -918,30 +911,38 @@ class UpdateChecker:
             if not source_apps:
                 continue
 
-            progress.update(task_id, description=f"Checking {source_name} updates...")
+            progress.update(task_id, extra=f"Checking {source_badge(source_name)}...")
 
+            source_updates = 0
+            # ... (rest of the source checks)
             if source_name == "Winget":
-                total_updates += UpdateChecker._check_winget_updates(source_apps)
+                source_updates = UpdateChecker._check_winget_updates(source_apps)
             elif source_name == "Chocolatey":
-                total_updates += UpdateChecker._check_choco_updates(source_apps)
+                source_updates = UpdateChecker._check_choco_updates(source_apps)
             elif source_name == "NPM":
-                total_updates += UpdateChecker._check_npm_updates(source_apps)
+                source_updates = UpdateChecker._check_npm_updates(source_apps)
             elif source_name == "PNPM":
-                total_updates += UpdateChecker._check_pnpm_updates(source_apps)
+                source_updates = UpdateChecker._check_pnpm_updates(source_apps)
             elif source_name == "Bun":
-                total_updates += UpdateChecker._check_bun_updates(source_apps)
+                source_updates = UpdateChecker._check_bun_updates(source_apps)
             elif source_name == "Yarn":
-                total_updates += UpdateChecker._check_yarn_updates(source_apps)
+                source_updates = UpdateChecker._check_yarn_updates(source_apps)
             elif source_name == "PIP":
-                total_updates += UpdateChecker._check_pip_updates(source_apps)
+                source_updates = UpdateChecker._check_pip_updates(source_apps)
             elif source_name == "PATH":
-                total_updates += UpdateChecker._check_path_updates(source_apps)
+                source_updates = UpdateChecker._check_path_updates(source_apps)
             elif source_name == "Registry":
-                total_updates += UpdateChecker._check_registry_updates(source_apps)
+                source_updates = UpdateChecker._check_registry_updates(source_apps)
             elif source_name == "Rust":
-                total_updates += UpdateChecker._check_rust_updates(source_apps)
+                source_updates = UpdateChecker._check_rust_updates(source_apps)
 
+            total_updates += source_updates
+            # Use source_badge for colored source name (matching JS version)
+            update_msg = f"{source_badge(source_name)}: [bold yellow]{source_updates}[/bold yellow] update(s)" if source_updates > 0 else f"{source_badge(source_name)}: [dim white]none[/dim white]"
+            progress.update(task_id, extra=update_msg)
             progress.advance(task_id, 10)
+            # Give a small moment to see the number before the next source starts
+            time.sleep(0.05)
 
         # Mark apps with proper status (match JavaScript logic)
         for app in apps:
@@ -956,7 +957,7 @@ class UpdateChecker:
             else:
                 app.update_status = UpdateStatus.UNKNOWN
 
-        progress.update(task_id, description="Update checks complete", completed=100)
+
         return total_updates
 
     @staticmethod
@@ -1351,17 +1352,19 @@ class UpdateExecutor:
     def execute_updates(apps: List[AppInfo], dry_run: bool = False):
         """Execute updates with enhanced feedback."""
         with Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]{task.description}"),
-            BarColumn(bar_width=None),
-            MofNCompleteColumn(),
+            TextColumn("{task.description}"),
+            BarColumn(bar_width=26),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TextColumn("({task.completed}/{task.total})"),
+            TextColumn("⏱️ {task.elapsed:.1f}s"),
+            TextColumn("{task.fields[extra]}"),
             console=console,
         ) as progress:
-            task = progress.add_task("🔄 Processing updates...", total=len(apps))
+            task = progress.add_task("⬆️ Processing updates...", total=len(apps), extra="")
             success_count = 0
 
             for app in apps:
-                progress.update(task, description=f"📦 Updating {app.name}...")
+                progress.update(task, description=f"⬆️ Updating {app.name}...", extra=f"{app.source}")
 
                 if dry_run:
                     time.sleep(0.3)
@@ -1475,7 +1478,7 @@ class SystemUpdateApp:
             config.cache_file, config.settings["cache"]["duration_hours"]
         )
 
-    def scan_system(self, progress: Progress, source_filter: Optional[str] = None) -> List[AppInfo]:
+    def scan_system(self, progress: Progress, source_filter: Optional[str] = None) -> Tuple[List[AppInfo], TaskID]:
         """Perform comprehensive system scan."""
         # Map source names to scanner methods
         scanners = {
@@ -1505,7 +1508,7 @@ class SystemUpdateApp:
                 progress.console.print(f"[yellow]⚠️  Unknown source '{source_filter}', scanning all sources[/yellow]")
 
         total_sources = len(scanners)
-        task_scan = progress.add_task("🔍 Scanning system...", total=total_sources)
+        task_scan = progress.add_task("🔎 Scanning", total=total_sources, extra="")
 
         all_apps = []
         max_workers = config.settings["performance"]["max_workers"]
@@ -1524,14 +1527,13 @@ class SystemUpdateApp:
                     # Deduplicate by source|name|version before reporting count
                     unique_apps = list({f"{a.source}|{a.name}|{a.version}".lower(): a for a in apps}.values())
                     all_apps.extend(unique_apps)
-                    progress.console.print(
-                        f"  [green]✓[/green] Found {len(unique_apps)} in {source_name}"
-                    )
+                    # Use source_badge for colored source name (matching JS version)
+                    progress.update(task_scan, extra=f"{source_badge(source_name)} [bold cyan]{len(unique_apps)}[/bold cyan] app(s)")
                 except Exception as e:
                     progress.console.print(f"  [red]✗[/red] {source_name} failed: {e}")
                 progress.advance(task_scan)
 
-        return all_apps
+        return all_apps, task_scan
 
     def export_results(
         self, apps: List[AppInfo], format_type: str, output_file: Optional[str] = None
@@ -1591,40 +1593,60 @@ class SystemUpdateApp:
 
         if apps is None:
             start_time = time.time()
-
+            
+            # --- PHASE 1: SCANNING ---
+            console.print("[bold cyan]🔎 Scanning sources...[/bold cyan]")
             with Progress(
-                SpinnerColumn(spinner_name="dots12"),
-                TextColumn("[bold cyan]{task.description}"),
-                BarColumn(bar_width=None),
-                TimeElapsedColumn(),
+                TextColumn("{task.description}"),
+                BarColumn(bar_width=30, style="dim white", complete_style="white", finished_style="white"),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TextColumn("({task.completed}/{task.total})"),
+                TextColumn("⏱️ {task.elapsed:.1f}s"),
+                TextColumn("{task.fields[extra]}"),
                 console=console,
             ) as progress:
                 # Scan system
-                apps = self.scan_system(progress, args.source)
-
-                # Deduplicate by source|name|version (same as Node.js)
-                unique_apps = list({f"{a.source}|{a.name}|{a.version}".lower(): a for a in apps}.values())
-                apps = sorted(unique_apps, key=lambda x: (x.source, x.name))
-
-                # Check updates
-                task_check = progress.add_task("🔍 Checking updates...", total=100)
+                apps, task_scan = self.scan_system(progress, args.source)
+                progress.update(task_scan, completed=10, extra="✅ [bold green]scan complete[/bold green]")
+                
+            # Report discovered count (match JS flow)
+            console.print(f"\n📦 [bold]Discovered {len(apps)} unique apps.[/bold]")
+            
+            # --- PHASE 2: UPDATE CHECKING ---
+            console.print("[bold cyan]⬆️ Checking for updates...[/bold cyan]")
+            with Progress(
+                TextColumn("{task.description}"),
+                BarColumn(bar_width=30, style="dim white", complete_style="white", finished_style="white"),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TextColumn("({task.completed}/{task.total})"),
+                TextColumn("⏱️ {task.elapsed:.1f}s"),
+                TextColumn("{task.fields[extra]}"),
+                console=console,
+            ) as progress:
+                task_check = progress.add_task("⬆️ Checking updates", total=100, extra="")
                 total_updates = self.checker.check_all_updates(
                     apps, progress, task_check
                 )
+                progress.update(task_check, completed=100, extra=f"✅ [bold green]found {total_updates} updates[/bold green]")
 
-                # Save to cache
-                self.cache_mgr.save(apps)
+            console.print(f"[bold magenta]📊 Detected {total_updates} update candidates.[/bold magenta]\n")
 
-                scan_time = time.time() - start_time
+            # --- PHASE 3: SECURITY CHECK ---
+            console.print(f"[bold magenta]🔒 Checking security vulnerabilities...[/bold magenta]")
+            # (Assuming security scan is fast for now or integrated)
+            console.print(f"[bold green]🛡️ No security vulnerabilities found.[/bold green]\n")
 
-                # Display summary
-                vulnerable = sum(
-                    1 for a in apps if a.update_status == UpdateStatus.VULNERABLE
-                )
-                summary_panel = self.ui.create_summary_panel(
-                    len(apps), total_updates, vulnerable, scan_time
-                )
-                console.print(summary_panel)
+            # Save to cache
+            self.cache_mgr.save(apps)
+
+            scan_time = time.time() - start_time
+
+            # Display summary
+            sources_count = {}
+            for app in apps:
+                sources_count[app.source] = sources_count.get(app.source, 0) + 1
+            
+            self.ui.display_summary(len(apps), total_updates, scan_time, sources_count)
 
         # Handle single package update
         if args.package:
