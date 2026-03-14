@@ -296,12 +296,12 @@ A single CLI tool that:
 
 #### 7.2.2 Package Table
 ```
-Package                       Source        Current             Latest              Status           
+Package                       Source        Current             Latest              Status
 ────────────────────────────────────────────────────────────────────────────────────────────────────
-git                           chocolatey    2.39.0              2.44.0              ⚠️  update       
-node                          path          v20.11.0            v22.0.0             ⚠️  update       
-lodash                        npm           4.17.21             -                   ✅ up-to-date   
-requests                      pip           2.31.0              -                   🔒 security     
+git                           chocolatey    2.39.0              2.44.0              ⬆️ update
+node                          path          v20.11.0            v22.0.0             ⬆️ update
+lodash                        npm           4.17.21             -                   ✅ up-to-date
+requests                      pip           2.31.0              -                   🔒 security
 ```
 
 #### 7.2.3 Progress Indicator
@@ -318,6 +318,26 @@ requests                      pip           2.31.0              -               
 ├─────────────────────────────────────────────────────────────┤
 │ requests            HIGH        CVE-2024-XXXX       Security vuln │
 └─────────────────────────────────────────────────────────────┘
+```
+
+#### 7.2.5 Summary and Output
+```
+📊 Summary
+📦 total apps     456
+⬆️ updates        78
+⏱️ scan duration  34.81s
+⚙️ sources        chocolatey:21, npm:16, path:12, pip:58, registry:104, rust:1, winget:243, yarn:1
+
+[Package table...]
+
+💾 Showing: updates only
+
+🎯 Found 78 available updates
+```
+
+With `--show-all`:
+```
+💾 Showing: all packages
 ```
 
 ### 7.4 Source Badges
@@ -366,7 +386,7 @@ Each source is displayed with a unique color badge:
 | Value | Description | Display |
 |-------|-------------|---------|
 | `up_to_date` | Package is current | ✅ up-to-date (green) |
-| `update_available` | Newer version exists | ⚠️ update (yellow) |
+| `update_available` | Newer version exists | ⬆️ update (yellow) |
 | `security_update_available` | Security patch available | 🔒 security update (magenta) |
 | `vulnerable` | Known vulnerability | 🔥 vulnerable (red) |
 | `unknown` | Status could not be determined | ❔ unknown (gray) |
@@ -592,6 +612,7 @@ node system_update.js [options]
 | `--debug` | - | Flag | Show all executed commands on screen and in log |
 | `--yes` | `-y` | Flag | Skip confirmation prompts |
 | `--help` | `-h` | Flag | Show help message |
+| `--show-all` | - | Flag | Show all packages (including up-to-date) |
 
 ### 12.3 Valid Source Values
 
@@ -645,6 +666,9 @@ node system_update.js --log
 
 # Show all executed commands
 node system_update.js --debug
+
+# Show all packages (including up-to-date)
+node system_update.js --show-all
 ```
 
 ---
@@ -827,7 +851,7 @@ Errors are displayed with appropriate styling:
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0.0 | - | Initial release |
-| 1.0.1 | March 2026 | Added Rust source support, --log and --debug flags, enhanced PATH version detection, Registry updates via winget, updated source badge colors |
+| 1.0.1 | March 2026 | Added Rust source support, --log and --debug flags, enhanced PATH version detection, Registry updates via winget, updated source badge colors, **--show-all flag** (show all packages including up-to-date), improved output format with "💾 Showing" line after table and "🎯 Found" message |
 
 ## Appendix B: Glossary
 
