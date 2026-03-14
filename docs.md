@@ -63,6 +63,9 @@ node system_update.js --package <name> --source winget
 
 # Export results
 node system_update.js --export json --output updates.json
+
+# Show all packages (including up-to-date)
+node system_update.js --show-all
 ```
 
 As an npm package:
@@ -94,6 +97,7 @@ npm run help
 | `--debug` | Show all executed commands on screen and in log |
 | `--yes, -y` | Skip confirmation prompts (auto-approve) |
 | `--help, -h` | Show help message |
+| `--show-all` | Show all packages (including up-to-date) |
 
 ### Configuration
 
@@ -179,6 +183,33 @@ After scanning, the CLI displays:
 - Count of packages with updates
 - Scan duration
 - Breakdown by source (e.g., `npm:45, winget:12`)
+
+### Output Example
+
+```
+📊 Summary
+📦 total apps     456
+⬆️ updates        78
+⏱️ scan duration  34.81s
+⚙️ sources        chocolatey:21, npm:16, path:12, pip:58, registry:104, rust:1, winget:243, yarn:1
+
+Package                       Source        Current             Latest              Status
+────────────────────────────────────────────────────────────────────────────────────────────────────
+git                           chocolatey    2.39.0              2.44.0              ⬆️ update
+node                          path          v20.11.0            v22.0.0             ⬆️ update
+
+💾 Showing: updates only
+
+🎯 Found 78 available updates
+```
+
+With `--show-all`:
+```
+💾 Showing: all packages
+```
+
+**Default behavior:** Shows only packages with available updates
+**With `--show-all`:** Shows all packages including up-to-date ones
 
 ---
 
