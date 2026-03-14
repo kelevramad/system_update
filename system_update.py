@@ -435,22 +435,37 @@ class UISystem:
         console.print()
 
     @staticmethod
-    def display_summary(total_apps: int, updates: int, scan_time: float, sources_count: Dict[str, int]):
+    def display_summary(total_apps: int, updates: int, scan_time: float, sources_count: Dict[str, int], show_all: bool = False):
         """Display summary exactly matching NodeJS version."""
         console.print(f"[bold magenta]📊 Summary[/bold magenta]")
         console.print(f"📦 total apps     [bold white]{total_apps}[/bold white]")
         console.print(f"⬆️ updates        [bold yellow]{updates}[/bold yellow]")
         console.print(f"⏱️ scan duration  [bold white]{scan_time:.2f}s[/bold white]")
-        
+
         source_parts = [f"{s.lower()}:{c}" for s, c in sorted(sources_count.items()) if c > 0]
         console.print(f"⚙️ sources        [dim white]{', '.join(source_parts)}[/dim white]")
         console.print()
 
     @staticmethod
     def create_apps_table(
-        apps: List[AppInfo], title: str = "Installed Applications"
+        apps: List[AppInfo], title: str = "Installed Applications", show_all: bool = False
     ) -> Table:
-        """Create applications table matching JS version."""
+        """Create applications table matching JS version.
+        
+        Args:
+            apps: List of AppInfo objects
+            title: Table title
+            show_all: If True, show all packages; if False, show only updates/vulnerable
+        """
+        # Filter apps: by default show only updates/vulnerable, unless show_all is True
+        if not show_all:
+            display_apps = [
+                app for app in apps 
+                if app.update_status in (UpdateStatus.UPDATE_AVAILABLE, UpdateStatus.VULNERABLE)
+            ]
+        else:
+            display_apps = apps
+        
         table = Table(
             box=box.SIMPLE,
             show_header=True,
@@ -465,7 +480,7 @@ class UISystem:
         table.add_column("Latest", width=20, justify="left")
         table.add_column("Status", width=17, justify="left")
 
-        for app in sorted(apps, key=lambda x: (x.source, x.name)):
+        for app in sorted(display_apps, key=lambda x: (x.source, x.name)):
             # Source-based coloring (Rich styles)
             src_styles = {
                 "winget": "bold blue",
@@ -1693,7 +1708,7 @@ class SystemUpdateApp:
             for app in apps:
                 sources_count[app.source] = sources_count.get(app.source, 0) + 1
 
-            self.ui.display_summary(len(apps), total_updates, scan_time, sources_count)
+            self.ui.display_summary(len(apps), total_updates, scan_time, sources_count, show_all=args.show_all)
 
         # Handle single package update
         if args.package:
@@ -1717,8 +1732,16 @@ class SystemUpdateApp:
 
         # Show applications table
         console.print()
-        apps_table = self.ui.create_apps_table(apps, "📦 All Installed Applications")
+        apps_table = self.ui.create_apps_table(
+            apps, "📦 All Installed Applications", show_all=args.show_all
+        )
         console.print(apps_table)
+
+        # Display showing status after table (matching JS behavior)
+        if args.show_all:
+            console.print(f"\n[dim]💾 Showing: all packages[/dim]")
+        else:
+            console.print(f"\n[dim]💾 Showing: updates only[/dim]")
 
         # Handle updates
         if updates:
@@ -1789,6 +1812,7 @@ Examples:
   python system_update.py --package git     # Update specific package
   python system_update.py --source rust      # Filter by source
   python system_update.py --export json     # Export results to JSON
+  python system_update.py --show-all        # Show all packages (including up-to-date)
         """,
     )
 
@@ -1803,6 +1827,9 @@ Examples:
         "--no-cache", action="store_true", help="Force fresh scan (ignore cache)"
     )
     parser.add_argument("--clear-cache", action="store_true", help="Clear scan cache")
+    parser.add_argument(
+        "--show-all", action="store_true", help="Show all packages (including up-to-date)"
+    )
 
     # Export options
     parser.add_argument(
