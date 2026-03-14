@@ -91,6 +91,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 | `-Include <csv>` | Limit scan to specific sources (e.g., `winget,npm`) |
 | `-Yes` | Skip confirmation prompts |
 | `-Help` | Show help message |
+| `-ShowAll` | Show all packages (including up-to-date) |
 
 ### Examples
 
@@ -124,6 +125,9 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 # Force fresh scan and export
 .\system_update.ps1 -NoCache -Export json
+
+# Show all packages (including up-to-date)
+.\system_update.ps1 -ShowAll
 ```
 
 ---

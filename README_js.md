@@ -82,6 +82,7 @@ node system_update.js --export json --output report.json
 | `--debug` | Show all executed commands on screen and in log |
 | `--yes`, `-y` | Skip confirmation prompts |
 | `--help`, `-h` | Show help message |
+| `--show-all` | Show all packages (including up-to-date) |
 
 ### Examples
 
@@ -121,6 +122,9 @@ node system_update.js --log
 
 # Show all executed commands
 node system_update.js --debug
+
+# Show all packages (including up-to-date)
+node system_update.js --show-all
 ```
 
 ---
@@ -271,6 +275,30 @@ Each source has a unique color:
 - **Rust** - Magenta
 - **PATH** - Green
 - **Registry** - Gray
+
+### Output Example
+
+```
+📊 Summary
+📦 total apps     456
+⬆️ updates        78
+⏱️ scan duration  34.81s
+⚙️ sources        chocolatey:21, npm:16, path:12, pip:58, registry:104, rust:1, winget:243, yarn:1
+
+Package                       Source        Current             Latest              Status
+────────────────────────────────────────────────────────────────────────────────────────────────────
+git                           chocolatey    2.39.0              2.44.0              ⬆️ update
+node                          path          v20.11.0            v22.0.0             ⬆️ update
+
+💾 Showing: updates only
+
+🎯 Found 78 available updates
+```
+
+With `--show-all`:
+```
+💾 Showing: all packages
+```
 
 ---
 
