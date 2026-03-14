@@ -2,19 +2,19 @@
 
 > 🚀 A sophisticated system update tool with enhanced UI and modular design
 
-**Version:** 5.0.0  
-**Runtime:** Python 3.8+  
+**Version:** 5.0.0
+**Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
 
 ---
 
 ## 📋 Overview
 
-System Update Python CLI is an advanced package management tool featuring a beautiful Rich-based terminal interface. It scans, checks, and updates software from multiple sources including Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, and system PATH executables.
+System Update Python CLI is an advanced package management tool featuring a beautiful Rich-based terminal interface. It scans, checks, and updates software from multiple sources including Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Rust, and system PATH executables.
 
 ### ✨ Key Features
 
-- **Multi-source package discovery** - Scan Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, PATH, and Windows Registry
+- **Multi-source package discovery** - Scan Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Rust, PATH, and Windows Registry
 - **Real-time security vulnerability scanning** - CVE detection for NPM and PIP packages
 - **Parallel processing** - ThreadPoolExecutor for optimal performance
 - **Beautiful Rich UI** - Modern terminal interface with panels, tables, and progress bars
@@ -22,6 +22,7 @@ System Update Python CLI is an advanced package management tool featuring a beau
 - **Intelligent caching** - 2-hour cache with validation
 - **Dry-run support** - Preview updates before applying
 - **Modular architecture** - Clean separation of concerns with dataclasses
+- **Smart version comparison** - Handles preview/stable version detection
 
 ---
 
@@ -73,7 +74,7 @@ python system_update.py --export json --output report.json
 | `--update-source <source>` | Update all packages from a specific source |
 | `--package <name>` | Update a specific package by name |
 | `--version <ver>` | Target version (use with `--package`) |
-| `--source <source>` | Filter by source (winget\|chocolatey\|npm\|pnpm\|bun\|yarn\|pip\|path\|registry) |
+| `--source <source>` | Filter by source (winget\|chocolatey\|npm\|pnpm\|bun\|yarn\|pip\|path\|rust\|registry) |
 | `--dry-run` | Show planned updates without executing |
 | `--no-cache` | Force fresh scan (ignore cache) |
 | `--clear-cache` | Remove cache file and exit |
@@ -94,6 +95,9 @@ python system_update.py --update-all --yes
 
 # Update only Winget packages
 python system_update.py --update-source winget --yes
+
+# Update only Rust packages
+python system_update.py --update-source rust --yes
 
 # Update a specific package
 python system_update.py --package git --source chocolatey
@@ -142,7 +146,8 @@ The script uses the following default settings stored in `~/.system_update/confi
         "yarn": True,
         "pip": True,
         "path": True,
-        "registry": True
+        "registry": True,
+        "rust": True
     },
     "security": {
         "enabled": True,
@@ -182,6 +187,7 @@ The script uses the following default settings stored in `~/.system_update/confi
 | Bun | ✅ | ✅ | ❌ |
 | Yarn | ✅ | ✅ | ❌ |
 | PIP | ✅ | ✅ | ✅ |
+| Rust | ✅ | ✅ | ❌ |
 | PATH | ✅ | ✅ | ❌ |
 | Registry | ✅ | ✅ | ❌ |
 
@@ -212,11 +218,25 @@ Vulnerabilities are filtered by severity level:
 
 The Python version features an enhanced UI with:
 
-- **Banner Display** - Beautiful ASCII art header with system information
+- **Banner Display** - Beautiful header with system information
 - **Summary Panels** - Colorful statistics with emoji indicators
 - **Data Tables** - Formatted tables with proper alignment and styling
 - **Progress Bars** - Real-time progress with spinners and elapsed time
 - **Security Alerts** - Highlighted vulnerability warnings
+
+### Source Badges
+
+Each source has a unique color:
+- **Winget** - Blue
+- **Chocolatey** - Yellow
+- **NPM** - Red
+- **PNPM** - Magenta
+- **Bun** - Yellow
+- **Yarn** - White
+- **PIP** - Cyan
+- **Rust** - Magenta
+- **PATH** - Green
+- **Registry** - Dim White
 
 ### Status Indicators
 
@@ -312,6 +332,9 @@ Increase `timeout_seconds` in config or use `--no-cache`.
 **Package manager not found:**
 Verify the package manager is installed and in PATH.
 
+**Rust updates not working:**
+Ensure `cargo-update` is installed: `cargo install cargo-update`
+
 ### Logging
 
 All operations are logged to `~/.system_update/system.log`:
@@ -379,7 +402,14 @@ app.export_results(apps, "json", "report.json")
 
 - **Python 3.8+** - Required for dataclasses and type hints
 - **Windows 10/11** - Primary platform (Winget, Registry support)
-- **Package Managers** - Optional, based on sources used
+- **Package Managers** - Optional, based on sources used:
+  - **Winget** - Windows Package Manager
+  - **Chocolatey** - Chocolatey package manager
+  - **Node.js** - For NPM, PNPM, Bun, Yarn support
+  - **Python** - For PIP package support
+  - **Rust** - For Cargo package support (`cargo-update` required for updates)
+  - **Git** - For Git version detection
+  - **PowerShell** - For Registry scanning and PS updates
 
 ---
 

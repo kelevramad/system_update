@@ -2,25 +2,27 @@
 
 > 🚀 A powerful multi-source system update tool for Windows
 
-**Version:** 1.0.1  
-**Runtime:** Node.js  
+**Version:** 1.0.1
+**Runtime:** Node.js
 **Platform:** Windows (primarily), cross-platform support
 
 ---
 
 ## 📋 Overview
 
-System Update Node.js CLI is a comprehensive package management tool that scans, checks, and updates software from multiple sources including Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, and system PATH executables.
+System Update Node.js CLI is a comprehensive package management tool that scans, checks, and updates software from multiple sources including Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Rust, and system PATH executables.
 
 ### ✨ Key Features
 
-- **Multi-source package discovery** - Scan Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, PATH, and Windows Registry
+- **Multi-source package discovery** - Scan Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Rust, PATH, and Windows Registry
 - **Security vulnerability scanning** - Real-time security checks for NPM and PIP packages
 - **Parallel scanning** - Optimized performance with concurrent source scanning
 - **Smart caching** - 2-hour cache duration for faster subsequent runs
 - **Flexible export** - Export results to JSON or CSV formats
 - **Dry-run support** - Preview updates before applying them
 - **Beautiful CLI output** - Colorful, emoji-rich terminal interface with progress bars
+- **Detailed logging** - Optional logging with `--log` flag for debugging
+- **Debug mode** - Show all executed commands with `--debug` flag
 
 ---
 
@@ -66,16 +68,18 @@ node system_update.js --export json --output report.json
 | Option | Description |
 |--------|-------------|
 | `--update-all` | Update every package with available updates |
-| `--update-source <source>` | Update all packages from a specific source (winget\|chocolatey\|npm\|pnpm\|pip\|path) |
+| `--update-source <source>` | Update all packages from a specific source (winget\|chocolatey\|npm\|pnpm\|pip\|bun\|yarn\|path\|rust\|registry) |
 | `--package <name>` | Update a specific package by name |
 | `--version <ver>` | Target version (use with `--package`) |
-| `--source <source>` | Filter by source (winget\|chocolatey\|npm\|pnpm\|bun\|yarn\|pip\|path\|registry) |
+| `--source <source>` | Filter by source (winget\|chocolatey\|npm\|pnpm\|bun\|yarn\|pip\|path\|rust\|registry) |
 | `--dry-run` | Show planned updates without executing |
 | `--no-cache` | Force fresh scan (ignore cache) |
 | `--clear-cache` | Remove cache file and exit |
 | `--export <json\|csv>` | Export scan results to file |
 | `--output <file>` | Output path for export |
 | `--include <csv>` | Limit scan to specific sources (e.g., `winget,npm,pip`) |
+| `--log` | Enable logging to file |
+| `--debug` | Show all executed commands on screen and in log |
 | `--yes`, `-y` | Skip confirmation prompts |
 | `--help`, `-h` | Show help message |
 
@@ -90,6 +94,9 @@ node system_update.js --update-all --yes
 
 # Update only Winget packages
 node system_update.js --update-source winget --yes
+
+# Update only Rust packages
+node system_update.js --update-source rust --yes
 
 # Update a specific package
 node system_update.js --package git --source chocolatey
@@ -108,6 +115,12 @@ node system_update.js --export csv --output updates.csv
 
 # Force fresh scan and export
 node system_update.js --no-cache --export json
+
+# Enable logging for debugging
+node system_update.js --log
+
+# Show all executed commands
+node system_update.js --debug
 ```
 
 ---
@@ -137,7 +150,8 @@ The script uses the following default settings:
     yarn: true,
     pip: true,
     path: true,
-    registry: true
+    registry: true,
+    rust: true
   },
   security: {
     enabled: true,
@@ -175,6 +189,7 @@ The script uses the following default settings:
 | Bun | ✅ | ✅ | ❌ |
 | Yarn | ✅ | ✅ | ❌ |
 | PIP | ✅ | ✅ | ✅ |
+| Rust | ✅ | ✅ | ❌ |
 | PATH | ✅ | ✅ | ❌ |
 | Registry | ✅ | ✅ | ❌ |
 
@@ -250,9 +265,10 @@ Each source has a unique color:
 - **Chocolatey** - Yellow
 - **NPM** - Red
 - **PNPM** - Magenta
-- **Bun** - Magenta
-- **Yarn** - Blue
+- **Bun** - Orange
+- **Yarn** - White
 - **PIP** - Cyan
+- **Rust** - Magenta
 - **PATH** - Green
 - **Registry** - Gray
 
@@ -271,9 +287,24 @@ Increase the timeout in the configuration or use `--no-cache` for fresh scans.
 **Package not found:**
 Ensure the package manager is installed and available in PATH.
 
+**Rust updates not working:**
+Ensure `cargo-edit` and `cargo-update` are installed: `cargo install cargo-update`
+
 ### Logging
 
-All operations are logged to `<DATA_DIR>/system.log` with timestamps for debugging.
+All operations are logged to `<DATA_DIR>/system.log` with timestamps for debugging. Enable logging with `--log` flag:
+
+```bash
+node system_update.js --log
+```
+
+### Debug Mode
+
+Show all executed commands on screen and in logs with `--debug`:
+
+```bash
+node system_update.js --debug
+```
 
 ---
 

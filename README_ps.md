@@ -2,19 +2,19 @@
 
 > 🚀 A powerful PowerShell-based system update tool (requires PowerShell 7+)
 
-**Version:** 1.0.1  
-**Runtime:** PowerShell 7+  
+**Version:** 1.0.1
+**Runtime:** PowerShell 7+
 **Platform:** Windows
 
 ---
 
 ## 📋 Overview
 
-System Update PowerShell CLI is a comprehensive package management tool built entirely in PowerShell. It scans, checks, and updates software from multiple sources including Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, and system PATH executables.
+System Update PowerShell CLI is a comprehensive package management tool built entirely in PowerShell. It scans, checks, and updates software from multiple sources including Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Rust, and system PATH executables.
 
 ### ✨ Key Features
 
-- **Multi-source package discovery** - Scan Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, PATH, and Windows Registry
+- **Multi-source package discovery** - Scan Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Rust, PATH, and Windows Registry
 - **Security vulnerability scanning** - Real-time security checks for NPM and PIP packages
 - **Native PowerShell implementation** - No external dependencies required
 - **Advanced command handling** - Proper handling of .ps1, .cmd, .bat, and .exe executables
@@ -82,7 +82,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 | `-UpdateSource <source>` | Update all packages from a specific source |
 | `-Package <name>` | Update a specific package by name |
 | `-Version <ver>` | Target version (use with `-Package`) |
-| `-Source <source>` | Filter by source (winget\|chocolatey\|npm\|pnpm\|bun\|yarn\|pip\|path\|registry) |
+| `-Source <source>` | Filter by source (winget\|chocolatey\|npm\|pnpm\|bun\|yarn\|pip\|path\|rust\|registry) |
 | `-DryRun` | Show planned updates without executing |
 | `-NoCache` | Force fresh scan (ignore cache) |
 | `-ClearCache` | Remove cache file and exit |
@@ -103,6 +103,9 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 # Update only Winget packages
 .\system_update.ps1 -UpdateSource winget -Yes
+
+# Update only Rust packages
+.\system_update.ps1 -UpdateSource rust -Yes
 
 # Update a specific package
 .\system_update.ps1 -Package git -Source chocolatey
@@ -161,6 +164,7 @@ $CFG_SEVERITY = 'medium'      # Vulnerability severity threshold
 | Bun | ✅ | ✅ | ❌ |
 | Yarn | ✅ | ✅ | ❌ |
 | PIP | ✅ | ✅ | ✅ |
+| Rust | ✅ | ✅ | ❌ |
 | PATH | ✅ | ✅ | ❌ |
 | Registry | ✅ | ✅ | ❌ |
 
@@ -205,9 +209,10 @@ Each source has a unique color:
 - **Chocolatey** - Yellow
 - **NPM** - Red
 - **PNPM** - Magenta
-- **Bun** - Magenta
-- **Yarn** - Blue
+- **Bun** - Yellow
+- **Yarn** - White
 - **PIP** - Cyan
+- **Rust** - Magenta
 - **PATH** - Green
 - **Registry** - Gray
 
@@ -255,6 +260,17 @@ The PowerShell version includes a sophisticated command execution system that pr
 - **Native executables (.exe)** - Direct ProcessStartInfo execution
 - **AppX aliases** - Resolves and executes properly
 
+### Invoke-Cmd
+
+The main command execution function handles all Windows executable types with proper encoding:
+
+```powershell
+function Invoke-Cmd {
+    param([string]$Cmd, [string[]]$CmdArgs = @(), [int]$TimeoutSec = $CFG_TIMEOUT, [switch]$AllowFail, [switch]$Stderr)
+    # Handles .ps1, .cmd, .bat, .exe with proper routing
+}
+```
+
 ### Invoke-NativeCmd
 
 For encoding-sensitive commands (like Winget), the script uses background jobs with proper UTF-8 encoding:
@@ -264,7 +280,7 @@ function Invoke-NativeCmd {
     param(
         [string]$Cmd,
         [string[]]$CmdArgs = @(),
-        [int]$TimeoutSec = 45,
+        [int]$TimeoutSec = $CFG_TIMEOUT,
         [switch]$AllowFail,
         [switch]$Stderr
     )
@@ -312,6 +328,9 @@ The script automatically handles permission issues and falls back gracefully.
 
 **Command Timeouts:**
 Increase `$CFG_TIMEOUT` at the top of the script for slower systems.
+
+**Rust Updates Not Working:**
+Ensure `cargo-update` is installed: `cargo install cargo-update`
 
 ### Logging
 
@@ -382,6 +401,7 @@ Register-ScheduledTask -TaskName "SystemUpdate" `
 | Bun | `powershell -c "iwr https://bun.sh/install.ps1 -useb \| iex"` |
 | Yarn | `npm install -g yarn` |
 | PIP | Included with Python |
+| Rust | `winget install Rustlang.Rust.MSVC` (then `cargo install cargo-update`) |
 
 ---
 
