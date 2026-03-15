@@ -1392,7 +1392,7 @@ async function checkPnpmUpdates(apps, timeoutMs) {
   let count = 0;
   try {
     const parsed = JSON.parse(result.stdout);
-    for (const [name, details] of entries) {
+    for (const [name, details] of Object.entries(parsed)) {
       const app = target.find((a) => a.name === name);
       if (!app) continue;
       app.latestVersion = details.latest || details.wanted || '';
@@ -1632,9 +1632,13 @@ async function checkPathUpdates(apps, timeoutMs) {
 function finalizeStatuses(apps) {
   for (const app of apps) {
     if (app.status === Status.UPDATE_AVAILABLE) continue;
-    if (app.status === Status.UP_TO_DATE) continue;
+    if (app.status === Status.UP_TO_DATE) {
+        if (!app.latestVersion) app.latestVersion = '-';
+        continue;
+    }
     if (app.latestVersion || ['winget', 'chocolatey', 'npm', 'pnpm', 'bun', 'yarn', 'pip', 'rust', 'path'].includes(app.source)) {
       app.status = Status.UP_TO_DATE;
+      if (!app.latestVersion) app.latestVersion = '-';
     } else {
       app.status = Status.UNKNOWN;
     }

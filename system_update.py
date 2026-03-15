@@ -259,26 +259,23 @@ class AppInfo:
 
     def to_dict(self) -> Dict:
         """
-        Convert AppInfo to dictionary for JSON serialization.
+        Convert AppInfo to dictionary for standardized JSON serialization.
 
-        Creates a dictionary representation of this AppInfo instance, converting
-        enum values to strings and datetime to ISO format for JSON compatibility.
-        Also includes the computed has_update property.
+        Creates a dictionary representation of this AppInfo instance using camelCase
+        keys to match the Node.js implementation's cache format.
 
         Returns:
-            Dict: Dictionary containing all AppInfo fields in JSON-serializable form.
-
-        Example:
-            >>> app = AppInfo(name="Git", source="Winget", version="2.39.0")
-            >>> data = app.to_dict()
-            >>> data["name"]
-            'Git'
+            Dict: Standardized dictionary for cache.json.
         """
-        data = asdict(self)
-        data["update_status"] = self.update_status.value
-        data["scan_time"] = self.scan_time.isoformat()
-        data["has_update"] = self.has_update
-        return data
+        return {
+            "name": self.name,
+            "source": self.source.lower(),
+            "version": self.version,
+            "latestVersion": self.latest_version or "-",
+            "appId": self.app_id,
+            "status": self.update_status.value,
+            "scanTime": self.scan_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        }
 
 
 @dataclass
@@ -582,12 +579,20 @@ class CacheManager:
         try:
             with open(self.cache_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                apps = []
                 for item in data.get("apps", []):
-                    item.pop("has_update", None)  # Remove computed property
-                    item["update_status"] = UpdateStatus(item["update_status"])
-                    item["scan_time"] = datetime.fromisoformat(item["scan_time"])
-                    apps.append(AppInfo(**item))
+                    # Map Node.js camelCase back to Python's AppInfo attributes
+                    mapped_item = {
+                        "name": item.get("name"),
+                        "source": item.get("source", "").capitalize() if item.get("source") not in ["npm", "pnpm", "pip"] else item.get("source").upper(),
+                        "version": item.get("version"),
+                        "latest_version": item.get("latestVersion", ""),
+                        "app_id": item.get("appId"),
+                        "update_status": UpdateStatus(item.get("status", "unknown")),
+                        "scan_time": datetime.fromisoformat(item.get("scanTime", datetime.now().isoformat()).replace("Z", ""))
+                    }
+                    if mapped_item["latest_version"] == "-":
+                        mapped_item["latest_version"] = ""
+                    apps.append(AppInfo(**mapped_item))
                 return apps
         except Exception as e:
             logger.warning(f"Failed to load cache: {e}")
@@ -610,9 +615,9 @@ class CacheManager:
         """
         try:
             data = {
-                "timestamp": datetime.now().isoformat(),
-                "version": "5.0.0",
-                "total_apps": len(apps),
+                "timestamp": datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+                "version": "1.0.1",
+                "totalApps": len(apps),
                 "apps": [app.to_dict() for app in apps],
             }
             with open(self.cache_file, "w", encoding="utf-8") as f:

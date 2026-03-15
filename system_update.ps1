@@ -779,7 +779,12 @@ function Parse-Winget([string]$Out, [switch]$Avail) {
             if ($Avail -and $pos.avail -gt -1) { $aEnd = if ($pos.src -gt -1) { $pos.src }else { $line.Length }; $latest = $line.Substring($pos.avail, $aEnd - $pos.avail).Trim() }
             # Create application object if required fields are present
             if ($name -and $appId -and $ver) {
-                $apps += [PSCustomObject]@{Name = $name; Source = 'winget'; Version = $ver; LatestVersion = $latest; AppId = $appId; Status = if ($latest) { $S_UPD }else { $S_UNK } }
+                $apps += [PSCustomObject]@{
+                    name = $name; source = 'winget'; version = $ver; 
+                    latestVersion = if ($latest) { $latest } else { '' }; 
+                    appId = $appId; status = if ($latest) { $S_UPD } else { $S_UNK };
+                    scanTime = [datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+                }
             }
         }
         catch {}
@@ -825,7 +830,11 @@ function Scan-Chocolatey {
     @($r.Stdout -split "`r?`n" | ForEach-Object {
             $p = $_ -split '\|'
             if ($p.Count -ge 2 -and $p[0] -and $p[1]) {
-                [PSCustomObject]@{Name = $p[0].Trim(); Source = 'chocolatey'; Version = $p[1].Trim(); LatestVersion = ''; AppId = $p[0].Trim(); Status = $S_UNK }
+                [PSCustomObject]@{
+                    name = $p[0].Trim(); source = 'chocolatey'; version = $p[1].Trim(); 
+                    latestVersion = ''; appId = $p[0].Trim(); status = $S_UNK;
+                    scanTime = [datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+                }
             }
         } | Where-Object { $_ })
 }
@@ -853,7 +862,11 @@ function Scan-Npm {
         if ($j.dependencies) {
             $j.dependencies.PSObject.Properties | ForEach-Object {
                 $ver = if ($_.Value.version) { $_.Value.version } else { 'N/A' }
-                $apps += [PSCustomObject]@{Name = $_.Name; Source = 'npm'; Version = $ver; LatestVersion = ''; AppId = $_.Name; Status = $S_UNK }
+                $apps += [PSCustomObject]@{
+                    name = $_.Name; source = 'npm'; version = $ver; 
+                    latestVersion = ''; appId = $_.Name; status = $S_UNK;
+                    scanTime = [datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+                }
             }
         }
     }
@@ -882,7 +895,11 @@ function Scan-Pnpm {
         if ($root -and $root.dependencies) {
             $root.dependencies.PSObject.Properties | ForEach-Object {
                 $ver = if ($_.Value.version) { $_.Value.version } else { 'N/A' }
-                $apps += [PSCustomObject]@{Name = $_.Name; Source = 'pnpm'; Version = $ver; LatestVersion = ''; AppId = $_.Name; Status = $S_UNK }
+                $apps += [PSCustomObject]@{
+                    name = $_.Name; source = 'pnpm'; version = $ver; 
+                    latestVersion = ''; appId = $_.Name; status = $S_UNK;
+                    scanTime = [datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+                }
             }
         }
     }
@@ -905,7 +922,11 @@ function Scan-Bun {
     $r = Invoke-Cmd 'bun' @('pm', 'ls', '-g') -AllowFail
     @($r.Stdout -split "`r?`n" | ForEach-Object {
             if ($_ -match '^\s*([^\s@]+)@([^\s]+)') {
-                [PSCustomObject]@{Name = $Matches[1]; Source = 'bun'; Version = $Matches[2]; LatestVersion = ''; AppId = $Matches[1]; Status = $S_UNK }
+                [PSCustomObject]@{
+                    name = $Matches[1]; source = 'bun'; version = $Matches[2]; 
+                    latestVersion = ''; appId = $Matches[1]; status = $S_UNK;
+                    scanTime = [datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+                }
             }
         } | Where-Object { $_ })
 }
@@ -925,7 +946,11 @@ function Scan-Yarn {
     $r = Invoke-Cmd 'yarn' @('global', 'list') -AllowFail
     @($r.Stdout -split "`r?`n" | ForEach-Object {
             if ($_ -match '^info "([^@]+)@([^"]+)"') {
-                [PSCustomObject]@{Name = $Matches[1]; Source = 'yarn'; Version = $Matches[2]; LatestVersion = ''; AppId = $Matches[1]; Status = $S_UNK }
+                [PSCustomObject]@{
+                    name = $Matches[1]; source = 'yarn'; version = $Matches[2]; 
+                    latestVersion = ''; appId = $Matches[1]; status = $S_UNK;
+                    scanTime = [datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+                }
             }
         } | Where-Object { $_ })
 }
@@ -953,7 +978,11 @@ function Scan-Pip {
         if ($r.Stdout) {
             try {
                 ($r.Stdout | ConvertFrom-Json) | ForEach-Object {
-                    $apps += [PSCustomObject]@{Name = $_.name; Source = 'pip'; Version = $_.version; LatestVersion = ''; AppId = $_.name; Status = $S_UNK }
+                    $apps += [PSCustomObject]@{
+                        name = $_.name; source = 'pip'; version = $_.version; 
+                        latestVersion = ''; appId = $_.name; status = $S_UNK;
+                        scanTime = [datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+                    }
                 }
                 break
             }
@@ -988,7 +1017,11 @@ function Scan-Path {
         $first = ($r.Stdout -split "`r?`n")[0]
         if (-not $first) { $first = 'installed' }
         $ver = if ($first -match '(\d+\.\d+(?:\.\d+)*)') { $Matches[1] }else { $first.Substring(0, [Math]::Min(80, $first.Length)) }
-        $apps += [PSCustomObject]@{Name = $tool; Source = 'path'; Version = $ver; LatestVersion = ''; AppId = $tool; Status = $S_UNK }
+        $apps += [PSCustomObject]@{
+            name = $tool; source = 'path'; version = $ver; 
+            latestVersion = ''; appId = $tool; status = $S_UNK;
+            scanTime = [datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+        }
     }
     return $apps
 }
@@ -1010,7 +1043,11 @@ function Scan-Rust {
     if (-not $r.Stdout) { return $apps }
     $r.Stdout -split "`r?`n" | ForEach-Object {
         if ($_ -match '^([^\s]+)\s+v([^\s:]+):') {
-            $apps += [PSCustomObject]@{Name = $Matches[1]; Source = 'rust'; Version = $Matches[2]; LatestVersion = ''; AppId = $Matches[1]; Status = $S_UNK }
+            $apps += [PSCustomObject]@{
+                name = $Matches[1]; source = 'rust'; version = $Matches[2]; 
+                latestVersion = ''; appId = $Matches[1]; status = $S_UNK;
+                scanTime = [datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+            }
         }
     }
     return $apps
@@ -1055,9 +1092,10 @@ function Scan-Registry {
                     if ($seen.ContainsKey($key)) { continue }
                     $seen[$key] = $true
                     $list.Add([PSCustomObject]@{
-                            Name = $item.DisplayName.Trim(); Source = 'registry'
-                            Version = $item.DisplayVersion.Trim(); LatestVersion = ''
-                            AppId = $item.PSChildName; Status = $S_UNK
+                            name = $item.DisplayName.Trim(); source = 'registry';
+                            version = $item.DisplayVersion.Trim(); latestVersion = '';
+                            appId = $item.PSChildName; status = $S_UNK;
+                            scanTime = [datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
                         })
                 }
                 catch { }
@@ -1083,8 +1121,8 @@ function Scan-Registry {
 #>
 function Get-Unique([array]$Apps) {
     $map = @{}
-    foreach ($a in $Apps) { $k = "$($a.Source)|$($a.Name)|$($a.Version)".ToLower(); $map[$k] = $a }
-    return [array]@($map.Values | Sort-Object { $_.Source + $_.Name })
+    foreach ($a in $Apps) { $k = "$($a.source)|$($a.name)|$($a.version)".ToLower(); $map[$k] = $a }
+    return [array]@($map.Values | Sort-Object { $_.source + $_.name })
 }
 
 # ── Cache Functions ────────────────────────────────────────────────────────────
@@ -1108,14 +1146,16 @@ function Load-Cache {
     if (-not(Test-Path $CACHE_FILE)) { return $null }
     try {
         $j = Get-Content $CACHE_FILE -Raw -Encoding UTF8 | ConvertFrom-Json
-        # Check if cache has expired based on timestamp
-        if (([datetime]::UtcNow - [datetime]::Parse($j.timestamp)).TotalHours -gt $CFG_CACHE_HOURS) { return $null }
-        # Add missing properties for backward compatibility with older cache formats
-        $apps = @($j.apps | ForEach-Object {
-            if (-not $_.PSObject.Properties['Status']) { $_ | Add-Member -NotePropertyName 'Status' -NotePropertyValue $S_UNK }
-            if (-not $_.PSObject.Properties['LatestVersion']) { $_ | Add-Member -NotePropertyName 'LatestVersion' -NotePropertyValue '' }
-            $_
-        })
+        # Map camelCase to PowerShell object properties
+        $apps = @()
+        if ($j.apps) {
+            $apps = @($j.apps | ForEach-Object {
+                if (-not $_.PSObject.Properties['status']) { $_ | Add-Member -NotePropertyName 'status' -NotePropertyValue $S_UNK }
+                if (-not $_.PSObject.Properties['latestVersion']) { $_ | Add-Member -NotePropertyName 'latestVersion' -NotePropertyValue '' }
+                if (-not $_.PSObject.Properties['scanTime']) { $_ | Add-Member -NotePropertyName 'scanTime' -NotePropertyValue [datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ") }
+                $_
+            })
+        }
         return $apps
     }
     catch { return $null }
@@ -1139,8 +1179,8 @@ function Load-Cache {
 function Save-Cache([array]$Apps) {
     # Create data directory if it doesn't exist
     if (-not(Test-Path $DATA_DIR)) { New-Item -ItemType Directory $DATA_DIR -Force | Out-Null }
-    # Write cache with metadata (timestamp, version, count, apps)
-    @{timestamp = (Get-Date -f 'o'); version = $VER; totalApps = $Apps.Count; apps = $Apps } | ConvertTo-Json -Depth 10 | Set-Content $CACHE_FILE -Encoding UTF8
+    # Write cache with metadata (timestamp, version, totalApps, apps)
+    @{timestamp = [datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"); version = $VER; totalApps = $Apps.Count; apps = $Apps } | ConvertTo-Json -Depth 10 | Set-Content $CACHE_FILE -Encoding UTF8
 }
 
 <#
@@ -1170,14 +1210,14 @@ function Clear-AppCache { if (Test-Path $CACHE_FILE) { Remove-Item $CACHE_FILE -
     Number of packages with available updates.
 #>
 function Check-Winget([array]$Apps) {
-    $t = @($Apps | Where-Object { $_.Source -eq 'winget' }); if (-not $t) { return 0 }
+    $t = @($Apps | Where-Object { $_.source -eq 'winget' }); if (-not $t) { return 0 }
     # Get available upgrades from winget and parse with -Avail flag
     $upd = Parse-Winget (Invoke-NativeCmd 'winget' @('upgrade', '--accept-source-agreements') -AllowFail).Stdout -Avail
     $n = 0
     foreach ($u in $upd) {
         # Match by AppId (case-insensitive)
-        $a = $t | Where-Object { $_.AppId -and $u.AppId -and $_.AppId.ToLower() -eq $u.AppId.ToLower() } | Select-Object -First 1
-        if (-not $a) { continue }; $a.LatestVersion = $u.LatestVersion; $a.Status = $S_UPD; $n++
+        $a = $t | Where-Object { $_.appId -and $u.appId -and $_.appId.ToLower() -eq $u.appId.ToLower() } | Select-Object -First 1
+        if (-not $a) { continue }; $a.latestVersion = $u.latestVersion; $a.status = $S_UPD; $n++
     }
     return $n
 }
@@ -1196,14 +1236,14 @@ function Check-Winget([array]$Apps) {
     Number of packages with available updates.
 #>
 function Check-Registry([array]$Apps) {
-    $t = @($Apps | Where-Object { $_.Source -eq 'registry' }); if (-not $t) { return 0 }
+    $t = @($Apps | Where-Object { $_.source -eq 'registry' }); if (-not $t) { return 0 }
     $upd = Parse-Winget (Invoke-NativeCmd 'winget' @('upgrade', '--accept-source-agreements') -AllowFail).Stdout -Avail
     # Build lookup map for efficient matching
-    $map = @{}; foreach ($u in $upd) { $map[$u.Name.ToLower()] = $u }
+    $map = @{}; foreach ($u in $upd) { $map[$u.name.ToLower()] = $u }
     $n = 0
     foreach ($a in $t) {
-        $m = $map[$a.Name.ToLower()]
-        if ($m -and $m.LatestVersion) { $a.LatestVersion = $m.LatestVersion; $a.Status = $S_UPD; $n++ } else { $a.Status = $S_OK }
+        $m = $map[$a.name.ToLower()]
+        if ($m -and $m.LatestVersion) { $a.latestVersion = $m.latestVersion; $a.status = $S_UPD; $n++ } else { $a.status = $S_OK }
     }
     return $n
 }
@@ -1222,13 +1262,13 @@ function Check-Registry([array]$Apps) {
     Number of packages with available updates.
 #>
 function Check-Choco([array]$Apps) {
-    $t = @($Apps | Where-Object { $_.Source -eq 'chocolatey' }); if (-not $t) { return 0 }
+    $t = @($Apps | Where-Object { $_.source -eq 'chocolatey' }); if (-not $t) { return 0 }
     $r = Invoke-Cmd 'choco' @('outdated', '--limit-output') -AllowFail; $n = 0
     foreach ($line in ($r.Stdout -split "`r?`n")) {
         # Parse pipe-delimited format: name|current|latest
         $p = $line -split '\|'; if ($p.Count -lt 3 -or -not $p[0] -or -not $p[2]) { continue }
-        $a = $t | Where-Object { $_.Name.ToLower() -eq $p[0].Trim().ToLower() } | Select-Object -First 1
-        if (-not $a) { continue }; $a.LatestVersion = $p[2].Trim(); $a.Status = $S_UPD; $n++
+        $a = $t | Where-Object { $_.name.ToLower() -eq $p[0].Trim().ToLower() } | Select-Object -First 1
+        if (-not $a) { continue }; $a.latestVersion = $p[2].Trim(); $a.status = $S_UPD; $n++
     }
     return $n
 }
@@ -1247,17 +1287,17 @@ function Check-Choco([array]$Apps) {
     Number of packages with available updates.
 #>
 function Check-Npm([array]$Apps) {
-    $t = @($Apps | Where-Object { $_.Source -eq 'npm' }); if (-not $t) { return 0 }
+    $t = @($Apps | Where-Object { $_.source -eq 'npm' }); if (-not $t) { return 0 }
     $r = Invoke-NativeCmd 'npm' @('outdated', '-g', '--json') -AllowFail; if (-not $r.Stdout) { return 0 }
     $n = 0
     try {
         $j = $r.Stdout | ConvertFrom-Json
         foreach ($prop in $j.PSObject.Properties) {
             $nm = $prop.Name
-            $app = $t | Where-Object { $_.Name -eq $nm } | Select-Object -First 1
+            $app = $t | Where-Object { $_.name -eq $nm } | Select-Object -First 1
             if (-not $app) { continue }
             $lat = $j.$nm.latest ?? ''
-            if ($lat) { $app.LatestVersion = $lat; $app.Status = $S_UPD; $n++ }
+            if ($lat) { $app.latestVersion = $lat; $app.status = $S_UPD; $n++ }
         }
     }
     catch { Write-Log "npm outdated: $_" }
@@ -1278,7 +1318,7 @@ function Check-Npm([array]$Apps) {
     Number of packages with available updates.
 #>
 function Check-Pnpm([array]$Apps) {
-    $t = @($Apps | Where-Object { $_.Source -eq 'pnpm' }); if (-not $t) { return 0 }
+    $t = @($Apps | Where-Object { $_.source -eq 'pnpm' }); if (-not $t) { return 0 }
     $r = Invoke-NativeCmd 'pnpm' @('outdated', '-g', '--json') -AllowFail; if (-not $r.Stdout) { return 0 }
     $n = 0
     try {
@@ -1287,8 +1327,8 @@ function Check-Pnpm([array]$Apps) {
         $entries = if ($j -is [array]) { $j | ForEach-Object { [PSCustomObject]@{N = $_.name; L = $_.latest ?? $_.wanted ?? '' } } }
         else { $j.PSObject.Properties | ForEach-Object { $v = $j.$($_.Name); [PSCustomObject]@{N = $_.Name; L = $v.latest ?? $v.wanted ?? '' } } }
         foreach ($e in $entries) {
-            $a = $t | Where-Object { $_.Name -eq $e.N } | Select-Object -First 1
-            if (-not $a -or -not $e.L) { continue }; $a.LatestVersion = $e.L; $a.Status = $S_UPD; $n++
+            $a = $t | Where-Object { $_.name -eq $e.N } | Select-Object -First 1
+            if (-not $a -or -not $e.L) { continue }; $a.latestVersion = $e.L; $a.status = $S_UPD; $n++
         }
     }
     catch { Write-Log "pnpm outdated: $_" }
@@ -1309,11 +1349,11 @@ function Check-Pnpm([array]$Apps) {
     Number of packages with available updates.
 #>
 function Check-Bun([array]$Apps) {
-    $t = @($Apps | Where-Object { $_.Source -eq 'bun' }); $n = 0
+    $t = @($Apps | Where-Object { $_.source -eq 'bun' }); $n = 0
     foreach ($a in $t) {
-        $r = Invoke-NativeCmd 'npm' @('info', $a.Name, 'version') -AllowFail
+        $r = Invoke-NativeCmd 'npm' @('info', $a.name, 'version') -AllowFail
         $l = $r.Stdout.Trim()
-        if ($l -and $l -ne $a.Version -and $l -notmatch 'ERR') { $a.LatestVersion = $l; $a.Status = $S_UPD; $n++ }
+        if ($l -and $l -ne $a.version -and $l -notmatch 'ERR') { $a.latestVersion = $l; $a.status = $S_UPD; $n++ }
     }; return $n
 }
 
@@ -1331,11 +1371,11 @@ function Check-Bun([array]$Apps) {
     Number of packages with available updates.
 #>
 function Check-Yarn([array]$Apps) {
-    $t = @($Apps | Where-Object { $_.Source -eq 'yarn' }); $n = 0
+    $t = @($Apps | Where-Object { $_.source -eq 'yarn' }); $n = 0
     foreach ($a in $t) {
-        $r = Invoke-NativeCmd 'npm' @('info', $a.Name, 'version') -AllowFail
+        $r = Invoke-NativeCmd 'npm' @('info', $a.name, 'version') -AllowFail
         $l = $r.Stdout.Trim()
-        if ($l -and $l -ne $a.Version -and $l -notmatch 'ERR') { $a.LatestVersion = $l; $a.Status = $S_UPD; $n++ }
+        if ($l -and $l -ne $a.version -and $l -notmatch 'ERR') { $a.latestVersion = $l; $a.status = $S_UPD; $n++ }
     }; return $n
 }
 
@@ -1353,7 +1393,7 @@ function Check-Yarn([array]$Apps) {
     Number of packages with available updates.
 #>
 function Check-Rust([array]$Apps) {
-    $t = @($Apps | Where-Object { $_.Source -eq 'rust' }); if (-not $t) { return 0 }
+    $t = @($Apps | Where-Object { $_.source -eq 'rust' }); if (-not $t) { return 0 }
     $r = Invoke-Cmd 'cargo' @('install-update', '-l') -AllowFail
     if (-not $r.Stdout) { return 0 }
     $lines = $r.Stdout -split "`r?`n"
@@ -1373,10 +1413,10 @@ function Check-Rust([array]$Apps) {
         $name = $p[0]; $latest = $p[2]; $needs = $p[3]
         # Only count packages marked as needing update
         if ($needs.ToLower() -eq 'yes') {
-            $a = $t | Where-Object { $_.Name -eq $name } | Select-Object -First 1
+            $a = $t | Where-Object { $_.name -eq $name } | Select-Object -First 1
             if ($a) {
-                $a.LatestVersion = if ($latest.StartsWith('v')) { $latest.Substring(1) } else { $latest }
-                $a.Status = $S_UPD; $n++
+                $a.latestVersion = if ($latest.StartsWith('v')) { $latest.Substring(1) } else { $latest }
+                $a.status = $S_UPD; $n++
             }
         }
     }
@@ -1397,15 +1437,15 @@ function Check-Rust([array]$Apps) {
     Number of packages with available updates.
 #>
 function Check-Pip([array]$Apps) {
-    $t = @($Apps | Where-Object { $_.Source -eq 'pip' }); if (-not $t) { return 0 }; $n = 0
+    $t = @($Apps | Where-Object { $_.source -eq 'pip' }); if (-not $t) { return 0 }; $n = 0
     foreach ($run in @('py', 'python', 'python3', 'pip')) {
         $a2 = if ($run -ne 'pip') { @('-m', 'pip', 'list', '--outdated', '--format=json') } else { @('list', '--outdated', '--format=json') }
         $r = Invoke-Cmd $run $a2 -AllowFail
         if ($r.Stdout) {
             try {
                 ($r.Stdout | ConvertFrom-Json) | ForEach-Object {
-                    $nm = $_.name; $app = $t | Where-Object { $_.Name.ToLower() -eq $nm.ToLower() } | Select-Object -First 1
-                    if ($app -and $_.latest_version) { $app.LatestVersion = $_.latest_version; $app.Status = $S_UPD; $n++ }
+                    $nm = $_.name; $app = $t | Where-Object { $_.name.ToLower() -eq $nm.ToLower() } | Select-Object -First 1
+                    if ($app -and $_.latest_version) { $app.latestVersion = $_.latest_version; $app.status = $S_UPD; $n++ }
                 }
                 break
             }
@@ -1434,7 +1474,7 @@ function Check-Pip([array]$Apps) {
     Handles preview/stable version comparisons to avoid downgrade suggestions.
 #>
 function Check-PathUpdates([array]$Apps) {
-    $t = @($Apps | Where-Object { $_.Source -eq 'path' }); $n = 0
+    $t = @($Apps | Where-Object { $_.source -eq 'path' }); $n = 0
     foreach ($app in $t) {
         $latest = ''
         try {
@@ -1506,8 +1546,16 @@ function Check-PathUpdates([array]$Apps) {
 function Finalize([array]$Apps) {
     $managed = @('winget', 'chocolatey', 'npm', 'pnpm', 'bun', 'yarn', 'pip', 'registry', 'rust', 'path')
     foreach ($a in $Apps) {
-        if ($a.Status -in @($S_UPD, $S_OK)) { continue }
-        if ($a.LatestVersion -or $a.Source -in $managed) { $a.Status = $S_OK } else { $a.Status = $S_UNK }
+        if ($a.status -in @($S_UPD, $S_OK)) { 
+            if ($a.status -eq $S_OK -and -not $a.latestVersion) { $a.latestVersion = '-' }
+            continue 
+        }
+        if ($a.latestVersion -or $a.source -in $managed) { 
+            $a.status = $S_OK 
+            if (-not $a.latestVersion) { $a.latestVersion = '-' }
+        } else { 
+            $a.status = $S_UNK 
+        }
     }
 }
 
@@ -1614,7 +1662,7 @@ function Is-NewerVersion([string]$current, [string]$latest) {
     Severity levels: critical, high, medium, low.
 #>
 function Check-NpmVulns([array]$Apps) {
-    $t = @($Apps | Where-Object { $_.Source -eq 'npm' }); if (-not $t) { return @() }
+    $t = @($Apps | Where-Object { $_.source -eq 'npm' }); if (-not $t) { return @() }
     $r = Invoke-NativeCmd 'npm' @('audit', '--json', '--silent') -AllowFail; if (-not $r.Stdout) { return @() }
     $vulns = @()
     try {
@@ -1622,7 +1670,7 @@ function Check-NpmVulns([array]$Apps) {
         if ($j.vulnerabilities) {
             $j.vulnerabilities.PSObject.Properties | ForEach-Object {
                 $nm = $_.Name; $v = $j.vulnerabilities.$nm
-                $a = $t | Where-Object { $_.Name.ToLower() -eq $nm.ToLower() } | Select-Object -First 1
+                $a = $t | Where-Object { $_.name.ToLower() -eq $nm.ToLower() } | Select-Object -First 1
                 if (-not $a) { return }
                 $sev = if ($v.severity) { $v.severity } else { 'low' }
                 $cve = if ($v.cves -and $v.cves.Count -gt 0) { $v.cves[0] } else { 'N/A' }
@@ -1653,7 +1701,7 @@ function Check-NpmVulns([array]$Apps) {
     Tries py, python, then pip executables in order.
 #>
 function Check-PipVulns([array]$Apps) {
-    $t = @($Apps | Where-Object { $_.Source -eq 'pip' }); if (-not $t) { return @() }; $vulns = @()
+    $t = @($Apps | Where-Object { $_.source -eq 'pip' }); if (-not $t) { return @() }; $vulns = @()
     foreach ($run in @('py', 'python', 'pip')) {
         $a = if ($run -ne 'pip') { @('-m', 'pip', 'check', '--format=json') } else { @('check', '--format=json') }
         $r = Invoke-Cmd $run $a -AllowFail
@@ -1662,7 +1710,7 @@ function Check-PipVulns([array]$Apps) {
                 ($r.Stdout | ConvertFrom-Json) | ForEach-Object {
                     if (-not $_.vulnerabilities -or $_.vulnerabilities.Count -eq 0) { return }
                     $pn = if ($_.package_name) { $_.package_name } else { $_.name }
-                    $found = $t | Where-Object { $_.Name.ToLower() -eq $pn.ToLower() } | Select-Object -First 1
+                    $found = $t | Where-Object { $_.name.ToLower() -eq $pn.ToLower() } | Select-Object -First 1
                     if (-not $found) { return }
                     foreach ($vv in $_.vulnerabilities) {
                         $sev = if ($vv.severity) { $vv.severity } else { 'medium' }
@@ -1754,15 +1802,15 @@ function padAnsi([string]$Text, [int]$Width) {
 #>
 function Print-Table([array]$Apps, [switch]$ShowAll) {
     # Filter apps: by default show only updates/vulnerable, unless ShowAll is true
-    $displayApps = if ($ShowAll) { $Apps } else { @($Apps | Where-Object { $_.Status -eq $S_UPD -or $_.Status -eq $S_VULN }) }
+    $displayApps = if ($ShowAll) { $Apps } else { @($Apps | Where-Object { $_.status -eq $S_UPD -or $_.status -eq $S_VULN }) }
 
     # Define table columns with keys, titles, and widths
     $cols = @(
-        @{K = 'Name'; T = 'Package'; W = 30 }
-        @{K = 'Source'; T = 'Source'; W = 12 }
-        @{K = 'Version'; T = 'Current'; W = 20 }
-        @{K = 'LatestVersion'; T = 'Latest'; W = 20 }
-        @{K = 'Status'; T = 'Status'; W = 17 }
+        @{K = 'name'; T = 'Package'; W = 30 }
+        @{K = 'source'; T = 'Source'; W = 12 }
+        @{K = 'version'; T = 'Current'; W = 20 }
+        @{K = 'latestVersion'; T = 'Latest'; W = 20 }
+        @{K = 'status'; T = 'Status'; W = 17 }
     )
     $sep = '  '
     # Build and display header row in bold cyan
@@ -1774,18 +1822,18 @@ function Print-Table([array]$Apps, [switch]$ShowAll) {
         $row = $cols | ForEach-Object {
             $col = $_
             switch ($col.K) {
-                'Source' { padAnsi (srcBadge (trunc ($app.Source ?? '-') $col.W).Trim()) $col.W }
-                'Status' { padAnsi (statusBadge $app.Status) $col.W }
-                'Name' { padAnsi (bold (trunc ($app.Name ?? '-') $col.W)) $col.W }
-                'LatestVersion' {
-                    if ($app.Status -eq $S_OK) {
+                'source' { padAnsi (srcBadge (trunc ($app.source ?? '-') $col.W).Trim()) $col.W }
+                'status' { padAnsi (statusBadge $app.status) $col.W }
+                'name' { padAnsi (bold (trunc ($app.name ?? '-') $col.W)) $col.W }
+                'latestVersion' {
+                    if ($app.status -eq $S_OK) {
                         padAnsi '-' $col.W
                     }
-                    elseif ($app.Status -eq $S_UPD) {
-                        padAnsi (yellow (trunc ($app.LatestVersion ?? '-') $col.W)) $col.W
+                    elseif ($app.status -eq $S_UPD) {
+                        padAnsi (yellow (trunc ($app.latestVersion ?? '-') $col.W)) $col.W
                     }
                     else {
-                        padAnsi (trunc ($app.LatestVersion ?? '-') $col.W) $col.W
+                        padAnsi (trunc ($app.latestVersion ?? '-') $col.W) $col.W
                     }
                 }
                 default { padAnsi (trunc ($app.($col.K) ?? '-') $col.W) $col.W }
@@ -2139,7 +2187,7 @@ function Main {
             if ($vulns.Count -gt 0) {
                 $vulns | ForEach-Object {
                     $vPkg = $_.Pkg
-                    $a = $apps | Where-Object { $_.Name.ToLower() -eq $vPkg.ToLower() } | Select-Object -First 1
+                    $a = $apps | Where-Object { $_.name.ToLower() -eq $vPkg.ToLower() } | Select-Object -First 1
                     if ($a) { $a.Status = $S_VULN }
                 }
                 Write-Host "$(E 'fire') $(red (bold "Found $($vulns.Count) security vulnerabilities."))`n"
@@ -2195,7 +2243,7 @@ function Main {
     # Handle -Package: update specific package
     if ($Package) {
         $wanted = $Package.ToLower()
-        $m = @($apps | Where-Object { $_.Name.ToLower() -eq $wanted -and (-not $Source -or $_.Source.ToLower() -eq $Source.ToLower()) })
+        $m = @($apps | Where-Object { $_.name.ToLower() -eq $wanted -and (-not $Source -or $_.Source.ToLower() -eq $Source.ToLower()) })
         if (-not $m) { Write-Host "`n$(E 'fail') $(red (bold "Package not found: $Package"))"; exit 2 }
         if ($m.Count -gt 1 -and -not $Source) {
             Write-Host "`n$(E 'warn') $(yellow 'Multiple matches. Re-run with -Source.')"
