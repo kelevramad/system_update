@@ -8,51 +8,81 @@ Author: Gemini (Redesigned)
 
 A sophisticated system update tool with enhanced UI architecture and modular design.
 
+This module provides a comprehensive system update management solution for Windows,
+supporting multiple package managers and installation sources. It features parallel
+scanning, intelligent caching, security vulnerability detection, and a beautiful
+Rich-based terminal interface.
+
 Features:
-• Multi-source package discovery (Winget, Chocolatey, NPM, PIP, PNPM, PATH, Registry)
-• Real-time security vulnerability scanning
-• Parallel processing for optimal performance
-• Beautiful Rich-based interface with modern layout
-• Flexible export options and caching system
-• Granular update control with dry-run support
+    - Multi-source package discovery (Winget, Chocolatey, NPM, PIP, PNPM, PATH, Registry)
+    - Real-time security vulnerability scanning
+    - Parallel processing for optimal performance
+    - Beautiful Rich-based interface with modern layout
+    - Flexible export options and caching system
+    - Granular update control with dry-run support
+
+Example Usage:
+    >>> app = SystemUpdateApp()
+    >>> apps = app.scan_system()
+    >>> checker.check_all_updates(apps)
+    >>> executor.execute_updates(apps)
+
+Command Line:
+    python system_update.py --update-all      # Update all packages
+    python system_update.py --dry-run         # Preview updates without applying
+    python system_update.py --package git     # Update specific package
+    python system_update.py --export json     # Export results to JSON file
 """
 
-import argparse
-import csv
-import json
-import logging
-import os
-import platform
-import re
-import shutil
-import subprocess
-import sys
-import time
+# ═══════════════════════════════════════════════════════════════════════════════
+# STANDARD LIBRARY IMPORTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import argparse    # Command-line argument parsing
+import csv         # CSV file export support
+import json        # JSON configuration and export
+import logging     # Logging infrastructure
+import os          # Operating system interfaces
+import platform    # Platform detection (Windows/Linux/macOS)
+import re          # Regular expressions for parsing
+import shutil      # Shell utilities (which command lookup)
+import subprocess  # External command execution
+import sys         # System-specific parameters and I/O
+import time        # Timing and performance measurement
 
 # Force UTF-8 encoding for standard output to avoid UnicodeEncodeError on Windows
+# This ensures proper display of Unicode characters (emojis, special symbols)
 if sys.stdout.encoding != 'utf-8':
     try:
         sys.stdout.reconfigure(encoding='utf-8')
     except AttributeError:
         pass
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, asdict, field
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import List, Dict, Optional, Tuple
-from enum import Enum
+# ═══════════════════════════════════════════════════════════════════════════════
+# PYTHON STANDARD LIBRARY - TYPE SUPPORT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from concurrent.futures import ThreadPoolExecutor, as_completed  # Parallel execution
+from dataclasses import dataclass, asdict, field                 # Data containers
+from datetime import datetime, timedelta                         # Time handling
+from pathlib import Path                                         # Path manipulation
+from typing import List, Dict, Optional, Tuple                   # Type hints
+from enum import Enum                                            # Enumeration support
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# THIRD-PARTY IMPORTS (RICH LIBRARY)
+# ═══════════════════════════════════════════════════════════════════════════════
 
 # Required rich imports - ensure_dependencies() will install if missing
 from rich import print
 
 RICH_AVAILABLE = True
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
-from rich.prompt import Confirm
-from rich.progress import (
+from rich.console import Console       # Terminal output management
+from rich.panel import Panel           # Boxed text panels
+from rich.table import Table           # Tabular data display
+from rich.text import Text             # Styled text objects
+from rich.prompt import Confirm        # Yes/No user prompts
+from rich.progress import (            # Progress bar components
     Progress,
     TextColumn,
     BarColumn,
@@ -60,8 +90,8 @@ from rich.progress import (
     MofNCompleteColumn,
     TaskID,
 )
-from rich.style import Style
-from rich import box
+from rich.style import Style           # Style definitions
+from rich import box                   # Table border styles
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -70,7 +100,26 @@ from rich import box
 
 
 def ensure_dependencies():
-    """Auto-install required dependencies with user confirmation."""
+    """
+    Auto-install required dependencies with user confirmation.
+
+    This function checks if the 'rich' library is available and prompts the user
+    to install it if missing. The rich library is essential for the enhanced UI
+    experience with colored output, progress bars, and formatted tables.
+
+    Behavior:
+        - If rich is available: returns immediately (no-op)
+        - If rich is missing: prompts user for installation consent
+        - On user consent: installs rich via pip and exits for restart
+        - On user decline: exits with error message
+
+    Note:
+        This function calls sys.exit() after successful installation to ensure
+        the newly installed library is properly loaded on restart.
+
+    Raises:
+        SystemExit: Exits after installation or if user declines installation.
+    """
     global RICH_AVAILABLE
     if RICH_AVAILABLE:
         return
@@ -111,7 +160,21 @@ console = Console()
 
 
 class UpdateStatus(Enum):
-    """Package update status enumeration."""
+    """
+    Enumeration of package update status states.
+
+    This enum defines all possible states a package can be in during the
+    update scanning and checking process. Each status has a string value
+    suitable for serialization and display.
+
+    Members:
+        UP_TO_DATE: Package is at the latest available version.
+        UPDATE_AVAILABLE: A newer version is available for installation.
+        UNKNOWN: Package status could not be determined.
+        ERROR: An error occurred while checking the package.
+        VULNERABLE: Package has known security vulnerabilities.
+        SECURITY_UPDATE_AVAILABLE: A security patch is available.
+    """
 
     UP_TO_DATE = "up_to_date"
     UPDATE_AVAILABLE = "update_available"
@@ -123,7 +186,30 @@ class UpdateStatus(Enum):
 
 @dataclass
 class AppInfo:
-    """Structured application metadata."""
+    """
+    Structured application metadata container.
+
+    This dataclass holds comprehensive information about an installed application
+    or package, including its current version, latest available version, source,
+    and update status. It serves as the primary data structure throughout the
+    scanning, checking, and update execution pipeline.
+
+    Attributes:
+        name: Display name of the application/package.
+        source: Source identifier (e.g., "Winget", "NPM", "Chocolatey").
+        version: Currently installed version string.
+        latest_version: Latest available version (empty if unknown or up-to-date).
+        app_id: Unique package identifier used by the package manager.
+        update_status: Current update status from UpdateStatus enum.
+        error_msg: Error message if scanning/checking failed.
+        install_path: Filesystem path where the application is installed.
+        scan_time: Timestamp when this package information was scanned.
+
+    Example:
+        >>> app = AppInfo(name="Git", source="Winget", version="2.39.0")
+        >>> app.has_update
+        False
+    """
 
     name: str
     source: str
@@ -137,11 +223,30 @@ class AppInfo:
 
     @property
     def has_update(self) -> bool:
+        """
+        Check if an update is available for this package.
+
+        Returns:
+            bool: True if latest_version is set and differs from current version.
+        """
         return bool(self.latest_version and self.latest_version != self.version)
 
     @property
     def status_display(self) -> str:
-        """Get formatted status for display with emoji and text."""
+        """
+        Get formatted status string for display with emoji and text.
+
+        Returns a human-readable status string with emoji prefix suitable for
+        terminal display. The format is consistent across all status types.
+
+        Returns:
+            str: Formatted status string (e.g., "✅ up-to-date", "⬆️ update").
+
+        Example:
+            >>> app.update_status = UpdateStatus.UPDATE_AVAILABLE
+            >>> app.status_display
+            '⬆️ update'
+        """
         mapping = {
             UpdateStatus.UP_TO_DATE: "✅ up-to-date",
             UpdateStatus.UPDATE_AVAILABLE: "⬆️ update",
@@ -153,6 +258,22 @@ class AppInfo:
         return mapping.get(self.update_status, "❓ unknown")
 
     def to_dict(self) -> Dict:
+        """
+        Convert AppInfo to dictionary for JSON serialization.
+
+        Creates a dictionary representation of this AppInfo instance, converting
+        enum values to strings and datetime to ISO format for JSON compatibility.
+        Also includes the computed has_update property.
+
+        Returns:
+            Dict: Dictionary containing all AppInfo fields in JSON-serializable form.
+
+        Example:
+            >>> app = AppInfo(name="Git", source="Winget", version="2.39.0")
+            >>> data = app.to_dict()
+            >>> data["name"]
+            'Git'
+        """
         data = asdict(self)
         data["update_status"] = self.update_status.value
         data["scan_time"] = self.scan_time.isoformat()
@@ -162,7 +283,29 @@ class AppInfo:
 
 @dataclass
 class SecurityInfo:
-    """Security vulnerability metadata."""
+    """
+    Security vulnerability metadata container.
+
+    This dataclass stores information about security vulnerabilities affecting
+    a package, including CVE identifiers, severity ratings, and affected versions.
+    Used for security scanning and vulnerability reporting.
+
+    Attributes:
+        cve_id: Common Vulnerabilities and Exposures identifier (e.g., "CVE-2023-1234").
+        severity: Severity level (e.g., "CRITICAL", "HIGH", "MEDIUM", "LOW").
+        cvss_score: Common Vulnerability Scoring System score (0.0-10.0).
+        description: Human-readable description of the vulnerability.
+        affected_versions: List of version strings affected by this vulnerability.
+        published_date: Date when the vulnerability was published/disclosed.
+
+    Example:
+        >>> vuln = SecurityInfo(
+        ...     cve_id="CVE-2023-1234",
+        ...     severity="HIGH",
+        ...     cvss_score=7.5,
+        ...     description="Buffer overflow in parser"
+        ... )
+    """
 
     cve_id: str
     severity: str
@@ -172,6 +315,15 @@ class SecurityInfo:
     published_date: Optional[datetime] = None
 
     def to_dict(self) -> Dict:
+        """
+        Convert SecurityInfo to dictionary for JSON serialization.
+
+        Creates a dictionary representation with datetime converted to ISO format
+        for JSON compatibility.
+
+        Returns:
+            Dict: Dictionary containing all SecurityInfo fields in JSON-serializable form.
+        """
         data = asdict(self)
         if self.published_date:
             data["published_date"] = self.published_date.isoformat()
@@ -184,16 +336,53 @@ class SecurityInfo:
 
 
 class SystemConfig:
-    """Enhanced configuration management with validation."""
+    """
+    Enhanced configuration management with validation.
+
+    This class manages all application settings including cache behavior,
+    performance tuning, enabled package sources, security options, UI preferences,
+    and export settings. Configuration is persisted to a JSON file in the user's
+    home directory.
+
+    The configuration is organized into logical sections:
+        - cache: Cache duration and enable/disable settings
+        - performance: Parallel scanning, worker count, timeouts
+        - sources: Enable/disable individual package sources
+        - security: Security scanning options and severity thresholds
+        - ui: Theme, display options, color schemes
+        - export: Default export format and timestamp options
+
+    Attributes:
+        config_dir: Directory path for configuration files (~/.system_update).
+        config_file: Path to the main configuration JSON file.
+        cache_file: Path to the cache data file.
+        log_file: Path to the application log file.
+        settings: Dictionary containing all configuration settings.
+
+    Example:
+        >>> config = SystemConfig()
+        >>> config.load()  # Load from file
+        >>> config.settings["performance"]["max_workers"] = 8
+        >>> config.save()  # Persist changes
+    """
 
     def __init__(self):
+        """
+        Initialize SystemConfig with default settings and create config directory.
+
+        Sets up the configuration directory structure and initializes all settings
+        to their default values. If a configuration file exists, it will be loaded
+        and merged with defaults.
+        """
         self.config_dir = Path.home() / ".system_update"
         self.config_file = self.config_dir / "config.json"
         self.cache_file = self.config_dir / "cache.json"
         self.log_file = self.config_dir / "system.log"
 
+        # Create config directory if it doesn't exist
         self.config_dir.mkdir(exist_ok=True)
 
+        # Default settings organized by category
         self.settings = {
             "cache": {
                 "duration_hours": 2,
@@ -235,7 +424,17 @@ class SystemConfig:
         self.load()
 
     def load(self):
-        """Load configuration from file with error handling."""
+        """
+        Load configuration from file with error handling.
+
+        Reads the configuration JSON file and merges loaded settings with defaults.
+        This ensures that new settings added in future versions are automatically
+        included while preserving user customizations.
+
+        Note:
+            If the config file doesn't exist or is invalid, defaults are used.
+            Errors are logged but don't prevent application startup.
+        """
         if self.config_file.exists():
             try:
                 with open(self.config_file, "r", encoding="utf-8") as f:
@@ -245,7 +444,23 @@ class SystemConfig:
                 logging.warning(f"Failed to load config: {e}")
 
     def _merge_settings(self, base: dict, loaded: dict):
-        """Recursively merge settings."""
+        """
+        Recursively merge loaded settings with base defaults.
+
+        Performs a deep merge of configuration dictionaries, preserving nested
+        structure. Settings from 'loaded' override 'base' values, but missing
+        keys in 'loaded' retain their default values from 'base'.
+
+        Args:
+            base: Base dictionary (defaults) to merge into.
+            loaded: Loaded dictionary (user settings) to merge from.
+
+        Example:
+            >>> base = {"cache": {"enabled": True, "hours": 2}}
+            >>> loaded = {"cache": {"enabled": False}}
+            >>> config._merge_settings(base, loaded)
+            >>> base  # {"cache": {"enabled": False, "hours": 2}}
+        """
         for key, value in loaded.items():
             if key in base and isinstance(base[key], dict) and isinstance(value, dict):
                 self._merge_settings(base[key], value)
@@ -253,7 +468,16 @@ class SystemConfig:
                 base[key] = value
 
     def save(self):
-        """Save current configuration to file."""
+        """
+        Save current configuration to file.
+
+        Serializes the current settings dictionary to JSON and writes it to the
+        configuration file. Uses 2-space indentation for readability.
+
+        Note:
+            Errors during save are logged but don't raise exceptions.
+            The application can continue running even if save fails.
+        """
         try:
             with open(self.config_file, "w", encoding="utf-8") as f:
                 json.dump(self.settings, f, indent=2, default=str)
@@ -279,14 +503,54 @@ logger = logging.getLogger(__name__)
 
 
 class CacheManager:
-    """Intelligent caching system with validation."""
+    """
+    Intelligent caching system with validation.
+
+    This class manages the caching of scanned application data to improve
+    performance on subsequent runs. It handles cache validity checking,
+    loading cached data with proper type conversion, and saving new data
+    with metadata.
+
+    The cache includes:
+        - Timestamp of when the cache was created
+        - Version information for compatibility checking
+        - Total count of cached applications
+        - Serialized AppInfo objects
+
+    Attributes:
+        cache_file: Path to the cache JSON file.
+        duration: Timedelta representing cache validity period.
+
+    Example:
+        >>> cache_mgr = CacheManager(Path("cache.json"), duration_hours=2)
+        >>> if cache_mgr.is_valid():
+        ...     apps = cache_mgr.load()
+        >>> cache_mgr.save(apps)
+    """
 
     def __init__(self, cache_file: Path, duration_hours: int = 2):
+        """
+        Initialize CacheManager with file path and duration.
+
+        Args:
+            cache_file: Path to the cache JSON file.
+            duration_hours: Number of hours before cache expires (default: 2).
+        """
         self.cache_file = cache_file
         self.duration = timedelta(hours=duration_hours)
 
     def is_valid(self) -> bool:
-        """Check if cache is valid and not expired."""
+        """
+        Check if cache is valid and not expired.
+
+        Validates the cache by checking:
+            1. Cache file exists
+            2. File can be read and parsed as JSON
+            3. Timestamp is within the validity duration
+
+        Returns:
+            bool: True if cache exists and is not expired, False otherwise.
+        """
         if not self.cache_file.exists():
             return False
         try:
@@ -298,7 +562,21 @@ class CacheManager:
             return False
 
     def load(self) -> Optional[List[AppInfo]]:
-        """Load cached applications with type safety."""
+        """
+        Load cached applications with type safety.
+
+        Reads cached AppInfo data from disk and reconstructs AppInfo objects
+        with proper type conversion for enums and datetime fields. Returns None
+        if cache is invalid or loading fails.
+
+        Returns:
+            Optional[List[AppInfo]]: List of AppInfo objects if cache is valid,
+                None otherwise.
+
+        Note:
+            Removes the computed 'has_update' field from cache data since it's
+            a property that should be computed at runtime.
+        """
         if not self.is_valid():
             return None
         try:
@@ -306,7 +584,7 @@ class CacheManager:
                 data = json.load(f)
                 apps = []
                 for item in data.get("apps", []):
-                    item.pop("has_update", None)
+                    item.pop("has_update", None)  # Remove computed property
                     item["update_status"] = UpdateStatus(item["update_status"])
                     item["scan_time"] = datetime.fromisoformat(item["scan_time"])
                     apps.append(AppInfo(**item))
@@ -316,7 +594,20 @@ class CacheManager:
             return None
 
     def save(self, apps: List[AppInfo]):
-        """Save applications to cache with metadata."""
+        """
+        Save applications to cache with metadata.
+
+        Serializes a list of AppInfo objects to JSON format with additional
+        metadata including timestamp, version, and total count. This enables
+        cache validation and future compatibility checks.
+
+        Args:
+            apps: List of AppInfo objects to cache.
+
+        Note:
+            Uses app.to_dict() for serialization which handles enum and datetime
+            conversion automatically.
+        """
         try:
             data = {
                 "timestamp": datetime.now().isoformat(),
@@ -330,7 +621,12 @@ class CacheManager:
             logger.error(f"Failed to save cache: {e}")
 
     def clear(self):
-        """Clear cache file."""
+        """
+        Clear cache file.
+
+        Deletes the cache file from disk if it exists. Used when user requests
+        a fresh scan or when cache corruption is suspected.
+        """
         if self.cache_file.exists():
             self.cache_file.unlink()
 
@@ -341,8 +637,40 @@ class CacheManager:
 
 
 def run_command(cmd: List[str], timeout: int = 45, allow_failure: bool = False, include_stderr: bool = False) -> Optional[str]:
-    """Execute command with enhanced error handling and timeout."""
+    """
+    Execute command with enhanced error handling and timeout.
+
+    Runs a shell command using subprocess with proper UTF-8 encoding, timeout
+    protection, and error handling. On Windows, resolves the executable path
+    using shutil.which() to ensure proper command execution.
+
+    Args:
+        cmd: List of command arguments (e.g., ["winget", "list"]).
+        timeout: Maximum execution time in seconds (default: 45).
+        allow_failure: If True, return output even if command exits with non-zero
+            status. If False, return None on non-zero exit (default: False).
+        include_stderr: If True, combine stdout and stderr in the returned output
+            (default: False).
+
+    Returns:
+        Optional[str]: Command output (stdout, or combined stdout+stderr if
+            include_stderr is True) with leading/trailing whitespace stripped.
+            Returns None if command fails (unless allow_failure=True), times out,
+            or executable is not found.
+
+    Note:
+        - Uses check=False to always capture output; exit code is checked manually
+        - On Windows, resolves executable path for better compatibility
+        - Ignores encoding errors to handle non-UTF-8 output gracefully
+        - Logs debug messages for failed commands
+
+    Example:
+        >>> output = run_command(["git", "--version"])
+        >>> if output:
+        ...     print(f"Git version: {output}")
+    """
     try:
+        # On Windows, resolve the executable path for better compatibility
         if platform.system() == "Windows":
             executable = shutil.which(cmd[0])
             if executable:
@@ -379,19 +707,36 @@ def run_command(cmd: List[str], timeout: int = 45, allow_failure: bool = False, 
 
 
 def source_badge(source: str) -> str:
-    """Return source name with Rich style tags matching JS sourceBadge().
+    """
+    Return source name with Rich style tags matching JS sourceBadge().
+
+    Creates a formatted string with Rich markup tags that apply color styling
+    to source names for display in tables and progress indicators. Each package
+    source has a distinct color for easy visual identification.
 
     Color pattern (from JS version):
-    - winget: blue
-    - chocolatey: yellow
-    - npm: red
-    - pnpm: magenta (purple in JS)
-    - pip: cyan
-    - bun: yellow (orange not available in Rich, using yellow)
-    - yarn: white
-    - rust: magenta
-    - path: green
-    - registry: dim white (gray)
+        - winget: blue
+        - chocolatey: yellow
+        - npm: red
+        - pnpm: magenta (purple in JS)
+        - pip: cyan
+        - bun: yellow (orange not available in Rich, using yellow)
+        - yarn: white
+        - rust: magenta
+        - path: green
+        - registry: dim white (gray)
+
+    Args:
+        source: Source name string (case-insensitive).
+
+    Returns:
+        str: Rich-formatted string with style tags (e.g., "[bold blue]winget[/bold blue]").
+
+    Example:
+        >>> source_badge("winget")
+        '[bold blue]winget[/bold blue]'
+        >>> source_badge("NPM")
+        '[bold red]npm[/bold red]'
     """
     source_lower = (source or "unknown").lower()
     style_map = {
@@ -416,27 +761,75 @@ def source_badge(source: str) -> str:
 
 
 class UISystem:
-    """Enhanced user interface system with beautiful layouts."""
+    """
+    Enhanced user interface system with beautiful layouts.
+
+    This class provides static methods for rendering all UI components including
+    the application banner, summary statistics, and data tables. All methods use
+    the Rich library for colorful, formatted terminal output.
+
+    The UI system is designed to match the JavaScript version's visual style,
+    providing consistent appearance across implementations.
+
+    Example:
+        >>> UISystem.display_banner()
+        >>> table = UISystem.create_apps_table(apps, "My Apps")
+        >>> console.print(table)
+    """
 
     @staticmethod
     def display_banner():
-        """Show application banner matching JS version."""
+        """
+        Show application banner matching JS version.
+
+        Displays a styled header banner with the application name, version, and
+        configuration directory path. Uses box-drawing characters for a polished
+        appearance.
+
+        Output format:
+            ┌──────────────────────────────────────────────────────────────┐
+            │ 🚀 System Update Node CLI v5.0.0                             │
+            │ ⚙️ Data dir: /home/user/.system_update                       │
+            └──────────────────────────────────────────────────────────────┘
+            Cache  → /home/user/.system_update/cache.json
+        """
         def hr(ch='─', width=70): return ch * width
         w = 68
         title = f"🚀 System Update Node CLI v5.0.0"
         sub = f"⚙️ Data dir: {config.config_dir}"
-        
+
         console.print(f"[cyan]┌{hr('─', 70)}┐[/cyan]")
         console.print(f"[cyan]│[/cyan] [bold cyan]{title.ljust(69)}[/bold cyan][cyan]│[/cyan]")
         console.print(f"[cyan]│[/cyan] [dim cyan]{sub.ljust(69)}[/dim cyan][cyan]│[/cyan]")
         console.print(f"[cyan]└{hr('─', 70)}┘[/cyan]")
-        
+
         console.print(f"Cache  [dim white]→ {config.cache_file}[/dim white]")
         console.print()
 
     @staticmethod
     def display_summary(total_apps: int, updates: int, scan_time: float, sources_count: Dict[str, int], show_all: bool = False):
-        """Display summary exactly matching NodeJS version."""
+        """
+        Display summary exactly matching NodeJS version.
+
+        Shows a formatted summary of the scan results including total applications
+        discovered, available updates, scan duration, and a breakdown of packages
+        by source.
+
+        Args:
+            total_apps: Total number of applications scanned.
+            updates: Number of applications with available updates.
+            scan_time: Time taken to complete the scan in seconds.
+            sources_count: Dictionary mapping source names to package counts.
+            show_all: If True, indicates all packages are being shown (not used
+                directly but available for future extensions).
+
+        Output format:
+            📊 Summary
+            📦 total apps     42
+            ⬆️ updates        5
+            ⏱️ scan duration  12.34s
+            ⚙️ sources        winget:20, npm:15, pip:7
+        """
         console.print(f"[bold magenta]📊 Summary[/bold magenta]")
         console.print(f"📦 total apps     [bold white]{total_apps}[/bold white]")
         console.print(f"⬆️ updates        [bold yellow]{updates}[/bold yellow]")
@@ -450,22 +843,36 @@ class UISystem:
     def create_apps_table(
         apps: List[AppInfo], title: str = "Installed Applications", show_all: bool = False
     ) -> Table:
-        """Create applications table matching JS version.
-        
+        """
+        Create applications table matching JS version.
+
+        Generates a Rich Table displaying application information with columns for
+        package name, source, current version, latest version, and update status.
+        Applies color coding based on source and status for easy visual scanning.
+
         Args:
-            apps: List of AppInfo objects
-            title: Table title
-            show_all: If True, show all packages; if False, show only updates/vulnerable
+            apps: List of AppInfo objects to display.
+            title: Table title string (default: "Installed Applications").
+            show_all: If True, show all packages; if False, show only updates/vulnerable.
+
+        Returns:
+            Table: Configured Rich Table object ready for display.
+
+        Note:
+            - When show_all=False, filters to only UPDATE_AVAILABLE or VULNERABLE
+            - Source names are color-coded for easy identification
+            - Status column uses emoji and color coding
+            - Latest version shows "-" for up-to-date packages
         """
         # Filter apps: by default show only updates/vulnerable, unless show_all is True
         if not show_all:
             display_apps = [
-                app for app in apps 
+                app for app in apps
                 if app.update_status in (UpdateStatus.UPDATE_AVAILABLE, UpdateStatus.VULNERABLE)
             ]
         else:
             display_apps = apps
-        
+
         table = Table(
             box=box.SIMPLE,
             show_header=True,
@@ -528,7 +935,24 @@ class UISystem:
 
     @staticmethod
     def create_security_table(security_results: List) -> Table:
-        """Create security vulnerabilities table."""
+        """
+        Create security vulnerabilities table.
+
+        Generates a Rich Table displaying security vulnerability information with
+        columns for package name, severity level, CVE count, and description.
+        Uses color coding for severity levels (red for critical, yellow for medium, etc.).
+
+        Args:
+            security_results: List of security scan result objects containing
+                app_info, highest_severity, total_vulnerabilities, and vulnerabilities.
+
+        Returns:
+            Table: Configured Rich Table object with security alert data.
+
+        Note:
+            - Severity colors: CRITICAL/HIGH=red, MEDIUM=yellow, LOW=green
+            - Description is truncated to 40 characters with ellipsis
+        """
         table = Table(
             title="[bold red]🔒 Security Alerts[/bold red]",
             box=box.HEAVY_EDGE,
@@ -566,11 +990,50 @@ class UISystem:
 
 
 class PackageScanner:
-    """Enhanced package scanning system."""
+    """
+    Enhanced package scanning system.
+
+    This class provides static methods for scanning installed packages from
+    multiple sources including package managers (Winget, Chocolatey, NPM, etc.)
+    and system locations (PATH, Registry). Each scanner returns a list of AppInfo
+    objects representing discovered packages.
+
+    Supported Sources:
+        - Winget: Windows Package Manager (native Windows)
+        - Chocolatey: Community package manager for Windows
+        - NPM: Node.js package manager (global packages)
+        - PNPM: Performant NPM package manager
+        - Bun: JavaScript runtime and package manager
+        - Yarn: Alternative JavaScript package manager
+        - PIP: Python package installer
+        - PATH: System executables found in PATH environment
+        - Registry: Windows Registry installed applications
+        - Rust: Cargo-installed Rust packages
+
+    Example:
+        >>> scanner = PackageScanner()
+        >>> winget_apps = PackageScanner.scan_winget()
+        >>> npm_apps = PackageScanner.scan_npm()
+        >>> all_apps = winget_apps + npm_apps
+    """
 
     @staticmethod
     def scan_winget() -> List[AppInfo]:
-        """Scan Winget packages with improved parsing."""
+        """
+        Scan Winget packages with improved parsing.
+
+        Executes 'winget list' command and parses the tabular output to extract
+        installed package information. Handles header detection and column position
+        calculation for robust parsing across different Winget versions.
+
+        Returns:
+            List[AppInfo]: List of discovered Winget packages.
+
+        Note:
+            - Uses --accept-source-agreements to avoid interactive prompts
+            - Skips entries missing name, app_id, or version
+            - Matches Node.js behavior for header position calculation
+        """
         apps = []
         output = run_command(["winget", "list", "--accept-source-agreements"], allow_failure=True)
         if not output:
@@ -639,7 +1102,19 @@ class PackageScanner:
 
     @staticmethod
     def scan_chocolatey() -> List[AppInfo]:
-        """Scan Chocolatey packages."""
+        """
+        Scan Chocolatey packages.
+
+        Executes 'choco list --local-only' to enumerate locally installed
+        Chocolatey packages. Parses pipe-delimited output format.
+
+        Returns:
+            List[AppInfo]: List of discovered Chocolatey packages.
+
+        Note:
+            - Uses --limit-output for machine-readable format
+            - Requires at least name and version fields
+        """
         apps = []
         output = run_command(["choco", "list", "--local-only", "--limit-output"], allow_failure=True)
         if not output:
@@ -661,7 +1136,19 @@ class PackageScanner:
 
     @staticmethod
     def scan_npm() -> List[AppInfo]:
-        """Scan NPM global packages."""
+        """
+        Scan NPM global packages.
+
+        Executes 'npm list -g --json' to enumerate globally installed NPM
+        packages. Parses JSON output for reliable extraction.
+
+        Returns:
+            List[AppInfo]: List of discovered NPM global packages.
+
+        Note:
+            - Uses --depth=0 for top-level packages only
+            - Uses --silent to suppress progress output
+        """
         apps = []
         output = run_command(["npm", "list", "-g", "--depth=0", "--json", "--silent"], allow_failure=True)
         if not output:
@@ -686,7 +1173,19 @@ class PackageScanner:
 
     @staticmethod
     def scan_pnpm() -> List[AppInfo]:
-        """Scan PNPM global packages."""
+        """
+        Scan PNPM global packages.
+
+        Executes 'pnpm list -g --json' to enumerate globally installed PNPM
+        packages. Handles both array and object JSON response formats.
+
+        Returns:
+            List[AppInfo]: List of discovered PNPM global packages.
+
+        Note:
+            - Uses --depth=0 for top-level packages only
+            - Handles both array and object JSON structures
+        """
         apps = []
         output = run_command(["pnpm", "list", "-g", "--depth=0", "--json"], allow_failure=True)
         if not output:
@@ -713,7 +1212,18 @@ class PackageScanner:
 
     @staticmethod
     def scan_bun() -> List[AppInfo]:
-        """Scan Bun global packages."""
+        """
+        Scan Bun global packages.
+
+        Executes 'bun pm ls -g' to enumerate globally installed Bun packages.
+        Parses output using regex to extract package name and version.
+
+        Returns:
+            List[AppInfo]: List of discovered Bun global packages.
+
+        Note:
+            - Uses regex pattern to match "package@version" format
+        """
         apps = []
         output = run_command(["bun", "pm", "ls", "-g"], allow_failure=True)
         if not output:
@@ -735,7 +1245,18 @@ class PackageScanner:
 
     @staticmethod
     def scan_yarn() -> List[AppInfo]:
-        """Scan Yarn global packages."""
+        """
+        Scan Yarn global packages.
+
+        Executes 'yarn global list' to enumerate globally installed Yarn
+        packages. Parses info lines using regex to extract package metadata.
+
+        Returns:
+            List[AppInfo]: List of discovered Yarn global packages.
+
+        Note:
+            - Matches 'info "package@version"' format in output
+        """
         apps = []
         output = run_command(["yarn", "global", "list"], allow_failure=True)
         if not output:
@@ -757,7 +1278,20 @@ class PackageScanner:
 
     @staticmethod
     def scan_pip() -> List[AppInfo]:
-        """Scan PIP packages."""
+        """
+        Scan PIP packages.
+
+        Executes 'pip list --format=json' to enumerate installed Python packages.
+        Tries multiple command patterns (python -m pip, pip, pip3) for maximum
+        compatibility across different Python installations.
+
+        Returns:
+            List[AppInfo]: List of discovered PIP packages.
+
+        Note:
+            - Tries multiple pip command patterns for compatibility
+            - Uses JSON format for reliable parsing
+        """
         apps = []
         # Try multiple pip command patterns like Node.js does
         pip_commands = [
@@ -765,13 +1299,13 @@ class PackageScanner:
             ["pip", "list", "--format=json"],
             ["pip3", "list", "--format=json"],
         ]
-        
+
         output = None
         for cmd in pip_commands:
             output = run_command(cmd, allow_failure=True)
             if output:
                 break
-        
+
         if not output:
             return apps
 
@@ -793,7 +1327,22 @@ class PackageScanner:
 
     @staticmethod
     def scan_path() -> List[AppInfo]:
-        """Scan PATH executables."""
+        """
+        Scan PATH executables.
+
+        Searches for common development tools and runtime executables in the
+        system PATH. For each found executable, retrieves its version using
+        the --version flag and extracts version number using regex.
+
+        Returns:
+            List[AppInfo]: List of discovered PATH executables with versions.
+
+        Note:
+            - Scans for: node, npm, pnpm, yarn, python, git, go, bun, deno,
+              rustc, cargo, dotnet, java, pwsh
+            - Uses 'where' on Windows, 'which' on Unix-like systems
+            - Extracts version using semantic versioning regex pattern
+        """
         apps = []
         executables = [
             "node",
@@ -833,7 +1382,19 @@ class PackageScanner:
 
     @staticmethod
     def scan_rust() -> List[AppInfo]:
-        """Scan Rust packages installed via cargo."""
+        """
+        Scan Rust packages installed via cargo.
+
+        Executes 'cargo install --list' to enumerate Rust packages installed
+        globally via Cargo. Parses output to extract package name and version.
+
+        Returns:
+            List[AppInfo]: List of discovered Rust/Cargo packages.
+
+        Note:
+            - Matches format: "package-name v1.2.3:"
+            - Only includes packages with valid version strings
+        """
         apps = []
         output = run_command(["cargo", "install", "--list"], allow_failure=True)
         if not output:
@@ -856,7 +1417,22 @@ class PackageScanner:
 
     @staticmethod
     def scan_registry() -> List[AppInfo]:
-        """Scan Windows Registry for installed applications."""
+        """
+        Scan Windows Registry for installed applications.
+
+        Executes a PowerShell script to query Windows Registry uninstall keys
+        from HKLM and HKCU hives. Extracts application name, version, and
+        install location for non-system applications.
+
+        Returns:
+            List[AppInfo]: List of discovered Registry applications.
+
+        Note:
+            - Windows-only functionality (returns empty list on other platforms)
+            - Queries HKLM, HKCU, and Wow6432Node registry paths
+            - Filters out system components (SystemComponent=1)
+            - Requires PowerShell on Windows
+        """
         if platform.system() != "Windows":
             return []
 
@@ -867,11 +1443,11 @@ class PackageScanner:
             'HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',
             'HKLM:\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'
         )
-        Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue | 
-            Where-Object { $_.DisplayName -and $_.DisplayVersion -and !$_.SystemComponent } | 
-            Select-Object @{n='Name';e={$_.DisplayName}}, 
-                         @{n='Version';e={$_.DisplayVersion}}, 
-                         @{n='InstallLocation';e={$_.InstallLocation}} | 
+        Get-ItemProperty -Path $paths -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName -and $_.DisplayVersion -and !$_.SystemComponent } |
+            Select-Object @{n='Name';e={$_.DisplayName}},
+                         @{n='Version';e={$_.DisplayVersion}},
+                         @{n='InstallLocation';e={$_.InstallLocation}} |
             ConvertTo-Json
         """
 
@@ -901,11 +1477,57 @@ class PackageScanner:
 
 
 class UpdateChecker:
-    """Enhanced update checking system."""
+    """
+    Enhanced update checking system.
+
+    This class provides methods for checking available updates across all supported
+    package managers. It groups applications by source and performs batch update
+    checks with progress reporting using Rich.
+
+    The main check_all_updates() method orchestrates the update checking process,
+    delegating to source-specific _check_* methods for each package manager.
+
+    Supported Sources:
+        - Winget: Uses 'winget upgrade' to find available updates
+        - Chocolatey: Uses 'choco outdated' for update detection
+        - NPM/PNPM/Bun/Yarn: Uses package manager-specific outdated commands
+        - PIP: Uses 'pip list --outdated' for Python packages
+        - PATH: Queries GitHub API and native commands for tool updates
+        - Registry: Cross-references with Winget upgrade list
+        - Rust: Uses 'cargo install-update -l' for Rust crates
+
+    Example:
+        >>> checker = UpdateChecker()
+        >>> total = checker.check_all_updates(apps)
+        >>> print(f"Found {total} updates available")
+    """
 
     @staticmethod
     def check_all_updates(apps: List[AppInfo]) -> int:
-        """Check updates for all supported package managers matching JS checkUpdates."""
+        """
+        Check updates for all supported package managers matching JS checkUpdates.
+
+        Orchestrates the update checking process by grouping applications by source
+        and calling the appropriate _check_* method for each. Displays progress
+        using Rich Progress bar with per-source status updates.
+
+        Args:
+            apps: List of AppInfo objects to check for updates. Modified in-place
+                to set latest_version and update_status fields.
+
+        Returns:
+            int: Total number of updates found across all sources.
+
+        Process:
+            1. Groups apps by source (winget, chocolatey, npm, etc.)
+            2. For each source with apps, calls the corresponding _check_* method
+            3. Updates progress bar with source-specific results
+            4. Sets final update_status for all apps (UP_TO_DATE or UPDATE_AVAILABLE)
+
+        Note:
+            - Apps already marked UPDATE_AVAILABLE or UP_TO_DATE are skipped
+            - Sources that perform update checks mark remaining apps as UP_TO_DATE
+        """
         total_updates = 0
 
         # Group apps by source for batch processing (matching JS order)
@@ -988,7 +1610,22 @@ class UpdateChecker:
 
     @staticmethod
     def _check_winget_updates(apps: List[AppInfo]) -> int:
-        """Check Winget package updates."""
+        """
+        Check Winget package updates.
+
+        Executes 'winget upgrade' command and parses the output to find packages
+        with available updates. Matches packages by app_id (case-insensitive).
+
+        Args:
+            apps: List of AppInfo objects to check. Modified in-place for matches.
+
+        Returns:
+            int: Number of Winget packages with available updates.
+
+        Note:
+            - Uses --accept-source-agreements to avoid interactive prompts
+            - Parses tabular output similar to scan_winget()
+        """
         updates = 0
         output = run_command(["winget", "upgrade", "--accept-source-agreements"], allow_failure=True)
         if not output:
@@ -1043,67 +1680,23 @@ class UpdateChecker:
         return updates
 
     @staticmethod
-    def _check_registry_updates(apps: List[AppInfo]) -> int:
-        """Check Registry app updates by cross-referencing with winget upgrade.
-
-        winget internally queries the Windows Registry to build its upgrade list,
-        so we can match Registry-installed apps against the winget upgrade output
-        by name to detect available updates.
-        """
-        updates = 0
-        output = run_command(["winget", "upgrade", "--accept-source-agreements"], allow_failure=True)
-        if not output:
-            # Mark all as UP_TO_DATE since we have no upgrade data
-            for app in apps:
-                app.update_status = UpdateStatus.UP_TO_DATE
-            return updates
-
-        lines = output.splitlines()
-        header_index = next(
-            (i for i, line in enumerate(lines) if "Name" in line and "Id" in line), -1
-        )
-        if header_index == -1:
-            for app in apps:
-                app.update_status = UpdateStatus.UP_TO_DATE
-            return updates
-
-        header = lines[header_index]
-        positions = {
-            "id": header.find("Id"),
-            "version": header.find("Version"),
-            "available": header.find("Available"),
-            "source": header.find("Source"),
-        }
-
-        # Build a lookup: lowercased name -> latest version
-        upgrade_map: dict = {}
-        for line in lines[header_index + 2:]:
-            if not line.strip():
-                continue
-            try:
-                name = line[0:positions["id"]].strip().lower()
-                if positions["available"] != -1:
-                    avail_end = positions["source"] if positions["source"] != -1 else len(line)
-                    latest = line[positions["available"]:avail_end].strip()
-                    if name and latest:
-                        upgrade_map[name] = latest
-            except Exception:
-                continue
-
-        for app in apps:
-            latest = upgrade_map.get(app.name.lower())
-            if latest:
-                app.latest_version = latest
-                app.update_status = UpdateStatus.UPDATE_AVAILABLE
-                updates += 1
-            else:
-                app.update_status = UpdateStatus.UP_TO_DATE
-
-        return updates
-
-    @staticmethod
     def _check_choco_updates(apps: List[AppInfo]) -> int:
-        """Check Chocolatey package updates."""
+        """
+        Check Chocolatey package updates.
+
+        Executes 'choco outdated' command and parses pipe-delimited output to find
+        packages with newer versions available.
+
+        Args:
+            apps: List of Chocolatey AppInfo objects to check. Modified in-place.
+
+        Returns:
+            int: Number of Chocolatey packages with available updates.
+
+        Note:
+            - Uses --limit-output for machine-readable format
+            - Output format: name|version|latest_version
+        """
         updates = 0
         output = run_command(["choco", "outdated", "--limit-output"], allow_failure=True)
         if not output:
@@ -1122,7 +1715,22 @@ class UpdateChecker:
 
     @staticmethod
     def _check_npm_updates(apps: List[AppInfo]) -> int:
-        """Check NPM package updates."""
+        """
+        Check NPM package updates.
+
+        Executes 'npm outdated -g --json' to find globally installed NPM packages
+        with newer versions available.
+
+        Args:
+            apps: List of NPM AppInfo objects to check. Modified in-place.
+
+        Returns:
+            int: Number of NPM packages with available updates.
+
+        Note:
+            - Only checks global packages (-g flag)
+            - Uses JSON output for reliable parsing
+        """
         updates = 0
         output = run_command(["npm", "outdated", "-g", "--json"], allow_failure=True)
         if not output:
@@ -1145,7 +1753,22 @@ class UpdateChecker:
 
     @staticmethod
     def _check_pnpm_updates(apps: List[AppInfo]) -> int:
-        """Check PNPM package updates."""
+        """
+        Check PNPM package updates.
+
+        Executes 'pnpm outdated -g --json' to find globally installed PNPM packages
+        with newer versions available. Handles both dict and list JSON formats.
+
+        Args:
+            apps: List of PNPM AppInfo objects to check. Modified in-place.
+
+        Returns:
+            int: Number of PNPM packages with available updates.
+
+        Note:
+            - Only checks global packages (-g flag)
+            - Handles both object and array JSON response formats
+        """
         updates = 0
         output = run_command(["pnpm", "outdated", "-g", "--json"], allow_failure=True)
         if not output:
@@ -1178,8 +1801,82 @@ class UpdateChecker:
         return updates
 
     @staticmethod
+    def _check_bun_updates(apps: List[AppInfo]) -> int:
+        """
+        Check Bun package updates.
+
+        Queries npm registry for each Bun package to find the latest version.
+        Uses 'npm info <package> version' command for version lookup.
+
+        Args:
+            apps: List of Bun AppInfo objects to check. Modified in-place.
+
+        Returns:
+            int: Number of Bun packages with available updates.
+
+        Note:
+            - Uses npm registry as Bun package source
+            - Checks each package individually
+        """
+        updates = 0
+        for app in apps:
+            output = run_command(["npm", "info", app.name, "version"], allow_failure=True)
+            if output:
+                latest = output.strip()
+                if latest and latest != app.version and "ERR" not in latest:
+                    app.latest_version = latest
+                    app.update_status = UpdateStatus.UPDATE_AVAILABLE
+                    updates += 1
+        return updates
+
+    @staticmethod
+    def _check_yarn_updates(apps: List[AppInfo]) -> int:
+        """
+        Check Yarn package updates.
+
+        Queries npm registry for each Yarn package to find the latest version.
+        Uses 'npm info <package> version' command for version lookup.
+
+        Args:
+            apps: List of Yarn AppInfo objects to check. Modified in-place.
+
+        Returns:
+            int: Number of Yarn packages with available updates.
+
+        Note:
+            - Uses npm registry as Yarn package source
+            - Checks each package individually
+        """
+        updates = 0
+        for app in apps:
+            output = run_command(["npm", "info", app.name, "version"], allow_failure=True)
+            if output:
+                latest = output.strip()
+                if latest and latest != app.version and "ERR" not in latest:
+                    app.latest_version = latest
+                    app.update_status = UpdateStatus.UPDATE_AVAILABLE
+                    updates += 1
+        return updates
+
+    @staticmethod
     def _check_pip_updates(apps: List[AppInfo]) -> int:
-        """Check PIP package updates."""
+        """
+        Check PIP package updates.
+
+        Executes 'pip list --outdated --format=json' to find installed Python
+        packages with newer versions available. Tries multiple command patterns
+        for compatibility.
+
+        Args:
+            apps: List of PIP AppInfo objects to check. Modified in-place.
+
+        Returns:
+            int: Number of PIP packages with available updates.
+
+        Note:
+            - Tries python -m pip, pip, and pip3 commands
+            - Uses case-insensitive name matching
+        """
         updates = 0
         pip_commands = [
             [sys.executable, "-m", "pip", "list", "--outdated", "--format=json"],
@@ -1212,40 +1909,36 @@ class UpdateChecker:
         return updates
 
     @staticmethod
-    def _check_bun_updates(apps: List[AppInfo]) -> int:
-        """Check Bun package updates."""
-        updates = 0
-        for app in apps:
-            output = run_command(["npm", "info", app.name, "version"], allow_failure=True)
-            if output:
-                latest = output.strip()
-                if latest and latest != app.version and "ERR" not in latest:
-                    app.latest_version = latest
-                    app.update_status = UpdateStatus.UPDATE_AVAILABLE
-                    updates += 1
-        return updates
-
-    @staticmethod
-    def _check_yarn_updates(apps: List[AppInfo]) -> int:
-        """Check Yarn package updates."""
-        updates = 0
-        for app in apps:
-            output = run_command(["npm", "info", app.name, "version"], allow_failure=True)
-            if output:
-                latest = output.strip()
-                if latest and latest != app.version and "ERR" not in latest:
-                    app.latest_version = latest
-                    app.update_status = UpdateStatus.UPDATE_AVAILABLE
-                    updates += 1
-        return updates
-
-    @staticmethod
     def _check_path_updates(apps: List[AppInfo]) -> int:
-        """Check PATH tool updates."""
+        """
+        Check PATH tool updates.
+
+        Checks for updates of system executables found in PATH using various
+        methods including GitHub API queries, native upgrade commands, and
+        npm registry lookups. Handles preview/stable version differentiation.
+
+        Args:
+            apps: List of PATH AppInfo objects to check. Modified in-place.
+
+        Returns:
+            int: Number of PATH tools with available updates.
+
+        Supported Tools:
+            - bun, deno: Native upgrade dry-run commands
+            - yarn, npm, pnpm, node: npm registry lookup
+            - python, git, pwsh: GitHub API releases/tags
+            - dotnet: winget show command
+            - rustc, cargo: GitHub API releases
+
+        Note:
+            - Uses semantic version comparison that handles preview releases
+            - Won't suggest downgrading from preview to stable same-version
+        """
         import urllib.request
         updates = 0
 
         def fetch_json(url):
+            """Fetch JSON data from URL with User-Agent header."""
             req = urllib.request.Request(url, headers={'User-Agent': 'SystemUpdateCLI'})
             try:
                 with urllib.request.urlopen(req, timeout=10) as response:
@@ -1254,7 +1947,15 @@ class UpdateChecker:
                 return None
 
         def parse_version(ver_str: str) -> Tuple:
-            """Parse version string into comparable tuple (major, minor, patch, is_stable)."""
+            """
+            Parse version string into comparable tuple (major, minor, patch, is_stable).
+
+            Args:
+                ver_str: Version string to parse (e.g., "1.2.3", "2.0.0-preview").
+
+            Returns:
+                Tuple: (major, minor, patch, is_stable) for comparison.
+            """
             # Remove leading non-digits
             ver_str = re.sub(r'^[^\d]+', '', ver_str).strip()
             # Extract main version numbers
@@ -1269,7 +1970,21 @@ class UpdateChecker:
             return (int(match.group(1)), int(match.group(2)), int(match.group(3)), is_stable)
 
         def is_newer_version(current: str, latest: str) -> bool:
-            """Check if latest is actually newer than current (handles previews)."""
+            """
+            Check if latest is actually newer than current (handles previews).
+
+            Args:
+                current: Current version string.
+                latest: Latest available version string.
+
+            Returns:
+                bool: True if latest is newer than current.
+
+            Logic:
+                - Won't suggest downgrading from newer major/minor preview
+                - Compares stable versions normally
+                - Won't update from preview to stable same base version
+            """
             curr_parts = parse_version(current)
             latest_parts = parse_version(latest)
 
@@ -1376,8 +2091,93 @@ class UpdateChecker:
         return updates
 
     @staticmethod
+    def _check_registry_updates(apps: List[AppInfo]) -> int:
+        """
+        Check Registry app updates by cross-referencing with winget upgrade.
+
+        Winget internally queries the Windows Registry to build its upgrade list,
+        so we can match Registry-installed apps against the winget upgrade output
+        by name to detect available updates.
+
+        Args:
+            apps: List of Registry AppInfo objects to check. Modified in-place.
+
+        Returns:
+            int: Number of Registry apps with available updates.
+
+        Note:
+            - If winget upgrade returns no output, marks all apps as UP_TO_DATE
+            - Matches by application name (case-insensitive)
+        """
+        updates = 0
+        output = run_command(["winget", "upgrade", "--accept-source-agreements"], allow_failure=True)
+        if not output:
+            # Mark all as UP_TO_DATE since we have no upgrade data
+            for app in apps:
+                app.update_status = UpdateStatus.UP_TO_DATE
+            return updates
+
+        lines = output.splitlines()
+        header_index = next(
+            (i for i, line in enumerate(lines) if "Name" in line and "Id" in line), -1
+        )
+        if header_index == -1:
+            for app in apps:
+                app.update_status = UpdateStatus.UP_TO_DATE
+            return updates
+
+        header = lines[header_index]
+        positions = {
+            "id": header.find("Id"),
+            "version": header.find("Version"),
+            "available": header.find("Available"),
+            "source": header.find("Source"),
+        }
+
+        # Build a lookup: lowercased name -> latest version
+        upgrade_map: dict = {}
+        for line in lines[header_index + 2:]:
+            if not line.strip():
+                continue
+            try:
+                name = line[0:positions["id"]].strip().lower()
+                if positions["available"] != -1:
+                    avail_end = positions["source"] if positions["source"] != -1 else len(line)
+                    latest = line[positions["available"]:avail_end].strip()
+                    if name and latest:
+                        upgrade_map[name] = latest
+            except Exception:
+                continue
+
+        for app in apps:
+            latest = upgrade_map.get(app.name.lower())
+            if latest:
+                app.latest_version = latest
+                app.update_status = UpdateStatus.UPDATE_AVAILABLE
+                updates += 1
+            else:
+                app.update_status = UpdateStatus.UP_TO_DATE
+
+        return updates
+
+    @staticmethod
     def _check_rust_updates(apps: List[AppInfo]) -> int:
-        """Check Rust package updates via cargo install-update."""
+        """
+        Check Rust package updates via cargo install-update.
+
+        Executes 'cargo install-update -l' to list Rust packages with available
+        updates. Requires the cargo-edit or cargo-update crate to be installed.
+
+        Args:
+            apps: List of Rust AppInfo objects to check. Modified in-place.
+
+        Returns:
+            int: Number of Rust packages with available updates.
+
+        Note:
+            - Output format: Package | Installed | Latest | Needs update
+            - Only counts packages where "Needs update" is "yes"
+        """
         updates = 0
         output = run_command(["cargo", "install-update", "-l"], allow_failure=True)
         if not output:
@@ -1418,11 +2218,43 @@ class UpdateChecker:
 
 
 class UpdateExecutor:
-    """Enhanced update execution system."""
+    """
+    Enhanced update execution system.
+
+    This class provides methods for executing package updates across all supported
+    package managers. It handles the construction of appropriate update commands
+    for each source and provides progress feedback during execution.
+
+    Features:
+        - Dry-run mode for previewing updates without applying them
+        - Per-package success/failure reporting
+        - Progress bar with real-time status updates
+        - Source-specific command construction
+
+    Example:
+        >>> executor = UpdateExecutor()
+        >>> executor.execute_updates(updates, dry_run=True)  # Preview
+        >>> executor.execute_updates(updates)  # Apply updates
+    """
 
     @staticmethod
     def execute_updates(apps: List[AppInfo], dry_run: bool = False):
-        """Execute updates with enhanced feedback matching JS executeUpdates."""
+        """
+        Execute updates with enhanced feedback matching JS executeUpdates.
+
+        Iterates through the list of applications and executes updates for each.
+        Displays progress using Rich Progress bar and reports success/failure
+        for each package.
+
+        Args:
+            apps: List of AppInfo objects to update (should have latest_version set).
+            dry_run: If True, simulate updates without executing commands (default: False).
+
+        Note:
+            - In dry-run mode, displays what would be updated without making changes
+            - Shows final summary with success count
+            - Uses _execute_single_update() for actual update execution
+        """
         success_count = 0
 
         with Progress(
@@ -1461,7 +2293,30 @@ class UpdateExecutor:
 
     @staticmethod
     def _execute_single_update(app: AppInfo) -> bool:
-        """Execute single package update."""
+        """
+        Execute single package update.
+
+        Constructs and executes the appropriate update command based on the
+        package source. Each package manager has its own command syntax and
+        options.
+
+        Args:
+            app: AppInfo object with name, source, and latest_version set.
+
+        Returns:
+            bool: True if update command executed successfully, False otherwise.
+
+        Supported Sources:
+            - Winget: winget upgrade --id <app_id> [-v <version>]
+            - Chocolatey: choco upgrade <name> [-y] [--version <version>]
+            - NPM: npm install -g <name>@<version>
+            - PNPM: pnpm add -g <name>@<version>
+            - Bun: bun add -g <name>@<version>
+            - Yarn: yarn global add <name>@<version>
+            - PIP: pip install <name>==<version> or pip install --upgrade <name>
+            - Rust: cargo install-update <name>
+            - PATH: Source-specific commands (bun upgrade, deno upgrade, etc.)
+        """
         cmd = None
         target_ver = app.latest_version
 
@@ -1537,9 +2392,38 @@ class UpdateExecutor:
 
 
 class SystemUpdateApp:
-    """Main application controller."""
+    """
+    Main application controller.
+
+    This class orchestrates the entire system update workflow, including:
+        - System scanning across multiple package sources
+        - Update checking and vulnerability detection
+        - Result display and export
+        - Update execution
+
+    It serves as the primary interface between the command-line arguments and
+    the underlying scanning, checking, and execution subsystems.
+
+    Attributes:
+        ui: UISystem instance for display operations.
+        scanner: PackageScanner instance for system scanning.
+        checker: UpdateChecker instance for update detection.
+        executor: UpdateExecutor instance for applying updates.
+        cache_mgr: CacheManager instance for caching scan results.
+
+    Example:
+        >>> app = SystemUpdateApp()
+        >>> args = parser.parse_args()
+        >>> app.run(args)
+    """
 
     def __init__(self):
+        """
+        Initialize SystemUpdateApp with all required subsystems.
+
+        Creates instances of UI, scanner, checker, executor, and cache manager
+        using configuration settings.
+        """
         self.ui = UISystem()
         self.scanner = PackageScanner()
         self.checker = UpdateChecker()
@@ -1549,7 +2433,32 @@ class SystemUpdateApp:
         )
 
     def scan_system(self, source_filter: Optional[str] = None) -> List[AppInfo]:
-        """Perform comprehensive system scan matching JS scanSystem."""
+        """
+        Perform comprehensive system scan matching JS scanSystem.
+
+        Scans all enabled package sources in parallel using ThreadPoolExecutor.
+        Displays progress using Rich Progress bar with per-source app counts.
+
+        Args:
+            source_filter: Optional source name to filter scanning to a single
+                source (e.g., "winget", "npm"). If None, scans all enabled sources.
+
+        Returns:
+            List[AppInfo]: Sorted list of unique applications discovered across
+                all scanned sources.
+
+        Process:
+            1. Maps source names to scanner methods
+            2. Filters by source_filter if specified
+            3. Filters by enabled sources in config
+            4. Scans sources in parallel using ThreadPoolExecutor
+            5. Deduplicates results by source|name|version
+            6. Returns sorted list of unique apps
+
+        Note:
+            - Uses config.settings["performance"]["max_workers"] for thread count
+            - Deduplicates by creating dict keyed by "source|name|version"
+        """
         # Map source names to scanner methods (matching JS order)
         scanners = {
             "winget": self.scanner.scan_winget,
@@ -1622,7 +2531,26 @@ class SystemUpdateApp:
     def export_results(
         self, apps: List[AppInfo], format_type: str, output_file: Optional[str] = None
     ):
-        """Export scan results in various formats."""
+        """
+        Export scan results in various formats.
+
+        Exports the list of applications to a file in the specified format.
+        Supports JSON and CSV formats with optional custom output filename.
+
+        Args:
+            apps: List of AppInfo objects to export.
+            format_type: Export format ("json" or "csv").
+            output_file: Optional output filename. If None, generates filename
+                with timestamp (e.g., "system_update_20240101_120000.json").
+
+        Formats:
+            - json: Full application data with all fields in JSON format
+            - csv: Tabular data with Name, Source, Version, Latest, Status columns
+
+        Note:
+            - JSON includes full app metadata via app.to_dict()
+            - CSV includes basic fields suitable for spreadsheet import
+        """
         if not output_file:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_file = f"system_update_{timestamp}.{format_type}"
@@ -1658,7 +2586,33 @@ class SystemUpdateApp:
             console.print(f"[red]❌ Export failed: {e}[/red]")
 
     def run(self, args):
-        """Main application entry point."""
+        """
+        Main application entry point.
+
+        Executes the complete system update workflow based on command-line
+        arguments. Handles cache management, scanning, update checking,
+        display, and update execution.
+
+        Args:
+            args: Parsed command-line arguments from argparse.
+
+        Workflow:
+            1. Handle cache operations (clear if requested)
+            2. Display application banner
+            3. Load from cache or perform fresh scan
+            4. Check for updates across all sources
+            5. Check for security vulnerabilities
+            6. Save results to cache
+            7. Display summary and application tables
+            8. Handle single-package update if requested
+            9. Execute updates if --update-all specified
+            10. Export results if requested
+
+        Note:
+            - Three-phase scan: SCANNING → UPDATE CHECKING → SECURITY CHECK
+            - Respects --no-cache flag to force fresh scan
+            - Handles --package for single-package updates
+        """
         # Handle cache operations
         if args.clear_cache:
             self.cache_mgr.clear()
@@ -1760,7 +2714,30 @@ class SystemUpdateApp:
             self.export_results(apps, args.export, args.output)
 
     def _handle_single_update(self, apps: List[AppInfo], args):
-        """Handle single package update request."""
+        """
+        Handle single package update request.
+
+        Processes a request to update a specific package by name and optionally
+        by source. Handles ambiguous package names by prompting for source
+        specification.
+
+        Args:
+            apps: List of all scanned AppInfo objects to search.
+            args: Parsed command-line arguments containing package, source,
+                version, and dry_run options.
+
+        Process:
+            1. Search for package by name (case-insensitive)
+            2. Filter by source if specified
+            3. Handle multiple matches by prompting for source
+            4. Handle up-to-date packages with force reinstall option
+            5. Execute update for target package
+
+        Note:
+            - If --version specified, targets that specific version
+            - If package is up-to-date, prompts for force reinstall
+            - If multiple packages match, displays all and requests --source
+        """
         target_name = args.package.lower()
         target_source = args.source.lower() if args.source else None
 
@@ -1800,7 +2777,33 @@ class SystemUpdateApp:
 
 
 def main():
-    """Application entry point."""
+    """
+    Application entry point.
+
+    Sets up command-line argument parsing and launches the SystemUpdateApp.
+    Defines all available command-line options and their descriptions.
+
+    Command-Line Options:
+        --update-all: Update all available packages (with confirmation)
+        --dry-run: Preview updates without executing them
+        --no-cache: Force fresh scan, ignore cached results
+        --clear-cache: Clear the scan cache and exit
+        --show-all: Show all packages including up-to-date ones
+        --export: Export results in specified format (json/csv)
+        --output: Custom output filename for export
+        --package: Update specific package by name
+        --version: Target version for package update
+        --source: Filter by package source (winget, npm, etc.)
+
+    Examples:
+        python system_update.py                    # Scan and show updates
+        python system_update.py --update-all      # Update all packages
+        python system_update.py --dry-run          # Preview updates
+        python system_update.py --package git     # Update specific package
+        python system_update.py --source rust      # Filter by source
+        python system_update.py --export json     # Export results to JSON
+        python system_update.py --show-all        # Show all packages
+    """
     parser = argparse.ArgumentParser(
         description="System Update Enhanced v5.0 - Elite Package Manager",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1853,4 +2856,18 @@ Examples:
 
 
 if __name__ == "__main__":
+    """
+    Main entry point when script is executed directly.
+
+    This block ensures that the main() function is called only when the script
+    is run directly (not when imported as a module). This is a Python best
+    practice that allows the file to be both executable and importable.
+
+    Example:
+        # Run directly:
+        python system_update.py --update-all
+
+        # Import as module (main() won't be called):
+        from system_update import SystemUpdateApp, AppInfo
+    """
     main()

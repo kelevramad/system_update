@@ -1,6 +1,27 @@
 #!/usr/bin/env node
+/**
+ * =============================================================================
+ *                         SYSTEM UPDATE - NODE.JS CLI
+ * =============================================================================
+ * Version: 1.0.1
+ * 
+ * A comprehensive system update tool for managing package updates across multiple
+ * package managers and sources on Windows and Unix-like systems.
+ * 
+ * Features:
+ * - Multi-source package discovery (Winget, Chocolatey, NPM, PNPM, Bun, Yarn, Pip, Rust, Registry)
+ * - Toolchain detection (Node.js, Python, Rust, Go, Deno, .NET, Java, Git, PowerShell)
+ * - Security vulnerability scanning for NPM and PIP packages
+ * - Parallel scanning for optimal performance
+ * - Caching system for faster subsequent runs
+ * - Flexible export options (JSON, CSV)
+ * - Dry-run support for safe preview of updates
+ */
 'use strict';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MODULE IMPORTS
+// ─────────────────────────────────────────────────────────────────────────────
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
@@ -9,20 +30,34 @@ const { spawn } = require('node:child_process');
 const readline = require('node:readline/promises');
 const { stdin, stdout } = require('node:process');
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CONSTANTS AND CONFIGURATION
+// ─────────────────────────────────────────────────────────────────────────────
 const VERSION = '1.0.1';
 const APP_NAME = 'system-update';
 const IS_WINDOWS = process.platform === 'win32';
+
+// Data directory: use SYSTEM_UPDATE_HOME env var if set, otherwise default to ~/.system_update
 const PREFERRED_DATA_DIR = process.env.SYSTEM_UPDATE_HOME
   ? path.resolve(process.env.SYSTEM_UPDATE_HOME)
   : path.join(os.homedir(), '.system_update');
 let ACTIVE_DATA_DIR = PREFERRED_DATA_DIR;
 let CACHE_FILE = path.join(ACTIVE_DATA_DIR, 'cache.json');
 let LOG_FILE = path.join(ACTIVE_DATA_DIR, 'system.log');
+
+// Terminal capabilities detection
 const IS_TTY = Boolean(process.stdout.isTTY);
 const SUPPORTS_COLOR = IS_TTY && process.env.NO_COLOR !== '1';
 let LOGGING_ENABLED = false;
 let DEBUG_ENABLED = false;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// STATUS ENUMERATION
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Package update status constants
+ * @enum {string}
+ */
 const Status = Object.freeze({
   UP_TO_DATE: 'up_to_date',
   UPDATE_AVAILABLE: 'update_available',
@@ -32,6 +67,13 @@ const Status = Object.freeze({
   SECURITY_UPDATE_AVAILABLE: 'security_update_available',
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DEFAULT CONFIGURATION
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Default application configuration
+ * @type {Object}
+ */
 const DEFAULT_CONFIG = {
   cache: {
     enabled: true,
@@ -63,6 +105,13 @@ const DEFAULT_CONFIG = {
   },
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA DIRECTORY MANAGEMENT
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Switch to local data directory as fallback when primary directory fails
+ * @returns {boolean} True if switch was successful
+ */
 function switchToLocalDataDir() {
   const fallback = path.join(process.cwd(), '.system_update');
   ACTIVE_DATA_DIR = fallback;
@@ -72,6 +121,12 @@ function switchToLocalDataDir() {
   return true;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ANSI COLOR CODES AND UI UTILITIES
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * ANSI escape codes for terminal colors and styles
+ */
 const ANSI = {
   reset: '\x1b[0m',
   bold: '\x1b[1m',
@@ -85,11 +140,22 @@ const ANSI = {
   gray: '\x1b[90m',
 };
 
+/**
+ * Apply ANSI color styles to text
+ * @param {string} text - Text to colorize
+ * @param {...string} styles - ANSI style codes to apply
+ * @returns {string} Styled text or plain text if color not supported
+ */
 function paint(text, ...styles) {
   if (!SUPPORTS_COLOR) return String(text);
   return `${styles.join('')}${text}${ANSI.reset}`;
 }
 
+/**
+ * Get emoji character by name
+ * @param {string} name - Emoji name key
+ * @returns {string} Emoji character or empty string if not found
+ */
 function emoji(name) {
   const map = {
     rocket: '🚀',
@@ -113,6 +179,11 @@ function emoji(name) {
   return map[name] || '';
 }
 
+/**
+ * Get status badge with emoji and color
+ * @param {string} status - Status constant from Status enum
+ * @returns {string} Formatted status badge
+ */
 function statusBadge(status) {
   if (status === Status.UPDATE_AVAILABLE) return paint(`${emoji('update')} update`, ANSI.yellow, ANSI.bold);
   if (status === Status.UP_TO_DATE) return paint(`${emoji('ok')} up-to-date`, ANSI.green);
@@ -122,13 +193,18 @@ function statusBadge(status) {
   return paint('❔ unknown', ANSI.gray);
 }
 
+/**
+ * Get source badge with source-specific color
+ * @param {string} source - Package source name
+ * @returns {string} Colored source name
+ */
 function sourceBadge(source) {
   const value = String(source || 'unknown');
   const cfg = {
     winget: [ANSI.blue],
     chocolatey: [ANSI.yellow],
     npm: [ANSI.red],
-    pnpm: [ANSI.purple],
+    pnpm: [ANSI.magenta],
     pip: [ANSI.cyan],
     bun: [ANSI.orange],
     yarn: [ANSI.white],
@@ -139,10 +215,21 @@ function sourceBadge(source) {
   return paint(value, ...cfg);
 }
 
+/**
+ * Create horizontal line separator
+ * @param {string} ch - Character to repeat
+ * @param {number} width - Line width
+ * @returns {string} Horizontal line
+ */
 function hr(ch = '─', width = 72) {
   return ch.repeat(width);
 }
 
+/**
+ * Display header card with title and subtitle
+ * @param {string} title - Main title
+ * @param {string} subtitle - Subtitle text
+ */
 function headerCard(title, subtitle) {
   const top = paint(`┌${hr('─', 70)}┐`, ANSI.cyan);
   const bottom = paint(`└${hr('─', 70)}┘`, ANSI.cyan);
@@ -154,11 +241,24 @@ function headerCard(title, subtitle) {
   console.log(bottom);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PROGRESS INDICATOR
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Create a progress bar for tracking operation progress
+ * @param {number} total - Total number of items to process
+ * @param {string} label - Label text for the progress bar
+ * @returns {Object} Progress control object with tick, done, and render methods
+ */
 function createProgress(total, label) {
   let current = 0;
   const width = 26;
   const startTime = Date.now();
 
+  /**
+   * Render the progress bar to terminal
+   * @param {string} extra - Additional text to append
+   */
   function render(extra = '') {
     const ratio = total === 0 ? 1 : Math.min(1, current / total);
     const filled = Math.round(width * ratio);
@@ -173,11 +273,19 @@ function createProgress(total, label) {
     }
   }
 
+  /**
+   * Increment progress by one step
+   * @param {string} extra - Additional text to append
+   */
   function tick(extra = '') {
     current += 1;
     render(extra);
   }
 
+  /**
+   * Mark progress as complete
+   * @param {string} extra - Additional text to append
+   */
   function done(extra = '') {
     current = total;
     render(extra);
@@ -188,6 +296,14 @@ function createProgress(total, label) {
   return { tick, done };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// NETWORK UTILITIES
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Fetch and parse JSON from URL with redirect support
+ * @param {string} url - URL to fetch
+ * @returns {Promise<Object>} Parsed JSON response
+ */
 function fetchJson(url) {
   return new Promise((resolve, reject) => {
     https.get(url, { headers: { 'User-Agent': 'SystemUpdateCLI' } }, (res) => {
@@ -213,6 +329,13 @@ function fetchJson(url) {
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFIGURATION DIRECTORY MANAGEMENT
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Ensure configuration directory exists, with fallback to local directory
+ * @returns {Promise<void>}
+ */
 async function ensureConfigDir() {
   try {
     await fs.mkdir(ACTIVE_DATA_DIR, { recursive: true });
@@ -227,6 +350,14 @@ async function ensureConfigDir() {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// LOGGING SYSTEM
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Write message to log file if logging is enabled
+ * @param {string} message - Message to log
+ * @returns {Promise<void>}
+ */
 async function writeLog(message) {
   if (!LOGGING_ENABLED) return;
   const line = `${new Date().toISOString()} ${message}\n`;
@@ -237,6 +368,14 @@ async function writeLog(message) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// COMMAND EXECUTION
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Normalize command for Windows (add .cmd extension for npm/pnpm/npx/yarn)
+ * @param {string} cmd - Command name
+ * @returns {string} Normalized command
+ */
 function normalizeCommand(cmd) {
   if (!IS_WINDOWS) return cmd;
   const useCmdShim = new Set(['npm', 'pnpm', 'npx', 'yarn']);
@@ -244,6 +383,16 @@ function normalizeCommand(cmd) {
   return cmd;
 }
 
+/**
+ * Execute shell command with timeout and error handling
+ * @param {string} cmd - Command to execute
+ * @param {string[]} args - Command arguments
+ * @param {Object} options - Execution options
+ * @param {number} options.timeoutMs - Timeout in milliseconds
+ * @param {boolean} options.allowFailure - Don't treat non-zero exit as error
+ * @param {string} options.cwd - Working directory
+ * @returns {Promise<Object>} Result object with ok, stdout, stderr, code
+ */
 function runCommand(cmd, args = [], options = {}) {
   const {
     timeoutMs = 45_000,
@@ -313,6 +462,14 @@ function runCommand(cmd, args = [], options = {}) {
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// COMMAND LINE ARGUMENT PARSING
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Parse command line arguments into options object
+ * @param {string[]} argv - Process arguments array
+ * @returns {Object} Parsed arguments object
+ */
 function parseArgs(argv) {
   writeLog(`parsing arguments: ${argv.slice(2).join(' ')}`);
   const args = {
@@ -395,6 +552,12 @@ function parseArgs(argv) {
   return args;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// HELP MESSAGE
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Display help message with usage examples
+ */
 function printHelp() {
   console.log(`
 ${emoji('sparkle')} ${paint(`System Update Node CLI v${VERSION}`, ANSI.bold, ANSI.cyan)}
@@ -438,10 +601,27 @@ Examples:
 `);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SOURCE CONFIGURATION
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Check if a package source is enabled in configuration
+ * @param {Object} config - Configuration object
+ * @param {string} source - Source name to check
+ * @returns {boolean} True if source is enabled
+ */
 function getSourceToggle(config, source) {
   return Boolean(config.sources[source]);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// COMMAND AVAILABILITY CHECK
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Check if a command is available on the system
+ * @param {string} command - Command name to check
+ * @returns {Promise<boolean>} True if command is available
+ */
 async function isCommandAvailable(command) {
   if (!IS_WINDOWS) {
     const result = await runCommand('which', [command], { allowFailure: true, timeoutMs: 10_000 });
@@ -477,10 +657,20 @@ async function isCommandAvailable(command) {
   return false;
 }
 
+/**
+ * Parse winget command output table into structured app objects
+ * @description Extracts package information from winget list/upgrade command output by parsing
+ * the table format. Handles column position detection and extracts name, ID, version, and
+ * available update version if present.
+ * @param {string} output - Raw output from winget command
+ * @param {boolean} [includeAvailable=false] - Whether to extract available update versions
+ * @returns {Array<Object>} Array of parsed app objects with name, source, version, latestVersion, appId, and status
+ */
 function parseWingetTable(output, includeAvailable = false) {
   const apps = [];
   if (!output) return apps;
   const lines = output.split(/\r?\n/);
+  // Find header line containing column names
   const headerIndex = lines.findIndex((line) => line.includes('Name') && line.includes('Id') && line.includes('Version'));
   if (headerIndex < 0) return apps;
 
@@ -490,6 +680,7 @@ function parseWingetTable(output, includeAvailable = false) {
     header = header.slice(nameMatch.index);
   }
 
+  // Calculate column positions for parsing
   const positions = {
     id: header.indexOf('Id'),
     version: header.indexOf('Version'),
@@ -497,6 +688,7 @@ function parseWingetTable(output, includeAvailable = false) {
     source: header.indexOf('Source'),
   };
 
+  // Parse each data row after header
   for (const line of lines.slice(headerIndex + 2)) {
     if (!line.trim()) continue;
     const name = line.slice(0, Math.max(positions.id, 0)).trim();
@@ -524,6 +716,13 @@ function parseWingetTable(output, includeAvailable = false) {
   return apps;
 }
 
+/**
+ * Scan system for Winget-installed packages
+ * @description Executes winget list command and parses output to discover all packages
+ * installed via Windows Package Manager.
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<Array<Object>>} Array of app objects representing installed Winget packages
+ */
 async function scanWinget(timeoutMs) {
   await writeLog('scanner: winget started');
   const result = await runCommand('winget', ['list', '--accept-source-agreements'], { allowFailure: true, timeoutMs });
@@ -532,6 +731,13 @@ async function scanWinget(timeoutMs) {
   return apps;
 }
 
+/**
+ * Scan system for Chocolatey-installed packages
+ * @description Executes choco list command and parses pipe-delimited output to discover
+ * all packages installed via Chocolatey package manager.
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<Array<Object>>} Array of app objects representing installed Chocolatey packages
+ */
 async function scanChocolatey(timeoutMs) {
   await writeLog('scanner: chocolatey started');
   try {
@@ -541,6 +747,7 @@ async function scanChocolatey(timeoutMs) {
       await writeLog('scanner: chocolatey no output');
       return apps;
     }
+    // Parse pipe-delimited output: name|version
     for (const line of result.stdout.split(/\r?\n/)) {
       const [name, version] = line.split('|');
       if (!name || !version) continue;
@@ -562,12 +769,20 @@ async function scanChocolatey(timeoutMs) {
   }
 }
 
+/**
+ * Scan system for globally installed Bun packages
+ * @description Executes bun pm ls -g command and parses output to discover all packages
+ * installed globally via Bun package manager.
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<Array<Object>>} Array of app objects representing installed Bun packages
+ */
 async function scanBun(timeoutMs) {
   await writeLog('scanner: bun started');
   const result = await runCommand('bun', ['pm', 'ls', '-g'], { allowFailure: true, timeoutMs });
   const apps = [];
   if (!result.stdout) return apps;
 
+  // Parse format: package@version
   for (const line of result.stdout.split(/\r?\n/)) {
     const match = line.match(/^\s*([^\s@]+)@([^\s]+)/);
     if (match) {
@@ -586,12 +801,20 @@ async function scanBun(timeoutMs) {
   return apps;
 }
 
+/**
+ * Scan system for globally installed Yarn packages
+ * @description Executes yarn global list command and parses output to discover all packages
+ * installed globally via Yarn package manager.
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<Array<Object>>} Array of app objects representing installed Yarn packages
+ */
 async function scanYarn(timeoutMs) {
   await writeLog('scanner: yarn started');
   const result = await runCommand('yarn', ['global', 'list'], { allowFailure: true, timeoutMs });
   const apps = [];
   if (!result.stdout) return apps;
 
+  // Parse format: info "package@version"
   for (const line of result.stdout.split(/\r?\n/)) {
     const match = line.match(/^info "([^@]+)@([^"]+)"/);
     if (match) {
@@ -610,6 +833,13 @@ async function scanYarn(timeoutMs) {
   return apps;
 }
 
+/**
+ * Scan system for globally installed NPM packages
+ * @description Executes npm list -g --json command and parses JSON output to discover
+ * all packages installed globally via NPM package manager.
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<Array<Object>>} Array of app objects representing installed NPM packages
+ */
 async function scanNpm(timeoutMs) {
   await writeLog('scanner: npm started');
   const result = await runCommand('npm', ['list', '-g', '--depth=0', '--json', '--silent'], { allowFailure: true, timeoutMs });
@@ -636,6 +866,13 @@ async function scanNpm(timeoutMs) {
   return apps;
 }
 
+/**
+ * Scan system for globally installed PNPM packages
+ * @description Executes pnpm list -g --json command and parses JSON output to discover
+ * all packages installed globally via PNPM package manager.
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<Array<Object>>} Array of app objects representing installed PNPM packages
+ */
 async function scanPnpm(timeoutMs) {
   await writeLog('scanner: pnpm started');
   const result = await runCommand('pnpm', ['list', '-g', '--depth=0', '--json'], { allowFailure: true, timeoutMs });
@@ -663,6 +900,14 @@ async function scanPnpm(timeoutMs) {
   return apps;
 }
 
+/**
+ * Execute pip command with fallback to multiple Python executables
+ * @description Attempts to run pip command using various Python executable candidates
+ * (py, python, python3, pip) in order of preference. Returns the first successful result.
+ * @param {string[]} args - Arguments to pass to pip command
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<Object>} Result object with ok, stdout, stderr, code, and runner info
+ */
 async function runPip(args, timeoutMs) {
   const candidates = [
     { cmd: 'py', args: ['-m', 'pip', ...args] },
@@ -678,6 +923,13 @@ async function runPip(args, timeoutMs) {
   return { ok: false, stdout: '', stderr: 'pip unavailable', code: null, runner: null };
 }
 
+/**
+ * Scan system for installed Python pip packages
+ * @description Executes pip list --format=json command and parses JSON output to discover
+ * all packages installed in the Python environment.
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<Array<Object>>} Array of app objects representing installed pip packages
+ */
 async function scanPip(timeoutMs) {
   await writeLog('scanner: pip started');
   const result = await runPip(['list', '--format=json'], timeoutMs);
@@ -706,6 +958,13 @@ async function scanPip(timeoutMs) {
   return apps;
 }
 
+/**
+ * Scan system for tools available in PATH
+ * @description Checks for common development tools (node, npm, python, git, etc.) by verifying
+ * their availability in system PATH and retrieving their version information.
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<Array<Object>>} Array of app objects representing installed PATH tools
+ */
 async function scanPath(timeoutMs) {
   await writeLog('scanner: path started');
   const apps = [];
@@ -735,6 +994,14 @@ async function scanPath(timeoutMs) {
   return apps;
 }
 
+/**
+ * Scan Windows Registry for installed applications
+ * @description Executes PowerShell script to query Windows Registry uninstall keys from
+ * HKLM and HKCU hives. Extracts display name, version, and product ID for all user-installed
+ * applications (excludes system components). Windows-only function.
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<Array<Object>>} Array of app objects representing registry-installed applications
+ */
 async function scanRegistry(timeoutMs) {
   if (!IS_WINDOWS) return [];
   await writeLog('scanner: registry started');
@@ -777,6 +1044,13 @@ async function scanRegistry(timeoutMs) {
   }
 }
 
+/**
+ * Scan system for Rust crates installed via Cargo
+ * @description Executes cargo install --list command and parses output to discover all
+ * Rust binaries installed globally via Cargo package manager.
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<Array<Object>>} Array of app objects representing installed Rust crates
+ */
 async function scanRust(timeoutMs) {
   await writeLog('scanner: rust started');
   const result = await runCommand('cargo', ['install', '--list'], { allowFailure: true, timeoutMs });
@@ -802,6 +1076,14 @@ async function scanRust(timeoutMs) {
   return apps;
 }
 
+/**
+ * Check for Rust crate updates using cargo install-update
+ * @description Uses cargo install-update -l command to check for available updates for
+ * installed Rust crates. Requires cargo-edit or cargo-update to be installed.
+ * @param {Array<Object>} apps - Array of all scanned app objects
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<number>} Number of Rust packages with available updates
+ */
 async function checkRustUpdates(apps, timeoutMs) {
   const target = apps.filter((a) => a.source === 'rust');
   if (!target.length) return 0;
@@ -837,6 +1119,13 @@ async function checkRustUpdates(apps, timeoutMs) {
   return count;
 }
 
+/**
+ * Deduplicate app list by source, name, and version
+ * @description Removes duplicate entries from the app list using a composite key of
+ * source, name, and version. Returns sorted array by source and name.
+ * @param {Array<Object>} apps - Array of app objects that may contain duplicates
+ * @returns {Array<Object>} Array of unique app objects sorted by source and name
+ */
 function uniqueApps(apps) {
   writeLog(`filtering unique apps: input_count=${apps.length}`);
   const map = new Map();
@@ -847,6 +1136,17 @@ function uniqueApps(apps) {
   return [...map.values()].sort((a, b) => (a.source + a.name).localeCompare(b.source + b.name));
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CACHE MANAGEMENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Load cached app data from disk if not expired
+ * @description Reads the cache file and validates its age against the configured cache
+ * duration. Returns null if cache is expired, disabled, or invalid.
+ * @param {Object} config - Configuration object with cache settings
+ * @returns {Promise<Array<Object>|null>} Cached app array or null if cache is invalid/expired
+ */
 async function loadCache(config) {
   if (!config.cache.enabled) return null;
 
@@ -873,6 +1173,13 @@ async function loadCache(config) {
   }
 }
 
+/**
+ * Save app data to cache file
+ * @description Writes the current app scan results to the cache file with timestamp.
+ * Includes fallback logic to switch to local directory if primary location fails.
+ * @param {Array<Object>} apps - Array of app objects to cache
+ * @returns {Promise<void>}
+ */
 async function saveCache(apps) {
   await ensureConfigDir();
   const payload = {
@@ -896,6 +1203,12 @@ async function saveCache(apps) {
   }
 }
 
+/**
+ * Clear the cache file manually
+ * @description Deletes the cache file from disk. Silently ignores ENOENT errors
+ * (file doesn't exist).
+ * @returns {Promise<void>}
+ */
 async function clearCache() {
   try {
     await fs.unlink(CACHE_FILE);
@@ -907,6 +1220,18 @@ async function clearCache() {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// UPDATE CHECKERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Check for Winget package updates
+ * @description Executes winget upgrade command to get list of packages with available
+ * updates. Matches results against scanned apps and updates their status.
+ * @param {Array<Object>} apps - Array of all scanned app objects
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<number>} Number of Winget packages with available updates
+ */
 async function checkWingetUpdates(apps, timeoutMs) {
   const target = apps.filter((a) => a.source === 'winget');
   if (!target.length) return 0;
@@ -927,6 +1252,14 @@ async function checkWingetUpdates(apps, timeoutMs) {
   return count;
 }
 
+/**
+ * Check for Registry application updates via Winget
+ * @description Uses winget upgrade command internally which queries the Windows Registry
+ * to build its upgrade list. Matches registry apps by name against winget results.
+ * @param {Array<Object>} apps - Array of all scanned app objects
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<number>} Number of Registry applications with available updates
+ */
 async function checkRegistryUpdates(apps, timeoutMs) {
   const target = apps.filter((a) => a.source === 'registry');
   if (!target.length) return 0;
@@ -957,6 +1290,14 @@ async function checkRegistryUpdates(apps, timeoutMs) {
   return count;
 }
 
+/**
+ * Check for Chocolatey package updates
+ * @description Executes choco outdated command to get list of packages with available
+ * updates. Parses pipe-delimited output and updates matching app objects.
+ * @param {Array<Object>} apps - Array of all scanned app objects
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<number>} Number of Chocolatey packages with available updates
+ */
 async function checkChocolateyUpdates(apps, timeoutMs) {
   const target = apps.filter((a) => a.source === 'chocolatey');
   if (!target.length) return 0;
@@ -977,6 +1318,14 @@ async function checkChocolateyUpdates(apps, timeoutMs) {
   return count;
 }
 
+/**
+ * Check for NPM package updates
+ * @description Executes npm outdated --json command to get list of packages with available
+ * updates. Parses JSON output and updates matching app objects with latest versions.
+ * @param {Array<Object>} apps - Array of all scanned app objects
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<number>} Number of NPM packages with available updates
+ */
 async function checkNpmUpdates(apps, timeoutMs) {
   const target = apps.filter((a) => a.source === 'npm');
   if (!target.length) return 0;
@@ -1002,6 +1351,14 @@ async function checkNpmUpdates(apps, timeoutMs) {
   return count;
 }
 
+/**
+ * Check for PNPM package updates
+ * @description Executes pnpm outdated --json command to get list of packages with available
+ * updates. Parses JSON output and updates matching app objects with latest versions.
+ * @param {Array<Object>} apps - Array of all scanned app objects
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<number>} Number of PNPM packages with available updates
+ */
 async function checkPnpmUpdates(apps, timeoutMs) {
   const target = apps.filter((a) => a.source === 'pnpm');
   if (!target.length) return 0;
@@ -1027,6 +1384,14 @@ async function checkPnpmUpdates(apps, timeoutMs) {
   return count;
 }
 
+/**
+ * Check for Bun package updates via npm info
+ * @description Queries npm registry for latest version of each globally installed Bun package.
+ * Uses npm info command as Bun doesn't have a native outdated command.
+ * @param {Array<Object>} apps - Array of all scanned app objects
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<number>} Number of Bun packages with available updates
+ */
 async function checkBunUpdates(apps, timeoutMs) {
   const target = apps.filter((a) => a.source === 'bun');
   if (!target.length) return 0;
@@ -1046,6 +1411,14 @@ async function checkBunUpdates(apps, timeoutMs) {
   return count;
 }
 
+/**
+ * Check for Yarn package updates via npm info
+ * @description Queries npm registry for latest version of each globally installed Yarn package.
+ * Uses npm info command as Yarn doesn't have a simple outdated command for global packages.
+ * @param {Array<Object>} apps - Array of all scanned app objects
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<number>} Number of Yarn packages with available updates
+ */
 async function checkYarnUpdates(apps, timeoutMs) {
   const target = apps.filter((a) => a.source === 'yarn');
   if (!target.length) return 0;
@@ -1065,6 +1438,14 @@ async function checkYarnUpdates(apps, timeoutMs) {
   return count;
 }
 
+/**
+ * Check for Python pip package updates
+ * @description Executes pip list --outdated --format=json to get list of packages with
+ * available updates. Parses JSON output and updates matching app objects.
+ * @param {Array<Object>} apps - Array of all scanned app objects
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<number>} Number of pip packages with available updates
+ */
 async function checkPipUpdates(apps, timeoutMs) {
   const target = apps.filter((a) => a.source === 'pip');
   if (!target.length) return 0;
@@ -1090,6 +1471,15 @@ async function checkPipUpdates(apps, timeoutMs) {
   return count;
 }
 
+/**
+ * Check for PATH tool updates via various sources
+ * @description Checks for updates to development tools found in system PATH by querying
+ * GitHub APIs, npm registry, winget, or using tool-specific update commands. Handles
+ * preview/release version logic to avoid suggesting downgrades.
+ * @param {Array<Object>} apps - Array of all scanned app objects
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<number>} Number of PATH tools with available updates
+ */
 async function checkPathUpdates(apps, timeoutMs) {
   const target = apps.filter((a) => a.source === 'path');
   if (!target.length) return 0;
@@ -1210,6 +1600,13 @@ async function checkPathUpdates(apps, timeoutMs) {
   return count;
 }
 
+/**
+ * Finalize status for apps without explicit update check results
+ * @description Sets final status for apps that weren't marked during update checks.
+ * Apps from known sources default to UP_TO_DATE, others remain UNKNOWN.
+ * @param {Array<Object>} apps - Array of all scanned app objects to finalize
+ * @returns {void}
+ */
 function finalizeStatuses(apps) {
   for (const app of apps) {
     if (app.status === Status.UPDATE_AVAILABLE) continue;
@@ -1222,6 +1619,19 @@ function finalizeStatuses(apps) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SYSTEM SCANNING
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Scan system for all installed packages across enabled sources
+ * @description Orchestrates parallel scanning of all enabled package sources (Winget,
+ * Chocolatey, NPM, PNPM, Bun, Yarn, Pip, PATH, Registry, Rust). Applies source filters
+ * if specified and displays progress during scanning.
+ * @param {Object} config - Configuration object with source and performance settings
+ * @param {Object} args - Parsed command line arguments with source/include filters
+ * @returns {Promise<Array<Object>>} Array of unique app objects from all sources
+ */
 async function scanSystem(config, args) {
   const timeoutMs = Number(config.performance.timeoutSeconds || 45) * 1000;
   const sourceFilter = new Set(
@@ -1236,6 +1646,7 @@ async function scanSystem(config, args) {
     sourceFilter.add(args.source.toLowerCase());
   }
 
+  // Define all available scanner sources
   const jobs = [
     ['winget', scanWinget],
     ['chocolatey', scanChocolatey],
@@ -1249,6 +1660,7 @@ async function scanSystem(config, args) {
     ['rust', scanRust],
   ];
 
+  // Filter sources based on configuration and user filters
   const selected = jobs.filter(([source]) => {
     if (!getSourceToggle(config, source)) return false;
     if (sourceFilter.size && !sourceFilter.has(source)) return false;
@@ -1258,6 +1670,7 @@ async function scanSystem(config, args) {
   const progress = createProgress(selected.length, `${emoji('scan')} Scanning`);
   await writeLog(`scan started: sources=${selected.map(([s]) => s).join(',')}`);
 
+  // Execute all scanners in parallel
   const chunks = await Promise.all(selected.map(async ([source, fn]) => {
     try {
       const apps = await fn(timeoutMs);
@@ -1276,6 +1689,14 @@ async function scanSystem(config, args) {
   return unique;
 }
 
+/**
+ * Check for updates across all package sources
+ * @description Orchestrates parallel update checks for all package sources. Displays
+ * progress and aggregates update counts from all sources.
+ * @param {Array<Object>} apps - Array of scanned app objects to check for updates
+ * @param {Object} config - Configuration object with performance settings
+ * @returns {Promise<number>} Total number of packages with available updates
+ */
 async function checkUpdates(apps, config) {
   const timeoutMs = Number(config.performance.timeoutSeconds || 45) * 1000;
   const checks = [
@@ -1314,6 +1735,18 @@ async function checkUpdates(apps, config) {
   return total;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SECURITY ANALYSIS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Check for security vulnerabilities across all supported package sources
+ * @description Orchestrates vulnerability scanning for NPM and PIP packages. Filters
+ * results by configured severity threshold and updates app statuses for vulnerable packages.
+ * @param {Array<Object>} apps - Array of scanned app objects to check for vulnerabilities
+ * @param {Object} config - Configuration object with security settings
+ * @returns {Promise<Array<Object>>} Array of vulnerability objects above severity threshold
+ */
 async function checkSecurityVulnerabilities(apps, config) {
   if (!config.security?.enabled) return [];
   await writeLog(`security analysis started: threshold=${config.security.severityThreshold}`);
@@ -1348,6 +1781,14 @@ async function checkSecurityVulnerabilities(apps, config) {
   return vulnerabilities;
 }
 
+/**
+ * Check for NPM package security vulnerabilities
+ * @description Executes npm audit --json command and parses vulnerability data. Extracts
+ * CVE, severity, and description for each vulnerable package.
+ * @param {Array<Object>} apps - Array of scanned app objects
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<Array<Object>>} Array of vulnerability objects for NPM packages
+ */
 async function checkNpmVulnerabilities(apps, timeoutMs) {
   const npmApps = apps.filter((a) => a.source === 'npm');
   if (!npmApps.length) return [];
@@ -1380,6 +1821,14 @@ async function checkNpmVulnerabilities(apps, timeoutMs) {
   }
 }
 
+/**
+ * Check for Python PIP package security vulnerabilities
+ * @description Executes pip check --format=json command and parses vulnerability data.
+ * Extracts CVE, severity, and description for each vulnerable package.
+ * @param {Array<Object>} apps - Array of scanned app objects
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<Array<Object>>} Array of vulnerability objects for PIP packages
+ */
 async function checkPipVulnerabilities(apps, timeoutMs) {
   const pipApps = apps.filter((a) => a.source === 'pip');
   if (!pipApps.length) return [];
@@ -1414,27 +1863,61 @@ async function checkPipVulnerabilities(apps, timeoutMs) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// UI UTILITIES
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Truncate text to specified length with ellipsis
+ * @description Shortens a string to fit within a maximum character limit, adding an
+ * ellipsis character if truncation occurs. Handles null/undefined values.
+ * @param {string} value - Value to truncate
+ * @param {number} size - Maximum character length
+ * @returns {string} Truncated string or original if within limit
+ */
 function truncate(value, size) {
   const text = String(value ?? '');
   return text.length <= size ? text : `${text.slice(0, size - 1)}…`;
 }
 
+/**
+ * Remove ANSI escape codes from text
+ * @description Strips all ANSI color/formatting codes from a string, returning plain text.
+ * Useful for calculating visible string length or logging.
+ * @param {string} text - Text potentially containing ANSI codes
+ * @returns {string} Text with ANSI codes removed
+ */
 function stripAnsi(text) {
   return text.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
+/**
+ * Pad text to specified width accounting for ANSI codes
+ * @description Pads text to a target width while correctly handling ANSI escape codes
+ * by measuring only visible characters.
+ * @param {string} text - Text to pad (may contain ANSI codes)
+ * @param {number} width - Target visible width
+ * @returns {string} Padded text with correct visible width
+ */
 function padAnsi(text, width) {
   const visibleLength = stripAnsi(text).length;
   const padding = Math.max(0, width - visibleLength);
   return text + ' '.repeat(padding);
 }
 
+/**
+ * Display formatted table of installed packages
+ * @description Renders a formatted table showing package name, source, current version,
+ * latest version, and status. Filters to show only updates/vulnerabilities unless showAll is true.
+ * @param {Array<Object>} apps - Array of app objects to display
+ * @param {boolean} [showAll=false] - Whether to show all packages or only those with updates
+ */
 function printAppsTable(apps, showAll = false) {
   writeLog(`printing apps table: count=${apps.length}, showAll=${showAll}`);
-  
+
   // Filter apps: by default show only updates, unless showAll is true
   const displayApps = showAll ? apps : apps.filter((a) => a.status === Status.UPDATE_AVAILABLE || a.status === Status.VULNERABLE);
-  
+
   const cols = [
     { key: 'name', title: 'Package', width: 30 },
     { key: 'source', title: 'Source', width: 12 },
@@ -1471,6 +1954,12 @@ function printAppsTable(apps, showAll = false) {
   }
 }
 
+/**
+ * Display formatted table of security vulnerabilities
+ * @description Renders a formatted table showing vulnerable packages with their severity,
+ * CVE identifier, and description. Uses color coding based on severity level.
+ * @param {Array<Object>} vulnerabilities - Array of vulnerability objects to display
+ */
 function printSecurityTable(vulnerabilities) {
   if (!vulnerabilities.length) return;
   writeLog(`printing security table: count=${vulnerabilities.length}`);
@@ -1500,12 +1989,33 @@ function printSecurityTable(vulnerabilities) {
   console.log(paint('└'.padEnd(74, '─') + '┘', ANSI.cyan));
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DATA EXPORT
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Convert value to CSV-safe cell string
+ * @description Escapes a value for CSV format, wrapping in quotes and escaping internal
+ * quotes if the value contains commas, quotes, or newlines.
+ * @param {string} val - Value to convert
+ * @returns {string} CSV-safe cell string
+ */
 function toCsvCell(val) {
   const s = String(val ?? '');
   if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replaceAll('"', '""')}"`;
   return s;
 }
 
+/**
+ * Export scan results to file in specified format
+ * @description Writes scan results to disk in JSON or CSV format. Generates timestamped
+ * filename if output path not specified.
+ * @param {Array<Object>} apps - Array of app objects to export
+ * @param {string} format - Export format ('json' or 'csv')
+ * @param {string} [output] - Optional output file path
+ * @returns {Promise<string>} Path to the exported file
+ * @throws {Error} If unsupported export format is specified
+ */
 async function exportResults(apps, format, output) {
   const lower = String(format || '').toLowerCase();
   const ts = new Date().toISOString().replace(/[T:.]/g, '-').slice(0, 19);
@@ -1529,6 +2039,18 @@ async function exportResults(apps, format, output) {
   throw new Error(`Unsupported export format: ${format}`);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// USER INTERACTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Prompt user for confirmation with yes/no answer
+ * @description Displays a confirmation message and waits for user input. Automatically
+ * returns true if yes flag is set (non-interactive mode).
+ * @param {string} message - Confirmation message to display
+ * @param {boolean} yes - If true, skip prompt and return true
+ * @returns {Promise<boolean>} True if user confirms, false otherwise
+ */
 async function askToProceed(message, yes) {
   if (yes) return true;
   const rl = readline.createInterface({ input: stdin, output: stdout });
@@ -1540,10 +2062,29 @@ async function askToProceed(message, yes) {
   }
 }
 
+/**
+ * Normalize source name to lowercase string
+ * @description Safely converts source value to lowercase string, handling null/undefined.
+ * @param {string} source - Source name to normalize
+ * @returns {string} Normalized lowercase source name
+ */
 function sourceName(source) {
   return String(source || '').toLowerCase();
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// UPDATE EXECUTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Execute update for a single package
+ * @description Determines the correct update command based on package source and executes
+ * the update. Supports dry-run mode for previewing commands without execution.
+ * @param {Object} app - App object with name, source, appId, and latestVersion
+ * @param {boolean} dryRun - If true, only log the command without executing
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<boolean>} True if update succeeded (or dry-run), false on failure
+ */
 async function executeSingleUpdate(app, dryRun, timeoutMs) {
   let command = null;
   let args = [];
@@ -1617,6 +2158,15 @@ async function executeSingleUpdate(app, dryRun, timeoutMs) {
   return result.ok;
 }
 
+/**
+ * Execute updates for multiple packages with progress tracking
+ * @description Iterates through apps with updates and executes update for each one.
+ * Displays progress bar and summary of successful/failed updates.
+ * @param {Array<Object>} apps - Array of app objects to update
+ * @param {Object} args - Parsed command line arguments with dryRun and yes flags
+ * @param {Object} config - Configuration object with performance settings
+ * @returns {Promise<void>}
+ */
 async function executeUpdates(apps, args, config) {
   const timeoutMs = Number(config.performance.timeoutSeconds || 45) * 1000;
   let success = 0;
@@ -1641,6 +2191,15 @@ async function executeUpdates(apps, args, config) {
   await writeLog(`update execution finished: successful=${success}/${apps.length}`);
 }
 
+/**
+ * Find packages matching name and optional source filter
+ * @description Searches through apps to find matches by package name with optional
+ * source filtering. Case-insensitive matching.
+ * @param {Array<Object>} apps - Array of app objects to search
+ * @param {string} packageName - Package name to find (case-insensitive)
+ * @param {string} [source] - Optional source filter (case-insensitive)
+ * @returns {Array<Object>} Array of matching app objects
+ */
 function selectPackage(apps, packageName, source) {
   const wanted = String(packageName).toLowerCase();
   const filtered = apps.filter((a) => {
@@ -1651,6 +2210,17 @@ function selectPackage(apps, packageName, source) {
   return filtered;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN ENTRY POINT
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Main entry point for the System Update CLI
+ * @description Orchestrates the complete system update workflow: parses arguments,
+ * initializes configuration, scans for packages, checks for updates, performs security
+ * analysis, displays results, and executes updates based on user options.
+ * @returns {Promise<void>}
+ */
 async function main() {
   let args;
   try {

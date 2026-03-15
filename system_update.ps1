@@ -1,28 +1,144 @@
 #Requires -Version 7.0
 <#
-.SYNOPSIS  System Update PowerShell CLI — port of system_update.js (requires PowerShell 7+)
-.EXAMPLE   .\system_update.ps1
-           .\system_update.ps1 -UpdateAll -Yes
-           .\system_update.ps1 -Source npm -NoCache
-           .\system_update.ps1 -Package git -Source chocolatey
-           .\system_update.ps1 -Export json -Output report.json
+.SYNOPSIS
+    System Update PowerShell CLI — Comprehensive system package manager and update checker.
+    
+.DESCRIPTION
+    This script scans multiple package managers (winget, chocolatey, npm, pnpm, bun, yarn, pip, rust)
+    and system registry to identify installed applications and check for available updates.
+    It supports security vulnerability scanning for npm and pip packages, caching for performance,
+    and export functionality for reporting purposes.
+    
+    Features:
+    - Multi-source package scanning (winget, chocolatey, npm, pnpm, bun, yarn, pip, rust, registry, path)
+    - Update detection with version comparison
+    - Security vulnerability scanning (npm audit, pip check)
+    - Caching mechanism to speed up subsequent runs
+    - Export results to JSON or CSV formats
+    - Dry-run mode for testing updates
+    - ANSI color support for enhanced terminal output
+    
+.PARAMETER UpdateAll
+    Automatically update all packages with available updates after confirmation.
+    
+.PARAMETER DryRun
+    Show planned updates without actually executing them. Useful for testing.
+    
+.PARAMETER NoCache
+    Force a fresh scan by bypassing the cache. Use when you suspect stale data.
+    
+.PARAMETER ClearCache
+    Remove the cache file and exit immediately.
+    
+.PARAMETER Yes
+    Skip all confirmation prompts and proceed automatically (non-interactive mode).
+    
+.PARAMETER Help
+    Display the help message with usage information and examples.
+    
+.PARAMETER Export
+    Export scan results to a file. Valid formats: 'json' or 'csv'.
+    
+.PARAMETER Output
+    Specify a custom output file path for the export. If not provided, a timestamped
+    file will be created in the current directory.
+    
+.PARAMETER Package
+    Target a specific package by name for update. Use with -Source to disambiguate.
+    
+.PARAMETER Version
+    Specify a target version when used with -Package. Forces update to that version.
+    
+.PARAMETER Source
+    Filter scanning and/or updates to a specific source (winget, chocolatey, npm, pnpm,
+    bun, yarn, pip, path, rust, registry).
+    
+.PARAMETER UpdateSource
+    Update all packages from a specific source in one operation.
+    
+.PARAMETER Include
+    Comma-separated list of sources to include in the scan (e.g., 'winget,npm,rust').
+    
+.PARAMETER ShowAll
+    Display all packages in the output table, including up-to-date ones. By default,
+    only packages with updates or vulnerabilities are shown.
+    
+.EXAMPLE
+    .\system_update.ps1
+    Performs a full system scan and displays available updates.
+    
+.EXAMPLE
+    .\system_update.ps1 -UpdateAll -Yes
+    Updates all packages automatically without prompting for confirmation.
+    
+.EXAMPLE
+    .\system_update.ps1 -Source npm -NoCache
+    Scans only npm packages, bypassing the cache for fresh data.
+    
+.EXAMPLE
+    .\system_update.ps1 -Package git -Source chocolatey
+    Checks and updates the 'git' package specifically from Chocolatey.
+    
+.EXAMPLE
+    .\system_update.ps1 -Export json -Output report.json
+    Exports scan results to a JSON file named 'report.json'.
+    
+.EXAMPLE
+    .\system_update.ps1 -UpdateSource winget -DryRun
+    Shows what winget updates would be performed without executing them.
+    
+.EXAMPLE
+    .\system_update.ps1 -ShowAll
+    Displays all installed packages, including those that are up-to-date.
+    
+.NOTES
+    Version: 1.0.1
+    Requires: PowerShell 7.0 or higher
+    Data Directory: $env:USERPROFILE\.system_update (or $env:SYSTEM_UPDATE_HOME)
 #>
 
 [CmdletBinding()]
 param(
+    # Update all packages with available updates
     [parameter(Mandatory = $false)][switch]$UpdateAll,
+    
+    # Show planned updates without executing them
     [parameter(Mandatory = $false)][switch]$DryRun,
+    
+    # Force fresh scan by bypassing cache
     [parameter(Mandatory = $false)][switch]$NoCache,
+    
+    # Remove cache file and exit
     [parameter(Mandatory = $false)][switch]$ClearCache,
+    
+    # Skip confirmation prompts (non-interactive mode)
     [parameter(Mandatory = $false)][switch]$Yes,
+    
+    # Display help message
     [parameter(Mandatory = $false)][switch]$Help,
+    
+    # Export format: 'json' or 'csv'
     [parameter(Mandatory = $false)][string]$Export,
+    
+    # Custom output file path for export
     [parameter(Mandatory = $false)][string]$Output,
+    
+    # Specific package name to update
     [parameter(Mandatory = $false)][string]$Package,
+    
+    # Target version for package update
     [parameter(Mandatory = $false)][string]$Version,
+    
+    # Filter by source (winget, chocolatey, npm, etc.)
     [parameter(Mandatory = $false)][string]$Source,
+    
+    # Update all packages from a specific source
     [parameter(Mandatory = $false)][string]$UpdateSource,
+    
+    # Comma-separated list of sources to include in scan
     [parameter(Mandatory = $false)][string]$Include,
+    
+    # Show all packages including up-to-date ones
     [parameter(Mandatory = $false)][switch]$ShowAll
 )
 
@@ -30,127 +146,408 @@ Set-StrictMode -Version 2
 $ErrorActionPreference = 'Stop'
 
 # ── Constants ──────────────────────────────────────────────────────────────────
+# Script version number
 $VER = '1.0.1'
+
+# Data directory for cache and logs - uses environment variable if set, otherwise defaults to user profile
 $DATA_DIR = if ($env:SYSTEM_UPDATE_HOME) { $env:SYSTEM_UPDATE_HOME } else { Join-Path $env:USERPROFILE '.system_update' }
+
+# Path to the JSON cache file storing scan results
 $CACHE_FILE = Join-Path $DATA_DIR 'cache.json'
+
+# Path to the log file for recording operations
 $LOG_FILE = Join-Path $DATA_DIR 'system.log'
 
-$S_OK = 'up_to_date'
-$S_UPD = 'update_available'
-$S_UNK = 'unknown'
-$S_VULN = 'vulnerable'
-$S_SEC = 'security_update_available'
-$S_ERR = 'error'
+# Status constants - used to track package state throughout the scanning process
+$S_OK = 'up_to_date'           # Package is at the latest version
+$S_UPD = 'update_available'    # A newer version is available
+$S_UNK = 'unknown'             # Package status could not be determined
+$S_VULN = 'vulnerable'         # Package has known security vulnerabilities
+$S_SEC = 'security_update_available'  # Security patch is available
+$S_ERR = 'error'               # An error occurred during status check
 
-$CFG_CACHE_HOURS = 2
-$CFG_TIMEOUT = 45
-$CFG_SECURITY = $true
-$CFG_SEVERITY = 'medium'
+# Configuration constants
+$CFG_CACHE_HOURS = 2    # Cache validity period in hours
+$CFG_TIMEOUT = 45       # Default command timeout in seconds
+$CFG_SECURITY = $true   # Enable security vulnerability scanning
+$CFG_SEVERITY = 'medium'  # Minimum severity level to report (critical, high, medium, low)
 
-# ── ANSI ───────────────────────────────────────────────────────────────────────
+# ── ANSI Color Functions ───────────────────────────────────────────────────────
+# Detect if the host console supports ANSI virtual terminal sequences
+# This enables colored output on modern terminals (Windows Terminal, VS Code, etc.)
 $COLOR = $Host.UI.SupportsVirtualTerminal
-function c([string]$code, [string]$t) { if ($COLOR) { "$([char]27)[$($code)m$t$([char]27)[0m" }else { $t } }
-function bold   ([string]$t) { c '1'    $t }
-function dim    ([string]$t) { c '2'    $t }
-function red    ([string]$t) { c '31'   $t }
-function green  ([string]$t) { c '32'   $t }
-function yellow ([string]$t) { c '33'   $t }
-function blue   ([string]$t) { c '34'   $t }
-function magenta([string]$t) { c '35'   $t }
-function cyan   ([string]$t) { c '36'   $t }
-function gray   ([string]$t) { c '90'   $t }
 
-# ── Emoji ──────────────────────────────────────────────────────────────────────
-# Using [char]::ConvertFromUtf32 for surrogate-pair emoji — safe on all PS versions
+<#
+.SYNOPSIS
+    Applies ANSI color codes to text for terminal output.
+.DESCRIPTION
+    Wraps text with ANSI escape codes for coloring. If the terminal doesn't support
+    ANSI colors, returns the text unchanged.
+.PARAMETER code
+    ANSI color code (e.g., '31' for red, '32' for green, '1' for bold).
+.PARAMETER t
+    The text to colorize.
+.EXAMPLE
+    c '31' 'Error message'  # Returns red text
+.EXAMPLE
+    c '1;36' 'Bold cyan text'  # Returns bold cyan text
+#>
+function c([string]$code, [string]$t) { 
+    if ($COLOR) { "$([char]27)[$($code)m$t$([char]27)[0m" } else { $t } 
+}
+
+<#
+.SYNOPSIS
+    Returns bold-formatted text.
+.DESCRIPTION
+    Applies ANSI bold formatting (code 1) to the specified text.
+.PARAMETER t
+    The text to make bold.
+.EXAMPLE
+    bold 'Important message'  # Returns bold text
+#>
+function bold([string]$t) { c '1' $t }
+
+<#
+.SYNOPSIS
+    Returns dim-formatted text.
+.DESCRIPTION
+    Applies ANSI dim formatting (code 2) to the specified text for subdued appearance.
+.PARAMETER t
+    The text to dim.
+.EXAMPLE
+    dim 'Secondary info'  # Returns dimmed text
+#>
+function dim([string]$t) { c '2' $t }
+
+<#
+.SYNOPSIS
+    Returns red-colored text.
+.DESCRIPTION
+    Applies ANSI red color (code 31) for errors, failures, or critical messages.
+.PARAMETER t
+    The text to color red.
+.EXAMPLE
+    red 'Error occurred'  # Returns red text
+#>
+function red([string]$t) { c '31' $t }
+
+<#
+.SYNOPSIS
+    Returns green-colored text.
+.DESCRIPTION
+    Applies ANSI green color (code 32) for success messages and up-to-date status.
+.PARAMETER t
+    The text to color green.
+.EXAMPLE
+    green 'Success!'  # Returns green text
+#>
+function green([string]$t) { c '32' $t }
+
+<#
+.SYNOPSIS
+    Returns yellow-colored text.
+.DESCRIPTION
+    Applies ANSI yellow color (code 33) for warnings and update notifications.
+.PARAMETER t
+    The text to color yellow.
+.EXAMPLE
+    yellow 'Warning: update available'  # Returns yellow text
+#>
+function yellow([string]$t) { c '33' $t }
+
+<#
+.SYNOPSIS
+    Returns blue-colored text.
+.DESCRIPTION
+    Applies ANSI blue color (code 34) for informational messages.
+.PARAMETER t
+    The text to color blue.
+.EXAMPLE
+    blue 'Info message'  # Returns blue text
+#>
+function blue([string]$t) { c '34' $t }
+
+<#
+.SYNOPSIS
+    Returns magenta-colored text.
+.DESCRIPTION
+    Applies ANSI magenta color (code 35) for security-related messages.
+.PARAMETER t
+    The text to color magenta.
+.EXAMPLE
+    magenta 'Security alert'  # Returns magenta text
+#>
+function magenta([string]$t) { c '35' $t }
+
+<#
+.SYNOPSIS
+    Returns cyan-colored text.
+.DESCRIPTION
+    Applies ANSI cyan color (code 36) for headers and important notices.
+.PARAMETER t
+    The text to color cyan.
+.EXAMPLE
+    cyan 'Header text'  # Returns cyan text
+#>
+function cyan([string]$t) { c '36' $t }
+
+<#
+.SYNOPSIS
+    Returns gray-colored text.
+.DESCRIPTION
+    Applies ANSI gray color (code 90) for secondary or less important information.
+.PARAMETER t
+    The text to color gray.
+.EXAMPLE
+    gray 'Optional detail'  # Returns gray text
+#>
+function gray([string]$t) { c '90' $t }
+
+# ── Emoji Functions ────────────────────────────────────────────────────────────
+<#
+.SYNOPSIS
+    Returns Unicode emoji characters by name for enhanced terminal output.
+.DESCRIPTION
+    Maps emoji names to their Unicode representations using [char]::ConvertFromUtf32
+    for proper surrogate pair handling. This ensures emoji display correctly across
+    all PowerShell versions and terminal configurations.
+.PARAMETER n
+    The emoji name (e.g., 'rocket', 'package', 'scan', 'update', 'ok', 'warn', 'fail').
+.EXAMPLE
+    E 'rocket'  # Returns 🚀
+.EXAMPLE
+    E 'ok'      # Returns ✅
+.NOTES
+    Uses UTF-32 code points for emoji that require surrogate pairs.
+    Some emoji include variation selector (U+FE0F) for emoji-style presentation.
+#>
 function E([string]$n) {
     switch ($n) {
-        'rocket' { [char]::ConvertFromUtf32(0x1F680) }
-        'package' { [char]::ConvertFromUtf32(0x1F4E6) }
-        'scan' { [char]::ConvertFromUtf32(0x1F50E) }
-        'update' { "$([char]::ConvertFromUtf32(0x2B06))$([char]0xFE0F)" }
-        'ok' { "$([char]::ConvertFromUtf32(0x2705))" }
-        'warn' { "$([char]::ConvertFromUtf32(0x26A0))$([char]0xFE0F)" }
-        'fail' { [char]::ConvertFromUtf32(0x274C) }
-        'gear' { "$([char]::ConvertFromUtf32(0x2699))$([char]0xFE0F)" }
-        'sparkle' { [char]::ConvertFromUtf32(0x2728) }
-        'chart' { [char]::ConvertFromUtf32(0x1F4CA) }
-        'disk' { [char]::ConvertFromUtf32(0x1F4BE) }
-        'hourglass' { "$([char]::ConvertFromUtf32(0x23F1))$([char]0xFE0F)" }
-        'export' { [char]::ConvertFromUtf32(0x1F4C4) }
-        'lock' { [char]::ConvertFromUtf32(0x1F512) }
-        'fire' { [char]::ConvertFromUtf32(0x1F525) }
-        'shield' { "$([char]::ConvertFromUtf32(0x1F6E1))$([char]0xFE0F)" }
-        'target' { [char]::ConvertFromUtf32(0x1F3AF) }
-        'unknown' { '❔' }
-        default { '' }
+        'rocket' { [char]::ConvertFromUtf32(0x1F680) }  # 🚀
+        'package' { [char]::ConvertFromUtf32(0x1F4E6) }  # 📦
+        'scan' { [char]::ConvertFromUtf32(0x1F50E) }  # 🔎
+        'update' { "$([char]::ConvertFromUtf32(0x2B06))$([char]0xFE0F)" }  # ⬆️
+        'ok' { "$([char]::ConvertFromUtf32(0x2705))" }  # ✅
+        'warn' { "$([char]::ConvertFromUtf32(0x26A0))$([char]0xFE0F)" }  # ⚠️
+        'fail' { [char]::ConvertFromUtf32(0x274C) }  # ❌
+        'gear' { "$([char]::ConvertFromUtf32(0x2699))$([char]0xFE0F)" }  # ⚙️
+        'sparkle' { [char]::ConvertFromUtf32(0x2728) }  # ✨
+        'chart' { [char]::ConvertFromUtf32(0x1F4CA) }  # 📊
+        'disk' { [char]::ConvertFromUtf32(0x1F4BE) }  # 💾
+        'hourglass' { "$([char]::ConvertFromUtf32(0x23F1))$([char]0xFE0F)" }  # ⏱️
+        'export' { [char]::ConvertFromUtf32(0x1F4C4) }  # 📄
+        'lock' { [char]::ConvertFromUtf32(0x1F512) }  # 🔒
+        'fire' { [char]::ConvertFromUtf32(0x1F525) }  # 🔥
+        'shield' { "$([char]::ConvertFromUtf32(0x1F6E1))$([char]0xFE0F)" }  # 🛡️
+        'target' { [char]::ConvertFromUtf32(0x1F3AF) }  # 🎯
+        'unknown' { '❔' }  # Default unknown status emoji
+        default { '' }  # Return empty string for unknown emoji names
     }
 }
 
+<#
+.SYNOPSIS
+    Returns a formatted status badge with emoji and color based on package status.
+.DESCRIPTION
+    Creates a visual status indicator for package update states. Each status has
+    a unique emoji and color combination for quick visual identification in terminal output.
+.PARAMETER s
+    The status constant (S_UPD, S_OK, S_ERR, S_VULN, S_SEC, or unknown).
+.EXAMPLE
+    statusBadge $S_UPD  # Returns yellow "⬆️ update" badge
+    statusBadge $S_OK   # Returns green "✅ up-to-date" badge
+#>
 function statusBadge([string]$s) {
     switch ($s) {
-        $S_UPD { c '33;1' "$(E 'update') update" }
-        $S_OK { green "$(E 'ok') up-to-date" }
-        $S_ERR { red "$(E 'fail') error" }
-        $S_VULN { c '31;1' "$(E 'fire') vulnerable" }
-        $S_SEC { c '35;1' "$(E 'lock') security update" }
-        default { gray "$(E 'unknown') unknown" }
+        $S_UPD { c '33;1' "$(E 'update') update" }  # Yellow bold for updates available
+        $S_OK { green "$(E 'ok') up-to-date" }  # Green for up-to-date packages
+        $S_ERR { red "$(E 'fail') error" }  # Red for error states
+        $S_VULN { c '31;1' "$(E 'fire') vulnerable" }  # Red bold for vulnerabilities
+        $S_SEC { c '35;1' "$(E 'lock') security update" }  # Magenta bold for security updates
+        default { gray "$(E 'unknown') unknown" }  # Gray for unknown status
     }
 }
 
+<#
+.SYNOPSIS
+    Returns a color-coded source badge for package manager identification.
+.DESCRIPTION
+    Creates a colored text badge identifying the package source. Each source
+    (winget, chocolatey, npm, etc.) has a distinct color for easy recognition.
+.PARAMETER s
+    The source name (winget, chocolatey, npm, pnpm, bun, yarn, pip, rust, path, registry).
+.EXAMPLE
+    srcBadge 'winget'     # Returns blue 'winget'
+    srcBadge 'chocolatey' # Returns yellow 'chocolatey'
+#>
 function srcBadge([string]$s) {
     switch ($s.Trim().ToLower()) {
-        'winget' { c '34;1' $s }
-        'chocolatey' { c '33;1' $s }
-        'npm' { c '31;1' $s }
-        'pnpm' { c '35;1' $s }
-        'bun' { c '33' $s }
-        'yarn' { c '37;1' $s }
-        'pip' { c '36;1' $s }
-        'rust' { c '35;1' $s }
-        'path' { c '32;1' $s }
-        'registry' { gray $s }
-        default { gray $s }
+        'winget' { c '34;1' $s }  # Blue bold
+        'chocolatey' { c '33;1' $s }  # Yellow bold
+        'npm' { c '31;1' $s }  # Red bold
+        'pnpm' { c '35;1' $s }  # Magenta bold
+        'bun' { c '33' $s }  # Yellow
+        'yarn' { c '37;1' $s }  # White bold
+        'pip' { c '36;1' $s }  # Cyan bold
+        'rust' { c '35;1' $s }  # Magenta bold
+        'path' { c '32;1' $s }  # Green bold
+        'registry' { gray $s }  # Gray for registry entries
+        default { gray $s }  # Gray for unknown sources
     }
 }
 
-# ── Progress ───────────────────────────────────────────────────────────────────
+# ── Progress Bar Functions ─────────────────────────────────────────────────────
+<#
+.SYNOPSIS
+    Creates a progress bar object for tracking long-running operations.
+.DESCRIPTION
+    Generates a custom progress bar object with Render, Tick, and Done methods.
+    The progress bar displays a visual bar, percentage, elapsed time, and custom messages.
+    Uses ANSI escape codes for in-place updates without scrolling the terminal.
+.PARAMETER Total
+    The total number of items to process.
+.PARAMETER Label
+    Descriptive label shown before the progress bar.
+.EXAMPLE
+    $prog = New-Progress 10 "Scanning packages"
+    foreach ($pkg in $packages) {
+        # Process item
+        $prog.Tick("Processed $pkg")
+    }
+    $prog.Done("Scan complete")
+.OUTPUTS
+    PSCustomObject with properties: N (current), T (total), L (label), S (start time)
+    and methods: Render(), Tick(), Done()
+#>
 function New-Progress([int]$Total, [string]$Label) {
+    # Initialize progress object with counter, total, label, and start time
     $p = [PSCustomObject]@{N = 0; T = $Total; L = $Label; S = [datetime]::Now }
+    
+    # Render method - draws the progress bar at current position
     $p | Add-Member ScriptMethod Render { param([string]$X = '')
-        $r = if ($this.T -eq 0) { 1.0 }else { [Math]::Min(1.0, $this.N / $this.T) }
+        # Calculate progress ratio (handle division by zero)
+        $r = if ($this.T -eq 0) { 1.0 } else { [Math]::Min(1.0, $this.N / $this.T) }
+        # Calculate filled portion of bar (26 characters max)
         $f = [Math]::Round(26 * $r)
+        # Build bar with filled (█) and empty (░) segments
         $bar = ('█' * $f) + ('░' * (26 - $f))
+        # Format percentage with right-padding for consistent width
         $pct = "$([Math]::Round($r*100))%".PadLeft(4)
+        # Calculate elapsed time since progress started
         $el = ([datetime]::Now - $this.S).TotalSeconds.ToString('0.0')
+        # Compose and display the full progress message
         $msg = "$($this.L) $bar $pct ($($this.N)/$($this.T)) $(E 'hourglass') ${el}s $X"
+        # Use carriage return and ANSI erase to update in place
         Write-Host "`r$([char]27)[2K$msg" -NoNewline
     }
+    
+    # Tick method - advances progress by one step and updates display
     $p | Add-Member ScriptMethod Tick { param([string]$X = ''); $this.N++; $this.Render($X) }
+    
+    # Done method - completes progress bar and moves to new line
     $p | Add-Member ScriptMethod Done { param([string]$X = ''); $this.N = $this.T; $this.Render($X); Write-Host '' }
+    
+    # Initial render and return progress object
     $p.Render(); return $p
 }
 
-# ── Header ─────────────────────────────────────────────────────────────────────
+<#
+.SYNOPSIS
+    Displays a styled header box for section separation.
+.DESCRIPTION
+    Creates a decorative cyan-colored header box with a title and subtitle.
+    Uses box-drawing characters for a clean, professional appearance.
+.PARAMETER Title
+    Main title text displayed in bold cyan.
+.PARAMETER Sub
+    Subtitle text displayed in dim cyan below the title.
+.EXAMPLE
+    Show-Header "System Update CLI v1.0" "Scanning installed packages..."
+.OUTPUTS
+    Writes formatted header box to host output.
+#>
 function Show-Header([string]$Title, [string]$Sub) {
+    # Draw top border of header box
     Write-Host (cyan "┌$('─'*70)┐")
+    # Display title in bold cyan, padded to fit box width
     Write-Host (c '1;36' "│ $($Title.PadRight(69))│")
+    # Display subtitle in dim cyan, padded to fit box width
     Write-Host (c '2;36' "│ $($Sub.PadRight(69))│")
+    # Draw bottom border of header box
     Write-Host (cyan "└$('─'*70)┘")
 }
 
-# ── Log ────────────────────────────────────────────────────────────────────────
+# ── Logging Functions ──────────────────────────────────────────────────────────
+<#
+.SYNOPSIS
+    Writes a timestamped message to the log file.
+.DESCRIPTION
+    Appends a message with ISO 8601 timestamp to the system log file.
+    Errors are silently ignored to prevent logging failures from disrupting operations.
+.PARAMETER Msg
+    The message to log.
+.EXAMPLE
+    Write-Log "Scan completed successfully"
+.EXAMPLE
+    Write-Log "Error: Package not found - git"
+.NOTES
+    Log file location: $DATA_DIR\system.log
+    Timestamp format: ISO 8601 (yyyy-MM-ddTHH:mm:ss.fffffff)
+#>
 function Write-Log([string]$Msg) {
-    try { "$(Get-Date -f 'o') $Msg" | Add-Content $LOG_FILE -Encoding UTF8 -EA SilentlyContinue }catch {}
+    # Append timestamped message to log file with UTF8 encoding
+    # Silently continue on error to avoid disrupting main operations
+    try { "$(Get-Date -f 'o') $Msg" | Add-Content $LOG_FILE -Encoding UTF8 -EA SilentlyContinue } catch {}
 }
 
-# ── Invoke-Cmd ────────────────────────────────────────────────────────────────
-# Handles all Windows executable types:
-#   .ps1 (ExternalScript like npm from nvm) → pwsh -NonInteractive -File ...
-#   .cmd/.bat                                → cmd.exe /d /c ...
-#   .exe / AppX alias                        → ProcessStartInfo directly
+# ── Command Execution Functions ───────────────────────────────────────────────
+<#
+.SYNOPSIS
+    Executes external commands with proper handling for different executable types.
+.DESCRIPTION
+    Universal command executor that handles PowerShell scripts (.ps1), batch files
+    (.cmd/.bat), and native executables (.exe) with appropriate invocation methods.
+    Captures stdout/stderr, enforces timeouts, and returns structured results.
+    
+    Execution paths:
+    - .ps1 files: Runs through pwsh -NonInteractive -NoProfile -File
+    - .cmd/.bat files: Runs through cmd.exe /d /c with proper quoting
+    - .exe files: Runs directly via ProcessStartInfo
+    
+.PARAMETER Cmd
+    The command name or path to execute.
+.PARAMETER CmdArgs
+    Array of arguments to pass to the command.
+.PARAMETER TimeoutSec
+    Maximum execution time in seconds before the process is killed.
+.PARAMETER AllowFail
+    If set, return result even if exit code is non-zero.
+.PARAMETER Stderr
+    If set, include stderr output in the returned stdout.
+.EXAMPLE
+    $result = Invoke-Cmd 'git' @('--version')
+    if ($result.Ok) { Write-Host $result.Stdout }
+.EXAMPLE
+    $result = Invoke-Cmd 'npm' @('install', '-g', 'package') -TimeoutSec 120
+.EXAMPLE
+    $result = Invoke-Cmd 'script.ps1' @('-arg1', 'value') -AllowFail
+.OUTPUTS
+    PSCustomObject with properties: Ok (bool), Stdout (string), Stderr (string), Code (int)
+.NOTES
+    Uses UTF8 encoding for stdout and stderr.
+    Returns Ok=$false and Stderr='timeout' if command exceeds timeout.
+#>
 function Invoke-Cmd {
-    param([string]$Cmd, [string[]]$CmdArgs = @(), [int]$TimeoutSec = $CFG_TIMEOUT, [switch]$AllowFail, [switch]$Stderr)
+    param(
+        [string]$Cmd,
+        [string[]]$CmdArgs = @(),
+        [int]$TimeoutSec = $CFG_TIMEOUT,
+        [switch]$AllowFail,
+        [switch]$Stderr
+    )
     try {
+        # Find the command in PATH to determine its type and location
         $exe = Get-Command $Cmd -ErrorAction SilentlyContinue
         # Use Source only for real file-system commands (Application, ExternalScript)
         $exePath = if ($exe -and $exe.Source) { $exe.Source } else { $Cmd }
@@ -179,6 +576,7 @@ function Invoke-Cmd {
             foreach ($arg in $CmdArgs) { [void]$psi.ArgumentList.Add($arg) }
         }
 
+        # Configure process for output capture
         $psi.UseShellExecute = $false
         $psi.RedirectStandardOutput = $true
         $psi.RedirectStandardError = $true
@@ -186,16 +584,20 @@ function Invoke-Cmd {
         $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
         $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
 
+        # Start process and capture output
         $proc = New-Object System.Diagnostics.Process
         $proc.StartInfo = $psi
         $proc.Start() | Out-Null
 
+        # Read output asynchronously to avoid deadlocks
         $outTask = $proc.StandardOutput.ReadToEndAsync()
         $errTask = $proc.StandardError.ReadToEndAsync()
         $done = $proc.WaitForExit($TimeoutSec * 1000)
 
+        # Handle timeout - kill process if it exceeds limit
         if (-not $done) { try { $proc.Kill() } catch {}; return [PSCustomObject]@{Ok = $false; Stdout = ''; Stderr = 'timeout'; Code = $null } }
 
+        # Collect output and build result object
         $outStr = $outTask.GetAwaiter().GetResult().Trim()
         $errStr = $errTask.GetAwaiter().GetResult().Trim()
         $code = $proc.ExitCode
@@ -204,33 +606,101 @@ function Invoke-Cmd {
         return [PSCustomObject]@{Ok = $ok; Stdout = $out; Stderr = $errStr; Code = $code }
     }
     catch {
+        # Log error and return failure object
         Write-Log "Invoke-Cmd $Cmd $($CmdArgs -join ' '): $_"
         return [PSCustomObject]@{Ok = $false; Stdout = ''; Stderr = "$_"; Code = $null }
     }
 }
 
+<#
+.SYNOPSIS
+    Checks if a command exists in the system PATH.
+.DESCRIPTION
+    Uses 'where.exe' to verify if a command is available on the system.
+    Returns $true if the command is found, $false otherwise.
+.PARAMETER Cmd
+    The command name to check.
+.EXAMPLE
+    if (cmd-ok 'git') { Write-Host "Git is installed" }
+.OUTPUTS
+    System.Boolean
+#>
 function cmd-ok([string]$Cmd) {
     # Use 'where.exe' explicitly — 'where' alone is a PowerShell alias for Where-Object
     $r = Invoke-Cmd 'where.exe' @($Cmd) -AllowFail -TimeoutSec 10
     return ($r.Ok -and $r.Stdout)
 }
 
+<#
+.SYNOPSIS
+    Fetches GitHub release information via REST API.
+.DESCRIPTION
+    Makes an HTTP GET request to a GitHub API endpoint to retrieve release data.
+    Includes User-Agent header as required by GitHub API.
+.PARAMETER Url
+    The GitHub API URL to query.
+.EXAMPLE
+    $release = gh-release 'https://api.github.com/repos/git/git/releases/latest'
+.OUTPUTS
+    PSCustomObject with release data, or $null on failure.
+#>
 function gh-release([string]$Url) {
-    try { return Invoke-RestMethod -Uri $Url -Headers @{'User-Agent' = 'SystemUpdateCLI' } -TimeoutSec 10 } catch { return $null }
+    try { 
+        # Use GitHub API with required User-Agent header
+        return Invoke-RestMethod -Uri $Url -Headers @{'User-Agent' = 'SystemUpdateCLI' } -TimeoutSec 10 
+    } catch { 
+        return $null 
+    }
 }
 
-# Invoke-NativeCmd: runs a command via PS job (handles encoding-sensitive tools like winget)
+<#
+.SYNOPSIS
+    Executes commands via PowerShell background job for encoding-sensitive tools.
+.DESCRIPTION
+    Runs commands in a separate PowerShell job to handle tools that are sensitive
+    to console encoding (like winget which outputs UTF-16LE). This ensures proper
+    character encoding for tools that don't work well with ProcessStartInfo.
+.PARAMETER Cmd
+    The command name to execute.
+.PARAMETER CmdArgs
+    Array of arguments to pass to the command.
+.PARAMETER TimeoutSec
+    Maximum execution time in seconds.
+.PARAMETER AllowFail
+    If set, return result even if exit code is non-zero.
+.PARAMETER Stderr
+    If set, capture stderr along with stdout.
+.EXAMPLE
+    $result = Invoke-NativeCmd 'winget' @('list') -AllowFail
+.EXAMPLE
+    $result = Invoke-NativeCmd 'npm' @('list', '-g', '--json') -Stderr
+.OUTPUTS
+    PSCustomObject with properties: Ok (bool), Stdout (string), Stderr (string), Code (int)
+.NOTES
+    Uses background jobs which have higher overhead but better encoding handling.
+    UTF-8 output encoding is configured for the job.
+#>
 function Invoke-NativeCmd {
-    param([string]$Cmd, [string[]]$CmdArgs = @(), [int]$TimeoutSec = $CFG_TIMEOUT, [switch]$AllowFail, [switch]$Stderr)
+    param(
+        [string]$Cmd,
+        [string[]]$CmdArgs = @(),
+        [int]$TimeoutSec = $CFG_TIMEOUT,
+        [switch]$AllowFail,
+        [switch]$Stderr
+    )
+    # Start background job to handle encoding-sensitive commands
     $job = Start-Job -ScriptBlock {
         param($c, $a, $se)
         $ErrorActionPreference = 'SilentlyContinue'
+        # Configure UTF-8 output encoding for proper character handling
         [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
         try {
             if ($se) {
+                # Capture both stdout and stderr
                 $out = & $c @a 2>&1 | Out-String
             }
             else {
+                # Capture stdout only, suppress stderr
                 $out = & $c @a 2>$null | Out-String
             }
             @{ Out = $out.Trim(); Code = $LASTEXITCODE }
@@ -240,10 +710,13 @@ function Invoke-NativeCmd {
         }
     } -ArgumentList $Cmd, $CmdArgs, $Stderr.IsPresent
 
+    # Wait for job completion with timeout
     if (-not (Wait-Job $job -Timeout $TimeoutSec)) {
         Stop-Job $job; Remove-Job $job -Force
         return [PSCustomObject]@{Ok = $false; Stdout = ''; Stderr = 'timeout'; Code = $null }
     }
+    
+    # Collect job results and cleanup
     $r = Receive-Job $job -ErrorAction SilentlyContinue
     Remove-Job $job -Force
     $rOut = if ($r -and $r.Out) { $r.Out }  else { '' }
@@ -253,23 +726,50 @@ function Invoke-NativeCmd {
 }
 
 # ── Winget Table Parser ────────────────────────────────────────────────────────
+<#
+.SYNOPSIS
+    Parses winget command output into structured application objects.
+.DESCRIPTION
+    Extracts application information from winget's table-formatted output.
+    Handles column position detection and parses Name, Id, Version, and optionally
+    Available version and Source columns.
+.PARAMETER Out
+    The raw stdout from a winget command (list or upgrade).
+.PARAMETER Avail
+    If set, also extract the 'Available' column for update detection.
+.EXAMPLE
+    $apps = Parse-Winget (winget list)
+.EXAMPLE
+    $updates = Parse-Winget (winget upgrade) -Avail
+.OUTPUTS
+    Array of PSCustomObject with properties: Name, Source, Version, LatestVersion, AppId, Status
+.NOTES
+    Skips header lines and handles variable column widths.
+    Returns empty array if no valid applications are found.
+#>
 function Parse-Winget([string]$Out, [switch]$Avail) {
     $apps = @(); if (-not $Out) { return $apps }
     $lines = $Out -split "`r?`n"
     $hi = -1
+    # Find header row by looking for column names
     for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match 'Name' -and $lines[$i] -match 'Id' -and $lines[$i] -match 'Version') { $hi = $i; break } }
     if ($hi -lt 0) { return $apps }
     $h = $lines[$hi]
+    # Calculate column positions based on header row
     $pos = @{id = $h.IndexOf('Id'); ver = $h.IndexOf('Version'); avail = $h.IndexOf('Available'); src = $h.IndexOf('Source') }
+    # Parse each data row after the separator line
     foreach ($line in $lines[($hi + 2)..($lines.Count - 1)]) {
         if (-not $line.Trim()) { continue }
         try {
+            # Extract fields based on column positions
             $name = $line.Substring(0, [Math]::Max($pos.id, 0)).Trim()
             $appId = if ($pos.ver -gt 0) { $line.Substring($pos.id, $pos.ver - $pos.id).Trim() }else { '' }
             $vEnd = if ($pos.avail -gt -1) { $pos.avail }elseif ($pos.src -gt -1) { $pos.src }else { $line.Length }
             $ver = if ($pos.ver -gt -1) { $line.Substring($pos.ver, $vEnd - $pos.ver).Trim() }else { '' }
+            # Extract latest version if available column exists
             $latest = ''
             if ($Avail -and $pos.avail -gt -1) { $aEnd = if ($pos.src -gt -1) { $pos.src }else { $line.Length }; $latest = $line.Substring($pos.avail, $aEnd - $pos.avail).Trim() }
+            # Create application object if required fields are present
             if ($name -and $appId -and $ver) {
                 $apps += [PSCustomObject]@{Name = $name; Source = 'winget'; Version = $ver; LatestVersion = $latest; AppId = $appId; Status = if ($latest) { $S_UPD }else { $S_UNK } }
             }
@@ -280,12 +780,38 @@ function Parse-Winget([string]$Out, [switch]$Avail) {
 }
 
 # ── Scanners ───────────────────────────────────────────────────────────────────
+
+<#
+.SYNOPSIS
+    Scans for applications installed via winget.
+.DESCRIPTION
+    Executes 'winget list' and parses the output to discover all applications
+    managed by the Windows Package Manager. Uses Invoke-NativeCmd for proper
+    UTF-16LE encoding handling.
+.EXAMPLE
+    $apps = Scan-Winget
+.OUTPUTS
+    Array of PSCustomObject with properties: Name, Source, Version, LatestVersion, AppId, Status
+.NOTES
+    winget outputs UTF-16LE which requires Invoke-NativeCmd for correct reading.
+#>
 function Scan-Winget {
     # Use Invoke-NativeCmd: winget outputs UTF-16LE which ProcessStartInfo misreads with UTF8 encoding
     $r = Invoke-NativeCmd 'winget' @('list', '--accept-source-agreements') -AllowFail
     Parse-Winget $r.Stdout
 }
 
+<#
+.SYNOPSIS
+    Scans for applications installed via Chocolatey.
+.DESCRIPTION
+    Executes 'choco list --local-only' to discover all Chocolatey-managed packages.
+    Parses the pipe-delimited output format (name|version|...).
+.EXAMPLE
+    $apps = Scan-Chocolatey
+.OUTPUTS
+    Array of PSCustomObject with properties: Name, Source, Version, LatestVersion, AppId, Status
+#>
 function Scan-Chocolatey {
     $r = Invoke-Cmd 'choco' @('list', '--local-only', '--limit-output') -AllowFail
     @($r.Stdout -split "`r?`n" | ForEach-Object {
@@ -296,6 +822,19 @@ function Scan-Chocolatey {
         } | Where-Object { $_ })
 }
 
+<#
+.SYNOPSIS
+    Scans for globally installed npm packages.
+.DESCRIPTION
+    Executes 'npm list -g --json' to discover globally installed Node.js packages.
+    Parses the JSON output to extract package names and versions.
+.EXAMPLE
+    $apps = Scan-Npm
+.OUTPUTS
+    Array of PSCustomObject with properties: Name, Source, Version, LatestVersion, AppId, Status
+.NOTES
+    Uses Invoke-NativeCmd because npm may be a .ps1 ExternalScript (nvm for Windows).
+#>
 function Scan-Npm {
     # Use Invoke-NativeCmd: npm may be a .ps1 ExternalScript (nvm for Windows) that ProcessStartInfo handles incorrectly
     $r = Invoke-NativeCmd 'npm' @('list', '-g', '--depth=0', '--json', '--silent') -AllowFail
@@ -314,6 +853,17 @@ function Scan-Npm {
     return $apps
 }
 
+<#
+.SYNOPSIS
+    Scans for globally installed pnpm packages.
+.DESCRIPTION
+    Executes 'pnpm list -g --json' to discover globally installed pnpm packages.
+    Parses the JSON output structure to extract package information.
+.EXAMPLE
+    $apps = Scan-Pnpm
+.OUTPUTS
+    Array of PSCustomObject with properties: Name, Source, Version, LatestVersion, AppId, Status
+#>
 function Scan-Pnpm {
     $r = Invoke-NativeCmd 'pnpm' @('list', '-g', '--depth=0', '--json') -AllowFail
     $apps = @()
@@ -332,6 +882,17 @@ function Scan-Pnpm {
     return $apps
 }
 
+<#
+.SYNOPSIS
+    Scans for globally installed Bun packages.
+.DESCRIPTION
+    Executes 'bun pm ls -g' and parses the output to find globally installed
+    packages managed by Bun package manager.
+.EXAMPLE
+    $apps = Scan-Bun
+.OUTPUTS
+    Array of PSCustomObject with properties: Name, Source, Version, LatestVersion, AppId, Status
+#>
 function Scan-Bun {
     $r = Invoke-Cmd 'bun' @('pm', 'ls', '-g') -AllowFail
     @($r.Stdout -split "`r?`n" | ForEach-Object {
@@ -341,6 +902,17 @@ function Scan-Bun {
         } | Where-Object { $_ })
 }
 
+<#
+.SYNOPSIS
+    Scans for globally installed Yarn packages.
+.DESCRIPTION
+    Executes 'yarn global list' and parses the output to discover globally
+    installed Yarn packages. Extracts package name and version from info lines.
+.EXAMPLE
+    $apps = Scan-Yarn
+.OUTPUTS
+    Array of PSCustomObject with properties: Name, Source, Version, LatestVersion, AppId, Status
+#>
 function Scan-Yarn {
     $r = Invoke-Cmd 'yarn' @('global', 'list') -AllowFail
     @($r.Stdout -split "`r?`n" | ForEach-Object {
@@ -350,6 +922,21 @@ function Scan-Yarn {
         } | Where-Object { $_ })
 }
 
+<#
+.SYNOPSIS
+    Scans for Python pip packages.
+.DESCRIPTION
+    Attempts to run 'pip list --format=json' using multiple Python executables
+    (py, python, python3, pip) to ensure compatibility across different installations.
+    Parses JSON output to extract package names and versions.
+.EXAMPLE
+    $apps = Scan-Pip
+.OUTPUTS
+    Array of PSCustomObject with properties: Name, Source, Version, LatestVersion, AppId, Status
+.NOTES
+    Tries multiple Python interpreters in order: py, python, python3, then pip directly.
+    Stops at first successful execution.
+#>
 function Scan-Pip {
     $apps = @()
     foreach ($run in @('py', 'python', 'python3', 'pip')) {
@@ -368,6 +955,21 @@ function Scan-Pip {
     return $apps
 }
 
+<#
+.SYNOPSIS
+    Scans PATH for common development tools and utilities.
+.DESCRIPTION
+    Checks for the presence of common CLI tools in the system PATH and extracts
+    their version information from --version or -version output. This provides
+    visibility into tools not managed by package managers.
+.EXAMPLE
+    $apps = Scan-Path
+.OUTPUTS
+    Array of PSCustomObject with properties: Name, Source, Version, LatestVersion, AppId, Status
+.NOTES
+    Scans for: node, npm, pnpm, yarn, python, git, go, bun, deno, rustc, cargo, dotnet, java, pwsh
+    Version extraction uses regex to find semantic version patterns.
+#>
 function Scan-Path {
     $tools = @('node', 'npm', 'pnpm', 'yarn', 'python', 'git', 'go', 'bun', 'deno', 'rustc', 'cargo', 'dotnet', 'java', 'pwsh')
     $apps = @()
@@ -383,6 +985,17 @@ function Scan-Path {
     return $apps
 }
 
+<#
+.SYNOPSIS
+    Scans for Rust crates installed via cargo.
+.DESCRIPTION
+    Executes 'cargo install --list' to discover globally installed Rust crates.
+    Parses the output to extract crate names and versions.
+.EXAMPLE
+    $apps = Scan-Rust
+.OUTPUTS
+    Array of PSCustomObject with properties: Name, Source, Version, LatestVersion, AppId, Status
+#>
 function Scan-Rust {
     $r = Invoke-Cmd 'cargo' @('install', '--list') -AllowFail
     $apps = @()
@@ -395,6 +1008,23 @@ function Scan-Rust {
     return $apps
 }
 
+<#
+.SYNOPSIS
+    Scans Windows Registry for installed applications.
+.DESCRIPTION
+    Queries the Windows Registry Uninstall keys to discover installed applications.
+    Checks HKLM (both 64-bit and 32-bit views) and HKCU hives. Excludes system
+    components marked with SystemComponent=1.
+.EXAMPLE
+    $apps = Scan-Registry
+.OUTPUTS
+    Array of PSCustomObject with properties: Name, Source, Version, LatestVersion, AppId, Status
+.NOTES
+    Registry paths scanned:
+    - HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*
+    - HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*
+    - HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*
+#>
 function Scan-Registry {
     $seen = @{}
     $paths = @(
@@ -430,18 +1060,49 @@ function Scan-Registry {
     return [array]@($list | Sort-Object Name)
 }
 
+<#
+.SYNOPSIS
+    Deduplicates application list by source, name, and version.
+.DESCRIPTION
+    Creates a unique list of applications by combining source, name, and version
+    into a composite key. Returns sorted results for consistent output.
+.PARAMETER Apps
+    Array of application objects that may contain duplicates.
+.EXAMPLE
+    $unique = Get-Unique $apps
+.OUTPUTS
+    Array of unique PSCustomObject applications.
+#>
 function Get-Unique([array]$Apps) {
     $map = @{}
     foreach ($a in $Apps) { $k = "$($a.Source)|$($a.Name)|$($a.Version)".ToLower(); $map[$k] = $a }
     return [array]@($map.Values | Sort-Object { $_.Source + $_.Name })
 }
 
-# ── Cache ──────────────────────────────────────────────────────────────────────
+# ── Cache Functions ────────────────────────────────────────────────────────────
+
+<#
+.SYNOPSIS
+    Loads cached application data from the cache file.
+.DESCRIPTION
+    Reads the JSON cache file and returns the cached applications if the cache
+    is still valid (not expired). Adds missing properties for backward compatibility.
+    Returns $null if cache doesn't exist or is expired.
+.EXAMPLE
+    $apps = Load-Cache
+.OUTPUTS
+    Array of PSCustomObject applications, or $null if cache is missing/expired.
+.NOTES
+    Cache validity is determined by $CFG_CACHE_HOURS (default: 2 hours).
+    Adds 'Status' and 'LatestVersion' properties if missing for schema evolution.
+#>
 function Load-Cache {
     if (-not(Test-Path $CACHE_FILE)) { return $null }
     try {
         $j = Get-Content $CACHE_FILE -Raw -Encoding UTF8 | ConvertFrom-Json
+        # Check if cache has expired based on timestamp
         if (([datetime]::UtcNow - [datetime]::Parse($j.timestamp)).TotalHours -gt $CFG_CACHE_HOURS) { return $null }
+        # Add missing properties for backward compatibility with older cache formats
         $apps = @($j.apps | ForEach-Object {
             if (-not $_.PSObject.Properties['Status']) { $_ | Add-Member -NotePropertyName 'Status' -NotePropertyValue $S_UNK }
             if (-not $_.PSObject.Properties['LatestVersion']) { $_ | Add-Member -NotePropertyName 'LatestVersion' -NotePropertyValue '' }
@@ -451,27 +1112,85 @@ function Load-Cache {
     }
     catch { return $null }
 }
+
+<#
+.SYNOPSIS
+    Saves application data to the cache file.
+.DESCRIPTION
+    Serializes the application array to JSON and writes to the cache file.
+    Creates the data directory if it doesn't exist. Includes metadata like
+    timestamp, version, and total app count.
+.PARAMETER Apps
+    Array of application objects to cache.
+.EXAMPLE
+    Save-Cache $apps
+.NOTES
+    Cache file location: $DATA_DIR\cache.json
+    Uses UTF8 encoding for proper character support.
+#>
 function Save-Cache([array]$Apps) {
+    # Create data directory if it doesn't exist
     if (-not(Test-Path $DATA_DIR)) { New-Item -ItemType Directory $DATA_DIR -Force | Out-Null }
+    # Write cache with metadata (timestamp, version, count, apps)
     @{timestamp = (Get-Date -f 'o'); version = $VER; totalApps = $Apps.Count; apps = $Apps } | ConvertTo-Json -Depth 10 | Set-Content $CACHE_FILE -Encoding UTF8
 }
+
+<#
+.SYNOPSIS
+    Removes the cache file from disk.
+.DESCRIPTION
+    Deletes the cache file if it exists. Used for forcing fresh scans.
+.EXAMPLE
+    Clear-AppCache
+#>
 function Clear-AppCache { if (Test-Path $CACHE_FILE) { Remove-Item $CACHE_FILE -Force } }
 
-# ── Update Checkers ────────────────────────────────────────────────────────────
+# ── Update Checker Functions ───────────────────────────────────────────────────
+
+<#
+.SYNOPSIS
+    Checks for winget package updates.
+.DESCRIPTION
+    Queries winget for available upgrades and matches them against the provided
+    application list. Updates the LatestVersion and Status properties for apps
+    with available updates.
+.PARAMETER Apps
+    Array of application objects to check for updates.
+.EXAMPLE
+    $count = Check-Winget $apps
+.OUTPUTS
+    Number of packages with available updates.
+#>
 function Check-Winget([array]$Apps) {
     $t = @($Apps | Where-Object { $_.Source -eq 'winget' }); if (-not $t) { return 0 }
+    # Get available upgrades from winget and parse with -Avail flag
     $upd = Parse-Winget (Invoke-NativeCmd 'winget' @('upgrade', '--accept-source-agreements') -AllowFail).Stdout -Avail
     $n = 0
     foreach ($u in $upd) {
+        # Match by AppId (case-insensitive)
         $a = $t | Where-Object { $_.AppId -and $u.AppId -and $_.AppId.ToLower() -eq $u.AppId.ToLower() } | Select-Object -First 1
         if (-not $a) { continue }; $a.LatestVersion = $u.LatestVersion; $a.Status = $S_UPD; $n++
     }
     return $n
 }
 
+<#
+.SYNOPSIS
+    Checks for registry package updates via winget.
+.DESCRIPTION
+    Uses winget upgrade list to find updates for registry-discovered applications.
+    Matches by application name and updates status accordingly.
+.PARAMETER Apps
+    Array of application objects to check for updates.
+.EXAMPLE
+    $count = Check-Registry $apps
+.OUTPUTS
+    Number of packages with available updates.
+#>
 function Check-Registry([array]$Apps) {
     $t = @($Apps | Where-Object { $_.Source -eq 'registry' }); if (-not $t) { return 0 }
     $upd = Parse-Winget (Invoke-NativeCmd 'winget' @('upgrade', '--accept-source-agreements') -AllowFail).Stdout -Avail
+    # Build lookup map for efficient matching
     $map = @{}; foreach ($u in $upd) { $map[$u.Name.ToLower()] = $u }
     $n = 0
     foreach ($a in $t) {
@@ -481,10 +1200,24 @@ function Check-Registry([array]$Apps) {
     return $n
 }
 
+<#
+.SYNOPSIS
+    Checks for Chocolatey package updates.
+.DESCRIPTION
+    Runs 'choco outdated' to find packages with newer versions available.
+    Updates the application list with latest versions and status.
+.PARAMETER Apps
+    Array of application objects to check for updates.
+.EXAMPLE
+    $count = Check-Choco $apps
+.OUTPUTS
+    Number of packages with available updates.
+#>
 function Check-Choco([array]$Apps) {
     $t = @($Apps | Where-Object { $_.Source -eq 'chocolatey' }); if (-not $t) { return 0 }
     $r = Invoke-Cmd 'choco' @('outdated', '--limit-output') -AllowFail; $n = 0
     foreach ($line in ($r.Stdout -split "`r?`n")) {
+        # Parse pipe-delimited format: name|current|latest
         $p = $line -split '\|'; if ($p.Count -lt 3 -or -not $p[0] -or -not $p[2]) { continue }
         $a = $t | Where-Object { $_.Name.ToLower() -eq $p[0].Trim().ToLower() } | Select-Object -First 1
         if (-not $a) { continue }; $a.LatestVersion = $p[2].Trim(); $a.Status = $S_UPD; $n++
@@ -492,6 +1225,19 @@ function Check-Choco([array]$Apps) {
     return $n
 }
 
+<#
+.SYNOPSIS
+    Checks for npm package updates.
+.DESCRIPTION
+    Runs 'npm outdated -g --json' to find globally installed packages with
+    newer versions available. Updates application status accordingly.
+.PARAMETER Apps
+    Array of application objects to check for updates.
+.EXAMPLE
+    $count = Check-Npm $apps
+.OUTPUTS
+    Number of packages with available updates.
+#>
 function Check-Npm([array]$Apps) {
     $t = @($Apps | Where-Object { $_.Source -eq 'npm' }); if (-not $t) { return 0 }
     $r = Invoke-NativeCmd 'npm' @('outdated', '-g', '--json') -AllowFail; if (-not $r.Stdout) { return 0 }
@@ -510,12 +1256,26 @@ function Check-Npm([array]$Apps) {
     return $n
 }
 
+<#
+.SYNOPSIS
+    Checks for pnpm package updates.
+.DESCRIPTION
+    Runs 'pnpm outdated -g --json' to find globally installed packages with
+    newer versions available. Handles both array and object JSON response formats.
+.PARAMETER Apps
+    Array of application objects to check for updates.
+.EXAMPLE
+    $count = Check-Pnpm $apps
+.OUTPUTS
+    Number of packages with available updates.
+#>
 function Check-Pnpm([array]$Apps) {
     $t = @($Apps | Where-Object { $_.Source -eq 'pnpm' }); if (-not $t) { return 0 }
     $r = Invoke-NativeCmd 'pnpm' @('outdated', '-g', '--json') -AllowFail; if (-not $r.Stdout) { return 0 }
     $n = 0
     try {
         $j = $r.Stdout | ConvertFrom-Json
+        # Handle both array format and object format responses
         $entries = if ($j -is [array]) { $j | ForEach-Object { [PSCustomObject]@{N = $_.name; L = $_.latest ?? $_.wanted ?? '' } } }
         else { $j.PSObject.Properties | ForEach-Object { $v = $j.$($_.Name); [PSCustomObject]@{N = $_.Name; L = $v.latest ?? $v.wanted ?? '' } } }
         foreach ($e in $entries) {
@@ -527,6 +1287,19 @@ function Check-Pnpm([array]$Apps) {
     return $n
 }
 
+<#
+.SYNOPSIS
+    Checks for Bun package updates.
+.DESCRIPTION
+    Uses 'npm info <package> version' to get the latest version for each Bun
+    package since Bun doesn't have a native outdated command.
+.PARAMETER Apps
+    Array of application objects to check for updates.
+.EXAMPLE
+    $count = Check-Bun $apps
+.OUTPUTS
+    Number of packages with available updates.
+#>
 function Check-Bun([array]$Apps) {
     $t = @($Apps | Where-Object { $_.Source -eq 'bun' }); $n = 0
     foreach ($a in $t) {
@@ -536,6 +1309,19 @@ function Check-Bun([array]$Apps) {
     }; return $n
 }
 
+<#
+.SYNOPSIS
+    Checks for Yarn package updates.
+.DESCRIPTION
+    Uses 'npm info <package> version' to get the latest version for each Yarn
+    package since Yarn global outdated is unreliable.
+.PARAMETER Apps
+    Array of application objects to check for updates.
+.EXAMPLE
+    $count = Check-Yarn $apps
+.OUTPUTS
+    Number of packages with available updates.
+#>
 function Check-Yarn([array]$Apps) {
     $t = @($Apps | Where-Object { $_.Source -eq 'yarn' }); $n = 0
     foreach ($a in $t) {
@@ -545,23 +1331,39 @@ function Check-Yarn([array]$Apps) {
     }; return $n
 }
 
+<#
+.SYNOPSIS
+    Checks for Rust crate updates.
+.DESCRIPTION
+    Uses 'cargo install-update -l' to list installed crates with available updates.
+    Parses the table output to identify crates needing updates.
+.PARAMETER Apps
+    Array of application objects to check for updates.
+.EXAMPLE
+    $count = Check-Rust $apps
+.OUTPUTS
+    Number of packages with available updates.
+#>
 function Check-Rust([array]$Apps) {
     $t = @($Apps | Where-Object { $_.Source -eq 'rust' }); if (-not $t) { return 0 }
     $r = Invoke-Cmd 'cargo' @('install-update', '-l') -AllowFail
     if (-not $r.Stdout) { return 0 }
     $lines = $r.Stdout -split "`r?`n"
     $hi = -1
+    # Find header row to determine column positions
     for ($i = 0; $i -lt $lines.Count; $i++) {
         if ($lines[$i] -match 'Package' -and $lines[$i] -match 'Latest') { $hi = $i; break }
     }
     if ($hi -lt 0) { return 0 }
     $n = 0
+    # Parse data rows after header
     foreach ($line in $lines[($hi + 1)..($lines.Count - 1)]) {
         $l = $line.Trim()
         if (-not $l) { continue }
         $p = $l -split '\s+' | Where-Object { $_ }
         if ($p.Count -lt 4) { continue }
         $name = $p[0]; $latest = $p[2]; $needs = $p[3]
+        # Only count packages marked as needing update
         if ($needs.ToLower() -eq 'yes') {
             $a = $t | Where-Object { $_.Name -eq $name } | Select-Object -First 1
             if ($a) {
@@ -573,6 +1375,19 @@ function Check-Rust([array]$Apps) {
     return $n
 }
 
+<#
+.SYNOPSIS
+    Checks for Python pip package updates.
+.DESCRIPTION
+    Runs 'pip list --outdated --format=json' to find Python packages with newer
+    versions available. Tries multiple Python executables for compatibility.
+.PARAMETER Apps
+    Array of application objects to check for updates.
+.EXAMPLE
+    $count = Check-Pip $apps
+.OUTPUTS
+    Number of packages with available updates.
+#>
 function Check-Pip([array]$Apps) {
     $t = @($Apps | Where-Object { $_.Source -eq 'pip' }); if (-not $t) { return 0 }; $n = 0
     foreach ($run in @('py', 'python', 'python3', 'pip')) {
@@ -591,6 +1406,25 @@ function Check-Pip([array]$Apps) {
     }; return $n
 }
 
+<#
+.SYNOPSIS
+    Checks for PATH tool updates via GitHub API and native commands.
+.DESCRIPTION
+    Checks for updates to PATH-discovered tools using various methods:
+    - bun/deno: Native upgrade --dry-run commands
+    - npm/yarn/pnpm/node: npm view for latest version
+    - python/git/pwsh/rust: GitHub API release queries
+    - dotnet: winget show for version info
+.PARAMETER Apps
+    Array of application objects to check for updates.
+.EXAMPLE
+    $count = Check-PathUpdates $apps
+.OUTPUTS
+    Number of packages with available updates.
+.NOTES
+    Uses GitHub API with User-Agent header for release information.
+    Handles preview/stable version comparisons to avoid downgrade suggestions.
+#>
 function Check-PathUpdates([array]$Apps) {
     $t = @($Apps | Where-Object { $_.Source -eq 'path' }); $n = 0
     foreach ($app in $t) {
@@ -650,6 +1484,17 @@ function Check-PathUpdates([array]$Apps) {
     return $n
 }
 
+<#
+.SYNOPSIS
+    Finalizes application status for apps without explicit update check.
+.DESCRIPTION
+    Sets final status for applications that weren't processed by specific
+    update checkers. Marks managed sources as OK, leaves others as unknown.
+.PARAMETER Apps
+    Array of application objects to finalize.
+.EXAMPLE
+    Finalize $apps
+#>
 function Finalize([array]$Apps) {
     $managed = @('winget', 'chocolatey', 'npm', 'pnpm', 'bun', 'yarn', 'pip', 'registry', 'rust', 'path')
     foreach ($a in $Apps) {
@@ -658,21 +1503,62 @@ function Finalize([array]$Apps) {
     }
 }
 
-# Parse version string into comparable array [major, minor, patch, isStable]
+# ── Version Comparison Functions ──────────────────────────────────────────────
+
+<#
+.SYNOPSIS
+    Parses a version string into a comparable array structure.
+.DESCRIPTION
+    Extracts numeric components from version strings and determines stability.
+    Returns an array with [major, minor, patch, isStable] for comparison.
+    Handles versions with leading non-numeric characters (e.g., 'v1.2.3').
+.PARAMETER verStr
+    The version string to parse (e.g., '1.2.3', 'v2.0.0-preview').
+.EXAMPLE
+    Parse-Version '1.2.3'       # Returns @(1, 2, 3, $true)
+    Parse-Version 'v2.0-beta'   # Returns @(2, 0, 0, $false)
+.OUTPUTS
+    Array of [int, int, int, bool] representing version components.
+.NOTES
+    Preview/rc/beta/alpha versions are marked as unstable (isStable=$false).
+#>
 function Parse-Version([string]$verStr) {
+    # Remove leading non-numeric characters (e.g., 'v', 'release-')
     $clean = $verStr -replace '^[^\d]+', ''
+    # Match semantic version pattern: major.minor.patch
     if ($clean -match '^(\d+)\.(\d+)\.(\d+)') {
         $isStable = $verStr -notmatch 'preview|rc|beta|alpha|-pre'
         return @([int]$Matches[1], [int]$Matches[2], [int]$Matches[3], $isStable)
     }
+    # Match major.minor pattern (patch defaults to 0)
     if ($clean -match '^(\d+)\.(\d+)') {
         $isStable = $verStr -notmatch 'preview|rc|beta|alpha|-pre'
         return @([int]$Matches[1], [int]$Matches[2], 0, $isStable)
     }
+    # Return zero version for unparseable strings
     return @(0, 0, 0, $false)
 }
 
-# Check if latest is actually newer than current (handles previews and downgrades)
+<#
+.SYNOPSIS
+    Compares two version strings to determine if latest is newer.
+.DESCRIPTION
+    Performs intelligent version comparison that handles preview releases
+    and prevents downgrade suggestions. Compares major, minor, and patch
+    versions while considering stability (stable vs preview).
+.PARAMETER current
+    The currently installed version.
+.PARAMETER latest
+    The latest available version to compare against.
+.EXAMPLE
+    Is-NewerVersion '1.0.0' '1.0.1'   # Returns $true
+    Is-NewerVersion '2.0.0-preview' '1.9.0'  # Returns $false (don't downgrade)
+.OUTPUTS
+    System.Boolean - $true if latest is newer and should be suggested.
+.NOTES
+    Prevents downgrades from preview to stable when preview is newer major/minor.
+    Handles preview/stable transitions correctly.
+#>
 function Is-NewerVersion([string]$current, [string]$latest) {
     $curr = Parse-Version $current
     $lat = Parse-Version $latest
@@ -700,7 +1586,25 @@ function Is-NewerVersion([string]$current, [string]$latest) {
            ($lat[0] -eq $curr[0] -and $lat[1] -eq $curr[1] -and $lat[2] -gt $curr[2])
 }
 
-# ── Security ───────────────────────────────────────────────────────────────────
+# ── Security Vulnerability Functions ───────────────────────────────────────────
+
+<#
+.SYNOPSIS
+    Checks npm packages for security vulnerabilities.
+.DESCRIPTION
+    Runs 'npm audit --json' to identify known security vulnerabilities in
+    globally installed npm packages. Extracts severity, CVE, and description
+    for each vulnerability found.
+.PARAMETER Apps
+    Array of application objects to check for vulnerabilities.
+.EXAMPLE
+    $vulns = Check-NpmVulns $apps
+.OUTPUTS
+    Array of PSCustomObject with properties: Pkg, Sev, CVE, Desc
+.NOTES
+    Returns empty array if no vulnerabilities found or npm audit fails.
+    Severity levels: critical, high, medium, low.
+#>
 function Check-NpmVulns([array]$Apps) {
     $t = @($Apps | Where-Object { $_.Source -eq 'npm' }); if (-not $t) { return @() }
     $r = Invoke-NativeCmd 'npm' @('audit', '--json', '--silent') -AllowFail; if (-not $r.Stdout) { return @() }
@@ -723,6 +1627,23 @@ function Check-NpmVulns([array]$Apps) {
     return $vulns
 }
 
+<#
+.SYNOPSIS
+    Checks pip packages for security vulnerabilities.
+.DESCRIPTION
+    Runs 'pip check --format=json' to identify known security vulnerabilities
+    in installed Python packages. Tries multiple Python executables for
+    compatibility.
+.PARAMETER Apps
+    Array of application objects to check for vulnerabilities.
+.EXAMPLE
+    $vulns = Check-PipVulns $apps
+.OUTPUTS
+    Array of PSCustomObject with properties: Pkg, Sev, CVE, Desc
+.NOTES
+    Returns empty array if no vulnerabilities found or pip check fails.
+    Tries py, python, then pip executables in order.
+#>
 function Check-PipVulns([array]$Apps) {
     $t = @($Apps | Where-Object { $_.Source -eq 'pip' }); if (-not $t) { return @() }; $vulns = @()
     foreach ($run in @('py', 'python', 'pip')) {
@@ -749,23 +1670,85 @@ function Check-PipVulns([array]$Apps) {
     return $vulns
 }
 
-# ── Output ─────────────────────────────────────────────────────────────────────
+# ── Output Formatting Functions ────────────────────────────────────────────────
+
+<#
+.SYNOPSIS
+    Truncates a string to a maximum length with ellipsis.
+.DESCRIPTION
+    Shortens strings that exceed a specified length, adding an ellipsis
+    character (…) to indicate truncation.
+.PARAMETER V
+    The string to truncate.
+.PARAMETER N
+    Maximum length of the output string.
+.EXAMPLE
+    trunc 'VeryLongPackageName' 15  # Returns 'VeryLongPacka…'
+.OUTPUTS
+    Truncated string or original if within length limit.
+#>
 function trunc([string]$V, [int]$N) { if ($V.Length -le $N) { $V } else { $V.Substring(0, $N - 1) + '…' } }
 
+<#
+.SYNOPSIS
+    Removes ANSI escape codes from text.
+.DESCRIPTION
+    Strips ANSI color and formatting codes from text to get the visible
+    character count. Used for proper padding calculations.
+.PARAMETER Text
+    The text containing ANSI codes to strip.
+.EXAMPLE
+    stripAnsi "$(c '31' 'red text')"  # Returns 'red text'
+.OUTPUTS
+    Plain text without ANSI escape codes.
+#>
 function stripAnsi([string]$Text) {
     return $Text -replace '\x1b\[[0-9;]*m', ''
 }
 
+<#
+.SYNOPSIS
+    Pads text to a specified width, accounting for ANSI codes.
+.DESCRIPTION
+    Adds spaces to text to reach a target width. Correctly handles
+    ANSI-colored text by calculating visible length only.
+.PARAMETER Text
+    The text to pad (may contain ANSI codes).
+.PARAMETER Width
+    Target width for the padded output.
+.EXAMPLE
+    padAnsi "$(c '31' 'red')" 10  # Returns red 'red' + 7 spaces
+.OUTPUTS
+    Padded text with original ANSI codes preserved.
+#>
 function padAnsi([string]$Text, [int]$Width) {
     $visible = stripAnsi $Text
     $padding = [Math]::Max(0, $Width - $visible.Length)
     return $Text + (' ' * $padding)
 }
 
+<#
+.SYNOPSIS
+    Prints a formatted table of applications.
+.DESCRIPTION
+    Displays applications in a color-coded table with columns for
+    Package name, Source, Current version, Latest version, and Status.
+    Filters to show only updates/vulnerable by default, or all with -ShowAll.
+.PARAMETER Apps
+    Array of application objects to display.
+.PARAMETER ShowAll
+    If set, shows all packages including up-to-date ones.
+.EXAMPLE
+    Print-Table $apps
+    Print-Table $apps -ShowAll
+.OUTPUTS
+    Writes formatted table to host output.
+#>
 function Print-Table([array]$Apps, [switch]$ShowAll) {
     # Filter apps: by default show only updates/vulnerable, unless ShowAll is true
     $displayApps = if ($ShowAll) { $Apps } else { @($Apps | Where-Object { $_.Status -eq $S_UPD -or $_.Status -eq $S_VULN }) }
-    
+
+    # Define table columns with keys, titles, and widths
     $cols = @(
         @{K = 'Name'; T = 'Package'; W = 30 }
         @{K = 'Source'; T = 'Source'; W = 12 }
@@ -774,8 +1757,10 @@ function Print-Table([array]$Apps, [switch]$ShowAll) {
         @{K = 'Status'; T = 'Status'; W = 17 }
     )
     $sep = '  '
+    # Build and display header row in bold cyan
     $hdr = ($cols | ForEach-Object { c '1;36' $_.T.PadRight($_.W) }) -join $sep
     Write-Host $hdr; Write-Host (gray ('─' * ($hdr.Length)))
+    # Display each application row with appropriate colors
     foreach ($app in $displayApps) {
         $row = $cols | ForEach-Object {
             $col = $_
@@ -801,13 +1786,29 @@ function Print-Table([array]$Apps, [switch]$ShowAll) {
     }
 }
 
+<#
+.SYNOPSIS
+    Prints a formatted table of security vulnerabilities.
+.DESCRIPTION
+    Displays vulnerabilities in a color-coded table with Package, Severity,
+    CVE, and Description columns. Severity colors: red (critical/high),
+    yellow (medium), green (low).
+.PARAMETER Vulns
+    Array of vulnerability objects to display.
+.EXAMPLE
+    Print-VulnTable $vulns
+.OUTPUTS
+    Writes formatted vulnerability table to host output.
+#>
 function Print-VulnTable([array]$Vulns) {
     if (-not $Vulns) { return }
+    # Draw table header with warning styling
     Write-Host ''; Write-Host (cyan "┌$('─'*73)┐")
     Write-Host (c '1;31' "│ $(E 'fire') Security Vulnerabilities Detected$(' '*30)│")
     Write-Host (cyan "├$('─'*73)┤")
     Write-Host (cyan "│ $(c '1;31' 'Package'.PadRight(20))  $(c '1;31' 'Severity'.PadRight(10))  $(c '1;31' 'CVE'.PadRight(18))  $(c '1;31' 'Description'.PadRight(20)) │")
     Write-Host (cyan "├$('─'*73)┤")
+    # Display each vulnerability with severity-based coloring
     foreach ($v in $Vulns) {
         $sc = switch ($v.Sev.ToLower()) { 'critical' { '31' } 'high' { '31' } 'medium' { '33' } default { '32' } }
         $row = "$(bold (trunc $v.Pkg 20).PadRight(20))  $(c "$sc;1" $v.Sev.ToUpper().PadRight(10))  $(cyan (trunc $v.CVE 18).PadRight(18))  $(dim (trunc $v.Desc 20).PadRight(20))"
@@ -816,22 +1817,71 @@ function Print-VulnTable([array]$Vulns) {
     Write-Host (cyan "└$('─'*73)┘")
 }
 
-# ── Export ─────────────────────────────────────────────────────────────────────
+# ── Export Functions ───────────────────────────────────────────────────────────
+
+<#
+.SYNOPSIS
+    Exports scan results to JSON or CSV format.
+.DESCRIPTION
+    Writes application scan results to a file in the specified format.
+    JSON includes metadata (scan time, total count). CSV includes selected columns.
+.PARAMETER Apps
+    Array of application objects to export.
+.PARAMETER Fmt
+    Export format: 'json' or 'csv'.
+.PARAMETER Out
+    Output file path. If not specified, generates timestamped filename in current directory.
+.EXAMPLE
+    Export-Results $apps 'json' 'report.json'
+    Export-Results $apps 'csv'  # Creates system_update_YYYY-MM-DDTHH-mm-ss.csv
+.OUTPUTS
+    Path to the created export file.
+.NOTES
+    JSON format includes: scanTime, totalApps, apps array.
+    CSV columns: Name, Source, Version, LatestVersion, Status, AppId.
+#>
 function Export-Results([array]$Apps, [string]$Fmt, [string]$Out) {
     $ts = Get-Date -f 'yyyy-MM-ddTHH-mm-ss'
     $fmt = $Fmt.ToLower()
     if ($fmt -ne 'json' -and $fmt -ne 'csv') { throw "Unsupported format: $Fmt. Valid formats: json, csv" }
     $file = if ($Out) { $Out } else { Join-Path (Get-Location) "system_update_$ts.$fmt" }
     if ($fmt -eq 'json') {
+        # JSON export with metadata
         @{scanTime = (Get-Date -f 'o'); totalApps = $Apps.Count; apps = $Apps } | ConvertTo-Json -Depth 10 | Set-Content $file -Encoding UTF8
     }
     elseif ($fmt -eq 'csv') {
+        # CSV export with selected columns
         $Apps | Select-Object Name, Source, Version, LatestVersion, Status, AppId | Export-Csv $file -NoTypeInformation -Encoding UTF8
     }
     return $file
 }
 
-# ── Update Execution ───────────────────────────────────────────────────────────
+# ── Update Execution Functions ─────────────────────────────────────────────────
+
+<#
+.SYNOPSIS
+    Executes an update for a single application.
+.DESCRIPTION
+    Determines the correct update command based on package source and
+    executes it. Supports dry-run mode to preview commands without execution.
+.PARAMETER App
+    Application object to update.
+.PARAMETER Dry
+    If set, only display the command without executing.
+.EXAMPLE
+    Exec-Update $app
+    Exec-Update $app -Dry
+.OUTPUTS
+    System.Boolean - $true if update succeeded (or dry-run), $false on failure.
+.NOTES
+    Handles different command syntax for each source:
+    - winget: upgrade --id with optional --version
+    - choco: upgrade with optional --version
+    - npm/pnpm/bun/yarn: install/add with optional @version
+    - pip: install with ==version
+    - rust: cargo install-update
+    - path: tool-specific commands
+#>
 function Exec-Update([PSCustomObject]$App, [switch]$Dry) {
     $src = $App.Source.ToLower(); $lat = $App.LatestVersion ?? ''
     $cmd = $null; $ca = @()
@@ -865,6 +1915,22 @@ function Exec-Update([PSCustomObject]$App, [switch]$Dry) {
     return $r.Ok
 }
 
+<#
+.SYNOPSIS
+    Executes updates for multiple applications with progress tracking.
+.DESCRIPTION
+    Iterates through applications and executes updates with a progress bar.
+    Displays success/failure status for each package and a summary at the end.
+.PARAMETER Apps
+    Array of application objects to update.
+.PARAMETER Dry
+    If set, only display commands without executing.
+.EXAMPLE
+    Exec-Updates $updApps
+    Exec-Updates $updApps -Dry
+.OUTPUTS
+    Writes progress and results to host output.
+#>
 function Exec-Updates([array]$Apps, [switch]$Dry) {
     $ok = 0; $p = New-Progress $Apps.Count "$(E 'gear') Applying updates"
     foreach ($a in $Apps) {
@@ -876,12 +1942,41 @@ function Exec-Updates([array]$Apps, [switch]$Dry) {
     Write-Host "`n$(E 'chart') Completed: $(bold "$ok/$($Apps.Count)") successful."
 }
 
+<#
+.SYNOPSIS
+    Prompts user for confirmation before proceeding.
+.DESCRIPTION
+    Displays a yes/no prompt using PowerShell's native UI. Returns $true
+    for yes, $false for no. Auto-returns $true when -Auto is set.
+.PARAMETER Msg
+    The confirmation message to display.
+.PARAMETER Auto
+    If set, automatically returns $true without prompting.
+.EXAMPLE
+    if (Ask "Proceed with update?") { Exec-Updates $apps }
+    if (Ask "Confirm?" -Auto:$Yes) { ... }
+.OUTPUTS
+    System.Boolean - $true for yes, $false for no.
+#>
 function Ask([string]$Msg, [switch]$Auto) {
     if ($Auto) { return $true }
+    # Use PowerShell's native prompt with Yes/No options (No is default)
     ($Host.UI.PromptForChoice('', "$Msg", @('&Yes', '&No'), 1)) -eq 0
 }
 
-# ── Help ───────────────────────────────────────────────────────────────────────
+# ── Help Display Function ──────────────────────────────────────────────────────
+
+<#
+.SYNOPSIS
+    Displays the help message with usage information and examples.
+.DESCRIPTION
+    Shows comprehensive help including all available options, their descriptions,
+    and usage examples. Uses emoji and colors for visual appeal.
+.EXAMPLE
+    Show-Help
+.OUTPUTS
+    Writes formatted help message to host output.
+#>
 function Show-Help {
     Write-Host @"
 $(E 'sparkle') $(bold (cyan "System Update PowerShell CLI v$VER"))
@@ -914,29 +2009,61 @@ Examples:
 "@
 }
 
-# ── Main ───────────────────────────────────────────────────────────────────────
+# ── Main Function ──────────────────────────────────────────────────────────────
+
+<#
+.SYNOPSIS
+    Main entry point for the System Update CLI.
+.DESCRIPTION
+    Orchestrates the entire update scanning and execution workflow:
+    1. Parses command-line arguments
+    2. Loads cache or performs fresh scan
+    3. Checks for updates across all sources
+    4. Scans for security vulnerabilities
+    5. Displays results table and summary
+    6. Executes updates based on user choice
+    
+    Handles all command-line options: -UpdateAll, -Package, -UpdateSource,
+    -Source, -Include, -Export, -DryRun, -NoCache, -ClearCache, -Yes, -ShowAll
+.EXAMPLE
+    Main
+.OUTPUTS
+    Writes all output to host and log file.
+.NOTES
+    Entry point is wrapped in try/catch for fatal error handling.
+    Exit codes: 0 (success), 1 (fatal error), 2 (package not found)
+#>
 function Main {
+    # Handle help flag first
     if ($Help) { Show-Help; return }
+    # Ensure data directory exists
     if (-not(Test-Path $DATA_DIR)) { New-Item -ItemType Directory $DATA_DIR -Force | Out-Null }
+    # Handle cache clear request
     if ($ClearCache) { Clear-AppCache; Write-Host "$(E 'disk') $(green 'Cache cleared.')"; return }
 
+    # Display header with version and data directory
     Show-Header "$(E 'rocket') System Update PowerShell CLI v$VER" "$(E 'gear') Data dir: $DATA_DIR"
     if (Test-Path $CACHE_FILE) { Write-Host "$(bold 'Cache') $(gray '->') $CACHE_FILE" }
     Write-Host ''
 
+    # Record start time for duration calculation
     $start = [datetime]::Now
+    # Build source filter from -Source or -Include options
     $sf = @{}
     if ($Source) { $sf[$Source.ToLower()] = $true }
     if ($Include) { $Include.Split(',') | ForEach-Object { $sf[$_.Trim().ToLower()] = $true } }
 
+    # Try to load from cache first (unless -NoCache)
     $apps = $null
     if (-not $NoCache) {
         $apps = Load-Cache
         if ($apps) { Write-Host "$(E 'disk') $(green "Loaded $($apps.Count) apps from cache.")`n" }
     }
 
+    # If cache miss or disabled, perform full scan
     if (-not $apps) {
         Write-Host "$(E 'scan') $(bold (cyan 'Scanning sources...'))"
+        # Define scanner functions for each source
         $scanners = [ordered]@{
             winget     = { Scan-Winget }
             chocolatey = { Scan-Chocolatey }
@@ -949,9 +2076,11 @@ function Main {
             registry   = { Scan-Registry }
             rust       = { Scan-Rust }
         }
+        # Filter scanners based on source selection
         $sel = @($scanners.Keys | Where-Object { $sf.Count -eq 0 -or $sf.ContainsKey($_) })
         $prog = New-Progress $sel.Count "$(E 'scan') Scanning"
         $all = @()
+        # Run each scanner and collect results
         foreach ($src in $sel) {
             $chunk = @(& $scanners[$src])
             $prog.Tick("$(srcBadge $src) $($chunk.Count) apps")
@@ -963,6 +2092,7 @@ function Main {
         Write-Host "`n$(E 'package') $(bold "Discovered $($apps.Count) unique apps.")"
         Write-Host "$(E 'update') $(bold (cyan 'Checking for updates...'))"
 
+        # Define update checker functions for each source
         $checkers = [ordered]@{
             winget     = { Check-Winget $apps }
             chocolatey = { Check-Choco $apps }
@@ -977,6 +2107,7 @@ function Main {
         }
         $prog2 = New-Progress $checkers.Count "$(E 'update') Checking updates"
         $total = 0
+        # Run each checker and count updates
         foreach ($src in $checkers.Keys) {
             $cnt = & $checkers[$src]
             $msg = if ($cnt -gt 0) { "$(srcBadge $src) $(yellow "$cnt update(s)")" } else { "$(srcBadge $src) $(gray 'none')" }
@@ -987,11 +2118,13 @@ function Main {
         $udColor = if ($total -gt 0) { '33' } else { '32' }
         Write-Host "$(E 'chart') $(c "$udColor;1" "Detected $total update candidates.")`n"
 
+        # Security vulnerability scanning (if enabled)
         if ($CFG_SECURITY) {
             Write-Host "$(E 'lock') $(bold (magenta 'Checking security vulnerabilities...'))"
             $sevOrder = @{critical = 4; high = 3; medium = 2; low = 1 }
             $thresh = $sevOrder[$CFG_SEVERITY]; if (-not $thresh) { $thresh = 2 }
             $vulns = @(Check-NpmVulns $apps) + @(Check-PipVulns $apps)
+            # Filter vulnerabilities by severity threshold
             $vulns = @($vulns | Where-Object { $sv = $sevOrder[$_.Sev.ToLower()]; if (-not $sv) { $sv = 1 }; $sv -ge $thresh })
             if ($vulns.Count -gt 0) {
                 $vulns | ForEach-Object {
@@ -1004,17 +2137,21 @@ function Main {
             else { Write-Host "$(E 'shield') $(green 'No security vulnerabilities found.')`n" }
         }
 
+        # Save results to cache
         Save-Cache $apps
     }
 
+    # Apply source filters if specified
     if ($Source) { $apps = @($apps | Where-Object { $_.Source.ToLower() -eq $Source.ToLower() }) }
     if ($Include) { $inc = @($Include.ToLower().Split(',')); $apps = @($apps | Where-Object { $_.Source.ToLower() -in $inc }) }
 
+    # Calculate summary statistics
     $updApps = @($apps | Where-Object { $_.Status -eq $S_UPD })
     $vulnApps = @($apps | Where-Object { $_.Status -eq $S_VULN })
     $bySrc = @($apps | Group-Object Source | ForEach-Object { "$($_.Name):$($_.Count)" })
     $el = ([datetime]::Now - $start).TotalSeconds
 
+    # Display summary section
     Write-Host (bold (magenta "`n$(E 'chart') Summary"))
     Write-Host "$(E 'package') total apps      $(bold $apps.Count)"
     $us = if ($updApps.Count -gt 0) { yellow(bold "$($updApps.Count)") } else { green(bold "$($updApps.Count)") }
@@ -1023,6 +2160,7 @@ function Main {
     Write-Host "$(E 'gear') sources         $($bySrc -join ', ')"
     Write-Host ''
 
+    # Display applications table
     Print-Table $apps -ShowAll:$ShowAll
 
     # Display showing status after table (matching JS behavior)
@@ -1032,16 +2170,19 @@ function Main {
         Write-Host "`n$(E 'disk') $(dim 'Showing: updates only')"
     }
 
+    # Display vulnerability table if vulnerabilities found
     $va = @($apps | Where-Object { $_.Status -eq $S_VULN })
     if ($va -and $CFG_SECURITY) {
         Print-VulnTable ($va | ForEach-Object { [PSCustomObject]@{Pkg = $_.Name; Sev = 'high'; CVE = 'N/A'; Desc = 'Security update recommended' } })
     }
 
+    # Display status message if no specific action requested
     if (-not $Package -and -not $UpdateAll -and -not $UpdateSource) {
         if ($updApps.Count -eq 0) { Write-Host "`n$(E 'sparkle') $(green 'System is up to date!')" }
         else { Write-Host "`n$(E 'target') $(yellow (bold "Found $($updApps.Count) available updates"))" }
     }
 
+    # Handle -Package: update specific package
     if ($Package) {
         $wanted = $Package.ToLower()
         $m = @($apps | Where-Object { $_.Name.ToLower() -eq $wanted -and (-not $Source -or $_.Source.ToLower() -eq $Source.ToLower()) })
@@ -1056,16 +2197,19 @@ function Main {
         }
         Exec-Updates @($tgt) -Dry:$DryRun
     }
+    # Handle -UpdateSource: update all from specific source
     elseif ($UpdateSource) {
         $cand = @($updApps | Where-Object { $_.Source.ToLower() -eq $UpdateSource.ToLower() })
         if (-not $cand) { Write-Host "`n$(E 'ok') $(green "No updates for: $UpdateSource")" }
         elseif (Ask "Proceed with $($cand.Count) update(s) from $UpdateSource?" -Auto:$Yes) { Exec-Updates $cand -Dry:$DryRun }
     }
+    # Handle -UpdateAll: update everything
     elseif ($UpdateAll) {
         if (-not $updApps) { Write-Host "`n$(E 'ok') $(green 'No updates available.')" }
         elseif (Ask "Proceed with all $($updApps.Count) updates?" -Auto:$Yes) { Exec-Updates $updApps -Dry:$DryRun }
     }
 
+    # Handle -Export: export results to file
     if ($Export) {
         $exportFmt = $Export.Trim().ToLower()
         # Handle case where Export might have leading dashes or unexpected format
@@ -1080,6 +2224,8 @@ function Main {
     }
 }
 
+# ── Script Entry Point ─────────────────────────────────────────────────────────
+# Execute Main function with error handling for fatal errors
 try { Main } catch {
     Write-Log "fatal: $_"
     Write-Host "$(E 'fail') Fatal error: $_" -ForegroundColor Red
