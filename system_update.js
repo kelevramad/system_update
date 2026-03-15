@@ -131,13 +131,35 @@ const ANSI = {
   reset: '\x1b[0m',
   bold: '\x1b[1m',
   dim: '\x1b[2m',
+  italic: '\x1b[3m',
+  underline: '\x1b[4m',
+
+  // Standard colors
+  black: '\x1b[30m',
   red: '\x1b[31m',
   green: '\x1b[32m',
   yellow: '\x1b[33m',
   blue: '\x1b[34m',
   magenta: '\x1b[35m',
   cyan: '\x1b[36m',
+  white: '\x1b[37m',
+
+  // Bright colors (High intensity)
   gray: '\x1b[90m',
+  brightRed: '\x1b[91m',
+  brightGreen: '\x1b[92m',
+  brightYellow: '\x1b[93m',
+  brightBlue: '\x1b[94m',
+  brightMagenta: '\x1b[95m',
+  brightCyan: '\x1b[96m',
+  brightWhite: '\x1b[97m',
+
+  // Extended 256-colors
+  orange: '\x1b[38;5;208m',
+  purple: '\x1b[38;5;129m',
+  pink: '\x1b[38;5;206m',
+  teal: '\x1b[38;5;45m',
+  gold: '\x1b[38;5;214m',
 };
 
 /**
@@ -161,7 +183,7 @@ function emoji(name) {
     rocket: '🚀',
     package: '📦',
     scan: '🔎',
-    update: '⬆️',
+    update: '🔄',
     ok: '✅',
     warn: '⚠️',
     fail: '❌',
@@ -204,14 +226,14 @@ function sourceBadge(source) {
     winget: [ANSI.blue],
     chocolatey: [ANSI.yellow],
     npm: [ANSI.red],
-    pnpm: [ANSI.magenta],
-    pip: [ANSI.cyan],
-    bun: [ANSI.orange],
-    yarn: [ANSI.white],
-    rust: [ANSI.magenta],
+    pnpm: [ANSI.pink],
+    pip: [ANSI.magenta],
+    bun: [ANSI.brightBlue],
+    yarn: [ANSI.brightWhite],
+    rust: [ANSI.purple],
     path: [ANSI.green],
     registry: [ANSI.gray],
-  }[value] || [ANSI.gray];
+  }[value] || [ANSI.brightWhite];
   return paint(value, ...cfg);
 }
 
@@ -1928,7 +1950,10 @@ function printAppsTable(apps, showAll = false) {
 
   const header = cols.map((c) => paint(c.title.padEnd(c.width), ANSI.bold, ANSI.cyan)).join('  ');
   console.log(header);
-  console.log(paint('─'.repeat(header.length), ANSI.gray));
+  const visibleWidth = stripAnsi(header).length;
+  const terminalWidth = process.stdout.columns || 100;
+  const lineWidth = Math.min(visibleWidth, terminalWidth);
+  console.log(paint('─'.repeat(lineWidth), ANSI.gray));
 
   for (const app of displayApps) {
     const row = cols
@@ -2308,7 +2333,7 @@ async function main() {
   console.log(`${emoji('package')} total apps      ${paint(String(apps.length), ANSI.bold)}`);
   console.log(`${emoji('update')} updates         ${paint(String(appsWithUpdates.length), appsWithUpdates.length ? ANSI.yellow : ANSI.green, ANSI.bold)}`);
   console.log(`${emoji('hourglass')} scan duration   ${paint(`${((Date.now() - start) / 1000).toFixed(2)}s`, ANSI.bold)}`);
-  console.log(`${emoji('gear')} sources         ${Object.entries(bySource).map(([s, n]) => `${s}:${n}`).join(', ')}`);
+  console.log(`${emoji('gear')} sources         ${Object.entries(bySource).map(([s, n]) => `${sourceBadge(s)}:${paint(String(n), ANSI.bold)}`).join(', ')}`);
   console.log('');
 
   printAppsTable(apps, args.showAll);
