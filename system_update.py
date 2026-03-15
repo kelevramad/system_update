@@ -553,7 +553,7 @@ class CacheManager:
         try:
             with open(self.cache_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                cache_time = datetime.fromisoformat(data.get("timestamp", ""))
+                cache_time = datetime.fromisoformat(data.get("timestamp", "").replace("Z", ""))
                 return datetime.now() - cache_time < self.duration
         except Exception:
             return False
@@ -579,6 +579,7 @@ class CacheManager:
         try:
             with open(self.cache_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
+                apps = []
                 for item in data.get("apps", []):
                     # Map Node.js camelCase back to Python's AppInfo attributes
                     mapped_item = {
@@ -2655,13 +2656,17 @@ class SystemUpdateApp:
             self.cache_mgr.save(apps)
 
             scan_time = time.time() - start_time
+        else:
+            # For cached results, calculate updates count and set scan time to 0
+            total_updates = sum(1 for a in apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE)
+            scan_time = 0.0
 
-            # Display summary
-            sources_count = {}
-            for app in apps:
-                sources_count[app.source] = sources_count.get(app.source, 0) + 1
+        # Display summary (always)
+        sources_count = {}
+        for app in apps:
+            sources_count[app.source] = sources_count.get(app.source, 0) + 1
 
-            self.ui.display_summary(len(apps), total_updates, scan_time, sources_count, show_all=args.show_all)
+        self.ui.display_summary(len(apps), total_updates, scan_time, sources_count, show_all=args.show_all)
 
         # Handle single package update
         if args.package:
