@@ -240,16 +240,16 @@ class AppInfo:
         terminal display. The format is consistent across all status types.
 
         Returns:
-            str: Formatted status string (e.g., "✅ up-to-date", "⬆️ update").
+            str: Formatted status string (e.g., "✅ up-to-date", "🔄 update").
 
         Example:
             >>> app.update_status = UpdateStatus.UPDATE_AVAILABLE
             >>> app.status_display
-            '⬆️ update'
+            '🔄 update'
         """
         mapping = {
             UpdateStatus.UP_TO_DATE: "✅ up-to-date",
-            UpdateStatus.UPDATE_AVAILABLE: "⬆️ update",
+            UpdateStatus.UPDATE_AVAILABLE: "🔄 update",
             UpdateStatus.UNKNOWN: "❓ unknown",
             UpdateStatus.ERROR: "❌ error",
             UpdateStatus.VULNERABLE: "🔥 vulnerable",
@@ -714,44 +714,38 @@ def source_badge(source: str) -> str:
     to source names for display in tables and progress indicators. Each package
     source has a distinct color for easy visual identification.
 
-    Color pattern (from JS version):
+    Color pattern (synchronized with JS version):
         - winget: blue
         - chocolatey: yellow
         - npm: red
-        - pnpm: magenta (purple in JS)
-        - pip: cyan
-        - bun: yellow (orange not available in Rich, using yellow)
-        - yarn: white
-        - rust: magenta
+        - pnpm: pink (color 206)
+        - pip: magenta
+        - bun: bright blue
+        - yarn: bright white
+        - rust: purple (color 129)
         - path: green
-        - registry: dim white (gray)
+        - registry: gray (bright black)
 
     Args:
         source: Source name string (case-insensitive).
 
     Returns:
         str: Rich-formatted string with style tags (e.g., "[bold blue]winget[/bold blue]").
-
-    Example:
-        >>> source_badge("winget")
-        '[bold blue]winget[/bold blue]'
-        >>> source_badge("NPM")
-        '[bold red]npm[/bold red]'
     """
     source_lower = (source or "unknown").lower()
     style_map = {
-        "winget": "bold blue",
-        "chocolatey": "bold yellow",
-        "npm": "bold red",
-        "pnpm": "bold magenta",
-        "pip": "bold cyan",
-        "bun": "yellow",
-        "yarn": "bold white",
-        "rust": "bold magenta",
-        "path": "bold green",
-        "registry": "dim white",
+        "winget": "blue",
+        "chocolatey": "yellow",
+        "npm": "red",
+        "pnpm": "color(206)",
+        "pip": "magenta",
+        "bun": "bright_blue",
+        "yarn": "bright_white",
+        "rust": "color(129)",
+        "path": "green",
+        "registry": "grey37",
     }
-    style = style_map.get(source_lower, "dim white")
+    style = style_map.get(source_lower, "bright_white")
     return f"[{style}]{source_lower}[/{style}]"
 
 
@@ -826,17 +820,17 @@ class UISystem:
         Output format:
             📊 Summary
             📦 total apps     42
-            ⬆️ updates        5
+            🔄 updates        5
             ⏱️ scan duration  12.34s
             ⚙️ sources        winget:20, npm:15, pip:7
         """
         console.print(f"[bold magenta]📊 Summary[/bold magenta]")
         console.print(f"📦 total apps     [bold white]{total_apps}[/bold white]")
-        console.print(f"⬆️ updates        [bold yellow]{updates}[/bold yellow]")
+        console.print(f"🔄 updates        [bold yellow]{updates}[/bold yellow]")
         console.print(f"⏱️ scan duration  [bold white]{scan_time:.2f}s[/bold white]")
 
-        source_parts = [f"{s.lower()}:{c}" for s, c in sorted(sources_count.items()) if c > 0]
-        console.print(f"⚙️ sources        [dim white]{', '.join(source_parts)}[/dim white]")
+        source_parts = [f"{source_badge(s)}:[bold white]{c}[/bold white]" for s, c in sorted(sources_count.items()) if c > 0]
+        console.print(f"⚙️ sources        {', '.join(source_parts)}")
         console.print()
 
     @staticmethod
@@ -890,19 +884,19 @@ class UISystem:
         for app in sorted(display_apps, key=lambda x: (x.source, x.name)):
             # Source-based coloring (Rich styles)
             src_styles = {
-                "winget": "bold blue",
-                "chocolatey": "bold yellow",
-                "npm": "bold red",
-                "pnpm": "bold magenta",
-                "bun": "yellow",
-                "yarn": "bold white",
-                "pip": "bold cyan",
-                "rust": "bold magenta",
-                "path": "bold green",
-                "registry": "dim white",
+                "winget": "blue",
+                "chocolatey": "yellow",
+                "npm": "red",
+                "pnpm": "color(206)",
+                "pip": "magenta",
+                "bun": "bright_blue",
+                "yarn": "bright_white",
+                "rust": "color(129)",
+                "path": "green",
+                "registry": "grey37",
             }
             source_lower = app.source.lower()
-            source_style = src_styles.get(source_lower, "white")
+            source_style = src_styles.get(source_lower, "bright_white")
             # Status-based coloring
             status_styles = {
                 UpdateStatus.UP_TO_DATE: "green",
@@ -1557,7 +1551,7 @@ class UpdateChecker:
             TextColumn("{task.fields[extra]}"),
             console=console,
         ) as progress:
-            task = progress.add_task("⬆️ Checking updates", total=len(active_sources), extra="")
+            task = progress.add_task("🔄 Checking updates", total=len(active_sources), extra="")
 
             for source_name, source_apps in active_sources:
                 source_updates = 0
@@ -2641,7 +2635,7 @@ class SystemUpdateApp:
             console.print(f"\n📦 [bold]Discovered {len(apps)} unique apps.[/bold]")
 
             # --- PHASE 2: UPDATE CHECKING ---
-            console.print("[bold cyan]⬆️ Checking for updates...[/bold cyan]")
+            console.print("[bold cyan]🔄 Checking for updates...[/bold cyan]")
             # Check updates (progress bar handled internally)
             total_updates = self.checker.check_all_updates(apps)
 

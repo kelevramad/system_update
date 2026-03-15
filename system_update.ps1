@@ -295,13 +295,19 @@ function cyan([string]$t) { c '36' $t }
 <#
 .SYNOPSIS
     Returns gray-colored text.
-.DESCRIPTION
     Applies ANSI gray color (code 90) for secondary or less important information.
 .PARAMETER t
     The text to color gray.
 .EXAMPLE
     gray 'Optional detail'  # Returns gray text
 #>
+function magenta([string]$t) { c '35' $t }
+function purple([string]$t) { c '38;5;129' $t }
+function pink([string]$t) { c '38;5;206' $t }
+function orange([string]$t) { c '38;5;208' $t }
+function gold([string]$t) { c '38;5;214' $t }
+function cyan([string]$t) { c '36' $t }
+function white([string]$t) { c '37' $t }
 function gray([string]$t) { c '90' $t }
 
 # ── Emoji Functions ────────────────────────────────────────────────────────────
@@ -327,7 +333,7 @@ function E([string]$n) {
         'rocket' { [char]::ConvertFromUtf32(0x1F680) }  # 🚀
         'package' { [char]::ConvertFromUtf32(0x1F4E6) }  # 📦
         'scan' { [char]::ConvertFromUtf32(0x1F50E) }  # 🔎
-        'update' { "$([char]::ConvertFromUtf32(0x2B06))$([char]0xFE0F)" }  # ⬆️
+        'update' { [char]::ConvertFromUtf32(0x1F504) }  # 🔄
         'ok' { "$([char]::ConvertFromUtf32(0x2705))" }  # ✅
         'warn' { "$([char]::ConvertFromUtf32(0x26A0))$([char]0xFE0F)" }  # ⚠️
         'fail' { [char]::ConvertFromUtf32(0x274C) }  # ❌
@@ -386,11 +392,11 @@ function srcBadge([string]$s) {
         'winget' { c '34;1' $s }  # Blue bold
         'chocolatey' { c '33;1' $s }  # Yellow bold
         'npm' { c '31;1' $s }  # Red bold
-        'pnpm' { c '35;1' $s }  # Magenta bold
-        'bun' { c '33' $s }  # Yellow
-        'yarn' { c '37;1' $s }  # White bold
-        'pip' { c '36;1' $s }  # Cyan bold
-        'rust' { c '35;1' $s }  # Magenta bold
+        'pnpm' { c '38;5;206;1' $s }  # Pink bold
+        'pip' { c '35;1' $s }  # Magenta bold
+        'bun' { c '94;1' $s }  # Bright blue bold
+        'yarn' { c '97;1' $s }  # Bright white bold
+        'rust' { c '38;5;129;1' $s }  # Purple bold
         'path' { c '32;1' $s }  # Green bold
         'registry' { gray $s }  # Gray for registry entries
         default { gray $s }  # Gray for unknown sources
@@ -468,14 +474,16 @@ function New-Progress([int]$Total, [string]$Label) {
     Writes formatted header box to host output.
 #>
 function Show-Header([string]$Title, [string]$Sub) {
+    # Calculate box width based on content or terminal width (cap at 70)
+    $w = [Math]::Min(70, $Host.UI.RawUI.WindowSize.Width - 2)
     # Draw top border of header box
-    Write-Host (cyan "┌$('─'*70)┐")
+    Write-Host (cyan "┌$('─'*$w)┐")
     # Display title in bold cyan, padded to fit box width
-    Write-Host (c '1;36' "│ $($Title.PadRight(69))│")
+    Write-Host (c '1;36' "│ $($Title.PadRight($w - 1))│")
     # Display subtitle in dim cyan, padded to fit box width
-    Write-Host (c '2;36' "│ $($Sub.PadRight(69))│")
+    Write-Host (c '2;36' "│ $($Sub.PadRight($w - 1))│")
     # Draw bottom border of header box
-    Write-Host (cyan "└$('─'*70)┘")
+    Write-Host (cyan "└$('─'*$w)┘")
 }
 
 # ── Logging Functions ──────────────────────────────────────────────────────────
@@ -1759,7 +1767,8 @@ function Print-Table([array]$Apps, [switch]$ShowAll) {
     $sep = '  '
     # Build and display header row in bold cyan
     $hdr = ($cols | ForEach-Object { c '1;36' $_.T.PadRight($_.W) }) -join $sep
-    Write-Host $hdr; Write-Host (gray ('─' * ($hdr.Length)))
+    $lineWidth = [Math]::Min((stripAnsi $hdr).Length, $Host.UI.RawUI.WindowSize.Width)
+    Write-Host $hdr; Write-Host (gray ('─' * $lineWidth))
     # Display each application row with appropriate colors
     foreach ($app in $displayApps) {
         $row = $cols | ForEach-Object {
@@ -1803,9 +1812,10 @@ function Print-Table([array]$Apps, [switch]$ShowAll) {
 function Print-VulnTable([array]$Vulns) {
     if (-not $Vulns) { return }
     # Draw table header with warning styling
-    Write-Host ''; Write-Host (cyan "┌$('─'*73)┐")
-    Write-Host (c '1;31' "│ $(E 'fire') Security Vulnerabilities Detected$(' '*30)│")
-    Write-Host (cyan "├$('─'*73)┤")
+    $w = [Math]::Min(73, $Host.UI.RawUI.WindowSize.Width - 2)
+    Write-Host ''; Write-Host (cyan "┌$('─'*$w)┐")
+    Write-Host (c '1;31' "│ $(E 'fire') Security Vulnerabilities Detected$(' '*($w - 34))│")
+    Write-Host (cyan "├$('─'*$w)┤")
     Write-Host (cyan "│ $(c '1;31' 'Package'.PadRight(20))  $(c '1;31' 'Severity'.PadRight(10))  $(c '1;31' 'CVE'.PadRight(18))  $(c '1;31' 'Description'.PadRight(20)) │")
     Write-Host (cyan "├$('─'*73)┤")
     # Display each vulnerability with severity-based coloring
@@ -1814,7 +1824,7 @@ function Print-VulnTable([array]$Vulns) {
         $row = "$(bold (trunc $v.Pkg 20).PadRight(20))  $(c "$sc;1" $v.Sev.ToUpper().PadRight(10))  $(cyan (trunc $v.CVE 18).PadRight(18))  $(dim (trunc $v.Desc 20).PadRight(20))"
         Write-Host (cyan "│ $row │")
     }
-    Write-Host (cyan "└$('─'*73)┘")
+    Write-Host (cyan "└$('─'*$w)┘")
 }
 
 # ── Export Functions ───────────────────────────────────────────────────────────
@@ -2148,7 +2158,6 @@ function Main {
     # Calculate summary statistics
     $updApps = @($apps | Where-Object { $_.Status -eq $S_UPD })
     $vulnApps = @($apps | Where-Object { $_.Status -eq $S_VULN })
-    $bySrc = @($apps | Group-Object Source | ForEach-Object { "$($_.Name):$($_.Count)" })
     $el = ([datetime]::Now - $start).TotalSeconds
 
     # Display summary section
@@ -2157,7 +2166,8 @@ function Main {
     $us = if ($updApps.Count -gt 0) { yellow(bold "$($updApps.Count)") } else { green(bold "$($updApps.Count)") }
     Write-Host "$(E 'update') updates         $us"
     Write-Host "$(E 'hourglass') scan duration   $(bold "$($el.ToString('0.00'))s")"
-    Write-Host "$(E 'gear') sources         $($bySrc -join ', ')"
+    $coloredSrc = @($apps | Group-Object Source | ForEach-Object { "$(srcBadge $_.Name):$(bold $_.Count)" })
+    Write-Host "$(E 'gear') sources         $($coloredSrc -join ', ')"
     Write-Host ''
 
     # Display applications table
