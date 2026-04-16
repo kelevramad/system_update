@@ -1,0 +1,37 @@
+[project]
+name = "system-update-cli"
+version = "2.0.0"
+description = "Cross-platform package manager scanner/updater"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "rich>=13.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.7.0",
+    "taskipy>=1.14.0",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.format]
+quote-style = "single"
+indent-style = "tab"
+docstring-code-format = true
+
+[tool.pytest.ini_options]
+pythonpath = "."
+testpaths = ["tests"]
+
+[tool.taskipy.tasks]
+check = "ruff check ."
+diff = "ruff format --diff ."
+format = "ruff format ."
+test = "pytest -v"
+coverage = "pytest --cov=system_update --cov-report=term-missing --cov-report=html"
+test-all = "pytest -v --cov=system_update --cov-report=term-missing"

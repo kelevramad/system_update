@@ -2,9 +2,11 @@
 
 > 🚀 A powerful multi-source system update tool for Windows
 
-**Version:** 1.0.1
+**Version:** 2.0.0
 **Runtime:** Node.js
 **Platform:** Windows (primarily), cross-platform support
+
+> **Note:** This repository also includes Python (`system_update.py`) and PowerShell (`system_update.ps1`) implementations. See [README_py.md](README_py.md) and [README_ps.md](README_ps.md).
 
 ---
 
@@ -196,6 +198,7 @@ The script uses the following default settings:
 | Rust | ✅ | ✅ | ❌ |
 | PATH | ✅ | ✅ | ❌ |
 | Registry | ✅ | ✅ | ❌ |
+| Scoop | ✅ | ✅ | ❌ |
 
 ---
 
@@ -336,9 +339,48 @@ node system_update.js --debug
 
 ---
 
+## 🧪 Testing
+
+This project includes a comprehensive test suite using Node.js native test runner. Tests are located in the `tests/` directory.
+
+### Run Tests
+
+```bash
+# Install dependencies
+npm install
+
+# Run tests
+npm run test
+
+# Run with coverage
+npm run coverage
+npm run test:all        # Runs tests + coverage
+```
+
+### Test Files
+
+```
+tests/
+└── system_update_cli.test.js    # Node.js tests (native --test runner)
+```
+
+---
+
 ## 📝 License
 
 This project is provided as-is for system administration and package management tasks.
+
+---
+
+## 🆕 Latest Changes (v1.0.1)
+
+- **New `--show-all` flag**: Show all packages including up-to-date ones (default shows only updates)
+- **Improved output format**: "💾 Showing" line now appears after the package table
+- **New "🎯 Found" message**: Clear indication of available updates count at the end
+- **Target emoji (🎯) added**: Better visual distinction for update notifications
+- **Scoop support**: Added Scoop package manager support
+
+Contributions and enhancements are always welcome!
 
 ---
 

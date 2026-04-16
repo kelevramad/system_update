@@ -8,7 +8,7 @@ This repository contains a collection of system package management tools impleme
 
 Regardless of which script you choose, you get access to a rich set of shared features:
 
-- **Multi-source Package Discovery**: Scan applications installed via Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, system PATH executables, and Windows Registry.
+- **Multi-source Package Discovery**: Scan applications installed via Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Scoop, system PATH executables, and Windows Registry.
 - **Security Scanning**: Real-time vulnerability checking for NPM (`npm audit`) and PIP (`pip check`) packages.
 - **Intelligent Caching**: 2-hour caching mechanism to drastically speed up repetitive runs.
 - **Dry-run & Output Options**: Safely preview updates before applying them and export reports to JSON or CSV formats.
@@ -53,28 +53,55 @@ A native Windows implementation requiring ZERO external dependencies. Built for 
 | PIP | ✅ | ✅ | ✅ |
 | PATH | ✅ | ✅ | ❌ |
 | Registry | ✅ | ✅ | ❌ |
+| Scoop | ✅ | ✅ | ❌ |
 
 ---
 
-## 🚀 Quick Usage Examples
+## 🧪 Testing
 
-Regardless of the selected language, the core arguments remain highly consistent across the board:
+This project follows the same testing conventions as crypt_tools and includes a comprehensive test suite for validating all three implementations. Tests are located in the `tests/` directory.
+
+### Run All Tests
 
 ```bash
-# Run a full interactive scan
-node system_update.js
-python system_update.py
-.\system_update.ps1
+# Node.js tests with coverage
+npm run test
+npm run coverage
+npm run test:all        # Runs tests + coverage
 
-# Update everything without asking for confirmation
-node system_update.js --update-all --yes
+# Python tests with coverage (using uv)
+uv sync --all-extras --dev  # Install dependencies
+uv run pytest           # Run tests
+uv run pytest --cov=system_update --cov-report=term-missing  # With coverage
 
-# Check for updates only (Dry Run)
-python system_update.py --dry-run
-
-# Export results to JSON
-.\system_update.ps1 -Export json -Output report.json
+# PowerShell tests (Pester framework)
+pwsh -File ./tests/test_system_update.ps1   # Run Pester tests directly
+Invoke-Pester ./tests/*.ps1            # If Pester installed and v5+
 ```
+
+### Test Coverage
+
+| Feature | Node.js | Python | PowerShell |
+|---------|---------|--------|------------|
+| Help display | ✅ | ✅ | ✅ |
+| Scanner functions | ✅ | ✅ | ✅ |
+| Export (JSON/CSV) | ✅ | ✅ | ✅ |
+| Dry-run mode | ✅ | ✅ | ✅ |
+| Cache system | ✅ | ✅ | ✅ |
+| --show-all flag | ✅ | ✅ | ✅ |
+| --clear-cache | ✅ | ✅ | ✅ |
+| --log/--debug flags | ✅ | ✅ | ✅ |
+
+### Test Files
+
+```
+tests/
+├── test_system_update.py         # Python tests (pytest)
+├── system_update_cli.test.js    # Node.js tests (native --test runner)
+└── test_system_update.ps1        # PowerShell tests (Pester)
+```
+
+---
 
 ## 📝 License
 
@@ -82,9 +109,11 @@ These tools are provided as-is for system administration and package management.
 
 ---
 
-## 🆕 Latest Changes (v1.0.1)
+## 🆕 Latest Changes
 
+- **Scoop support**: Added Scoop package manager support
 - **New `--show-all` flag**: Show all packages including up-to-date ones (default shows only updates)
 - **Improved output format**: "💾 Showing" line now appears after the package table
 - **New "🎯 Found" message**: Clear indication of available updates count at the end
-- **Target emoji (🎯) added**: Better visual distinction for update notifications Contributions and enhancements are always welcome!
+
+Contributions and enhancements are always welcome!
