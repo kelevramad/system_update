@@ -2,7 +2,7 @@
 
 > 🚀 A powerful PowerShell-based system update tool (requires PowerShell 7+)
 
-**Version:** 2.0.0
+**Version:** 2.1.0
 **Runtime:** PowerShell 7+
 **Platform:** Windows
 
@@ -174,6 +174,7 @@ $CFG_SEVERITY = 'medium'      # Vulnerability severity threshold
 | PATH | ✅ | ✅ | ❌ |
 | Registry | ✅ | ✅ | ❌ |
 | Scoop | ✅ | ✅ | ❌ |
+| dotnet | ✅ | ✅ | ❌ |
 
 ---
 
@@ -461,9 +462,10 @@ This project is provided as-is for system administration and package management 
 
 ---
 
-## 🆕 Latest Changes (v1.0.1)
+## 🆕 Latest Changes (v2.1.0)
 
-- **New `-ShowAll` flag**: Show all packages including up-to-date ones (default shows only updates)
+- **.NET Global Tools support**: Added .NET CLI tools scanning via `dotnet tool list -g`
 - **Scoop support**: Added Scoop package manager support
+- **New `-ShowAll` flag**: Show all packages including up-to-date ones (default shows only updates)
 
 Contributions and enhancements are always welcome!

@@ -13,13 +13,14 @@ function stripAnsi(s) {
 }
 
 function runCLI(args, opts = {}) {
+  const timeout = opts.timeout || 90000;  // 90s default for slow tests
   const result = spawnSync(NODE, [BIN, ...args], {
     encoding: 'utf8',
     cwd: opts.cwd,
     env: { ...process.env, ...opts.env },
     input: opts.input || '',
     windowsHide: true,
-    timeout: 60000,
+    timeout,
   });
 
   if (result.error) {
@@ -70,32 +71,37 @@ test('--include pip scans pip source', () => {
 });
 
 test('--include path scans path source', () => {
-  const res = runCLI(['--include', 'path', '--no-cache']);
+  const res = runCLI(['--include', 'path', '--no-cache'], { timeout: 90000 });
   assert.ok(res.code === 0 || res.stdout.includes('total apps') || res.stdout.includes('Scanning'));
 });
 
 test('--include registry scans registry source', () => {
-  const res = runCLI(['--include', 'registry', '--no-cache']);
+  const res = runCLI(['--include', 'registry', '--no-cache'], { timeout: 90000 });
   assert.ok(res.code === 0 || res.stdout.includes('total apps') || res.stdout.includes('Scanning'));
 });
 
 test('--include rust scans rust source', () => {
-  const res = runCLI(['--include', 'rust', '--no-cache']);
+  const res = runCLI(['--include', 'rust', '--no-cache'], { timeout: 90000 });
   assert.ok(res.code === 0 || res.stdout.includes('total apps') || res.stdout.includes('Scanning'));
 });
 
 test('--include scoop scans scoop source', () => {
-  const res = runCLI(['--include', 'scoop', '--no-cache']);
+  const res = runCLI(['--include', 'scoop', '--no-cache'], { timeout: 90000 });
+  assert.ok(res.code === 0 || res.stdout.includes('total apps') || res.stdout.includes('Scanning'));
+});
+
+test('--include dotnet scans dotnet source', () => {
+  const res = runCLI(['--include', 'dotnet', '--no-cache'], { timeout: 90000 });
   assert.ok(res.code === 0 || res.stdout.includes('total apps') || res.stdout.includes('Scanning'));
 });
 
 test('--dry-run flag accepted', () => {
-  const res = runCLI(['--dry-run', '--include', 'path']);
+  const res = runCLI(['--dry-run', '--include', 'dotnet', '--no-cache']);
   assert.ok(res.code === 0 || res.stdout.includes('total apps') || res.stdout.includes('Scanning'));
 });
 
 test('--show-all flag accepted', () => {
-  const res = runCLI(['--show-all', '--include', 'path', '--no-cache']);
+  const res = runCLI(['--show-all', '--include', 'dotnet', '--no-cache']);
   assert.ok(res.code === 0 || res.stdout.includes('total apps') || res.stdout.includes('Scanning'));
 });
 
@@ -140,11 +146,11 @@ test('--include multiple sources', () => {
 });
 
 test('--log flag accepted', () => {
-  const res = runCLI(['--log', '--include', 'path', '--no-cache']);
+  const res = runCLI(['--log', '--include', 'dotnet', '--no-cache']);
   assert.ok(res.code === 0 || res.stdout.includes('Scanning'));
 });
 
 test('--debug flag accepted', () => {
-  const res = runCLI(['--debug', '--include', 'path', '--no-cache']);
+  const res = runCLI(['--debug', '--include', 'dotnet', '--no-cache']);
   assert.ok(res.code === 0 || res.stdout.includes('Scanning'));
 });

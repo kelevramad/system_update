@@ -111,6 +111,7 @@ These tools are provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+- **.NET Global Tools support**: Added .NET CLI tools scanning via `dotnet tool list -g`
 - **Scoop support**: Added Scoop package manager support
 - **New `--show-all` flag**: Show all packages including up-to-date ones (default shows only updates)
 - **Improved output format**: "💾 Showing" line now appears after the package table

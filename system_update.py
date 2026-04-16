@@ -3,7 +3,7 @@
 ===============================================================================
                           SYSTEM UPDATE ENHANCED
 ===============================================================================
-Version: 5.0.0
+Version: 2.1.0
 Author: Gemini (Redesigned)
 
 A sophisticated system update tool with enhanced UI architecture and modular design.
@@ -73,25 +73,26 @@ from enum import Enum  # Enumeration support
 # THIRD-PARTY IMPORTS (RICH LIBRARY)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Required rich imports - ensure_dependencies() will install if missing
-from rich import print
-
 RICH_AVAILABLE = True
-from rich.console import Console  # Terminal output management
-from rich.panel import Panel  # Boxed text panels
-from rich.table import Table  # Tabular data display
-from rich.text import Text  # Styled text objects
-from rich.prompt import Confirm  # Yes/No user prompts
-from rich.progress import (  # Progress bar components
-	Progress,
-	TextColumn,
-	BarColumn,
-	TimeElapsedColumn,
-	MofNCompleteColumn,
-	TaskID,
-)
-from rich.style import Style  # Style definitions
-from rich import box  # Table border styles
+try:
+	from rich import print
+	from rich.console import Console  # Terminal output management
+	from rich.panel import Panel  # Boxed text panels
+	from rich.table import Table  # Tabular data display
+	from rich.text import Text  # Styled text objects
+	from rich.prompt import Confirm  # Yes/No user prompts
+	from rich.progress import (  # Progress bar components
+		Progress,
+		TextColumn,
+		BarColumn,
+		TimeElapsedColumn,
+		MofNCompleteColumn,
+		TaskID,
+	)
+	from rich.style import Style  # Style definitions
+	from rich import box  # Table border styles
+except ImportError:
+	RICH_AVAILABLE = False
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -220,6 +221,7 @@ class AppInfo:
 	error_msg: Optional[str] = None
 	install_path: Optional[str] = None
 	scan_time: datetime = field(default_factory=datetime.now)
+	security_findings: List[Dict] = field(default_factory=list)
 
 	@property
 	def has_update(self) -> bool:
@@ -761,6 +763,7 @@ def source_badge(source: str) -> str:
 		'path': 'green',
 		'registry': 'grey37',
 		'scoop': 'bright_yellow',
+		'dotnet': 'gold',
 	}
 	style = style_map.get(source_lower, 'bright_white')
 	return f'[{style}]{source_lower}[/{style}]'
@@ -1455,6 +1458,48 @@ class PackageScanner:
 		return apps
 
 	@staticmethod
+	def scan_dotnet() -> List[AppInfo]:
+		"""
+		Scan .NET Global Tools installed via dotnet.
+
+		Executes 'dotnet tool list -g' to enumerate .NET CLI tools installed
+		globally. Parses output to extract package name and version.
+
+		Returns:
+		    List[AppInfo]: List of discovered .NET Global Tools.
+
+		Note:
+		    - Matches format: "package-id  version  commands"
+		    - Skips header and separator lines
+		"""
+		apps = []
+		output = run_command(['dotnet', 'tool', 'list', '-g'], allow_failure=True)
+		if not output:
+			return apps
+
+		lines = output.splitlines()
+		for line in lines[1:]:
+			line = line.strip()
+			if not line or line.startswith('---') or line.startswith('Package'):
+				continue
+
+			parts = line.split()
+			if len(parts) >= 2:
+				name = parts[0]
+				version = parts[1]
+				if name and version:
+					apps.append(
+						AppInfo(
+							name=name,
+							source='dotnet',
+							version=version,
+							app_id=name,
+						)
+					)
+
+		return apps
+
+	@staticmethod
 	def scan_scoop() -> List[AppInfo]:
 		"""
 		Scan Scoop packages installed via Scoop.
@@ -1633,6 +1678,7 @@ class UpdateChecker:
 			'registry': [a for a in apps if a.source.lower() == 'registry'],
 			'rust': [a for a in apps if a.source.lower() == 'rust'],
 			'scoop': [a for a in apps if a.source.lower() == 'scoop'],
+			'dotnet': [a for a in apps if a.source.lower() == 'dotnet'],
 		}
 
 		# Filter to only sources with apps
@@ -1680,6 +1726,8 @@ class UpdateChecker:
 					source_updates = UpdateChecker._check_rust_updates(source_apps)
 				elif source_name == 'scoop':
 					source_updates = UpdateChecker._check_scoop_updates(source_apps)
+				elif source_name == 'dotnet':
+					source_updates = UpdateChecker._check_dotnet_updates(source_apps)
 
 				total_updates += source_updates
 
@@ -1718,6 +1766,7 @@ class UpdateChecker:
 				'registry',
 				'rust',
 				'path',
+				'dotnet',
 			]:
 				app.update_status = UpdateStatus.UP_TO_DATE
 			else:
@@ -2429,6 +2478,43 @@ class UpdateChecker:
 
 		return updates
 
+	@staticmethod
+	def _check_dotnet_updates(apps: List[AppInfo]) -> int:
+		"""
+		Check .NET Global Tool updates.
+
+		Executes 'dotnet tool list -g --outdated' to find .NET tools with
+		newer versions available.
+
+		Args:
+		    apps: List of .NET AppInfo objects to check. Modified in-place.
+
+		Returns:
+		    int: Number of .NET tools with available updates.
+		"""
+		updates = 0
+		output = run_command(['dotnet', 'tool', 'list', '-g', '--outdated'], allow_failure=True)
+		if not output:
+			return updates
+
+		lines = output.splitlines()
+		for line in lines[1:]:
+			line = line.strip()
+			if not line or line.startswith('---') or line.startswith('Package'):
+				continue
+			parts = line.split()
+			if len(parts) >= 2:
+				name = parts[0]
+				latest = parts[1]
+				for app in apps:
+					if app.name.lower() == name.lower():
+						app.latest_version = latest
+						app.update_status = UpdateStatus.UPDATE_AVAILABLE
+						updates += 1
+						break
+
+		return updates
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # UPDATE EXECUTOR
@@ -2587,6 +2673,9 @@ class UpdateExecutor:
 		elif app.source == 'Rust':
 			cmd = ['cargo', 'install-update', app.name]
 
+		elif app.source == 'dotnet':
+			cmd = ['dotnet', 'tool', 'update', '-g', app.name]
+
 		elif app.source == 'PATH':
 			if app.name == 'bun':
 				cmd = ['bun', 'upgrade']
@@ -2699,22 +2788,18 @@ class SystemUpdateApp:
 			'path': self.scanner.scan_path,
 			'registry': self.scanner.scan_registry,
 			'rust': self.scanner.scan_rust,
+			'scoop': self.scanner.scan_scoop,
+			'dotnet': self.scanner.scan_dotnet,
 		}
 
-		# Filter by source if specified
-		if source_filter:
-			source_filter_lower = source_filter.lower()
-			matched_source = next(
-				(name for name in scanners.keys() if name.lower() == source_filter_lower),
-				None,
-			)
-			if matched_source:
-				scanners = {matched_source: scanners[matched_source]}
-				console.print(f'[cyan]🔍 Filtering by source: {matched_source}[/cyan]')
-			else:
-				console.print(
-					f"[yellow]⚠️  Unknown source '{source_filter}', scanning all sources[/yellow]"
-				)
+		aliases = {'choco': 'chocolatey'}
+		include_sources = set()
+		if getattr(source_filter, 'strip', None):
+			include_sources.add(aliases.get(source_filter.lower(), source_filter.lower()))
+		if getattr(self, '_include_sources', None):
+			include_sources.update(self._include_sources)
+		if include_sources:
+			scanners = {name: func for name, func in scanners.items() if name in include_sources}
 
 		# Filter by enabled sources in config
 		selected = [
@@ -2827,6 +2912,31 @@ class SystemUpdateApp:
 		except Exception as e:
 			console.print(f'[red]❌ Export failed: {e}[/red]')
 
+	def check_security_vulnerabilities(self, apps: List[AppInfo]) -> List[Dict]:
+		vulns: List[Dict] = []
+		npm_has = any(a.source.lower() == 'npm' for a in apps)
+		if npm_has:
+			out = run_command(['npm', 'audit', '--json', '--silent'], allow_failure=True)
+			if out:
+				try:
+					data = json.loads(out)
+					for name, details in (data.get('vulnerabilities') or {}).items():
+						app = next((a for a in apps if a.name.lower() == name.lower()), None)
+						if not app:
+							continue
+						item = {
+							'package': name,
+							'severity': (details.get('severity') or 'low').upper(),
+							'cve': (details.get('cves') or ['N/A'])[0],
+							'description': details.get('title') or 'Vulnerability found',
+						}
+						app.security_findings.append(item)
+						app.update_status = UpdateStatus.VULNERABLE
+						vulns.append(item)
+				except Exception:
+					pass
+		return vulns
+
 	def run(self, args):
 		"""
 		Main application entry point.
@@ -2863,6 +2973,14 @@ class SystemUpdateApp:
 
 		# Display beautiful banner
 		self.ui.display_banner()
+		self._include_sources = set()
+		if getattr(args, 'include', None):
+			aliases = {'choco': 'chocolatey'}
+			self._include_sources = {
+				aliases.get(item.strip().lower(), item.strip().lower())
+				for item in args.include.split(',')
+				if item.strip()
+			}
 
 		# Load from cache or scan
 		apps = None
@@ -2893,8 +3011,13 @@ class SystemUpdateApp:
 
 			# --- PHASE 3: SECURITY CHECK ---
 			console.print(f'[bold magenta]🔒 Checking security vulnerabilities...[/bold magenta]')
-			# (Assuming security scan is fast for now or integrated)
-			console.print(f'[bold green]🛡️ No security vulnerabilities found.[/bold green]\n')
+			security_vulns = self.check_security_vulnerabilities(apps)
+			if security_vulns:
+				console.print(
+					f'[bold red]🔥 Found {len(security_vulns)} security vulnerabilities.[/bold red]\n'
+				)
+			else:
+				console.print(f'[bold green]🛡️ No security vulnerabilities found.[/bold green]\n')
 
 			# Save to cache
 			self.cache_mgr.save(apps)
@@ -2929,7 +3052,21 @@ class SystemUpdateApp:
 			security_table = self.ui.create_security_table([])
 			security_table.title = '[bold red]🔒 Security Alerts[/bold red]'
 			for app in vulnerable:
-				security_table.add_row(app.name, 'VULNERABLE', 'N/A', 'Update recommended')
+				entry = (
+					app.security_findings[0]
+					if app.security_findings
+					else {
+						'severity': 'HIGH',
+						'cve': 'N/A',
+						'description': 'Update recommended',
+					}
+				)
+				security_table.add_row(
+					app.name,
+					entry.get('severity', 'HIGH'),
+					entry.get('cve', 'N/A'),
+					entry.get('description', 'Update recommended')[:40],
+				)
 			console.print(security_table)
 
 		# Show applications table
@@ -2950,7 +3087,7 @@ class SystemUpdateApp:
 			console.print(f'\n[bold yellow]🎯 Found {len(updates)} available updates[/bold yellow]')
 
 			if args.update_all:
-				if Confirm.ask('🚀 Proceed with all updates?'):
+				if args.yes or Confirm.ask('🚀 Proceed with all updates?'):
 					self.executor.execute_updates(updates, args.dry_run)
 		else:
 			console.print('\n[green]✨ System is up to date![/green]')
@@ -3016,7 +3153,7 @@ class SystemUpdateApp:
 			console.print(
 				f'[green]✅ {target_app.name} is up to date ({target_app.version})[/green]'
 			)
-			if not Confirm.ask('🔄 Force reinstall?'):
+			if not (args.yes or Confirm.ask('🔄 Force reinstall?')):
 				return
 
 		self.executor.execute_updates([target_app], args.dry_run)
@@ -3070,6 +3207,10 @@ Examples:
 	parser.add_argument('--dry-run', action='store_true', help='Preview updates without executing')
 	parser.add_argument('--no-cache', action='store_true', help='Force fresh scan (ignore cache)')
 	parser.add_argument('--clear-cache', action='store_true', help='Clear scan cache')
+	parser.add_argument('--yes', action='store_true', help='Skip confirmation prompts')
+	parser.add_argument('--include', help='Comma-separated list of sources to include')
+	parser.add_argument('--log', action='store_true', help='Enable log file output')
+	parser.add_argument('--debug', action='store_true', help='Enable debug output')
 	parser.add_argument(
 		'--show-all',
 		action='store_true',
