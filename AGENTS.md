@@ -189,7 +189,7 @@ When updating version numbers, update ALL of these locations to match:
 4. **pyproject.toml**: Update `version` in `[project]` section (line 3)
 5. **README files**: Update version in headers AND "Latest Changes" sections in ALL README*.md files
 6. **ENHANCEMENT_PLAN.md**: Update version in Feature Checklist footer
-7. **PRD.md**: Update document version in header
+7. **PRD.md**: Update document version in header AND "Latest Changes" sections
 8. **AGENTS.md**: Update version in Project Overview table if needed
 
 ---
