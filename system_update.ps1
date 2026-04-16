@@ -147,7 +147,7 @@ $ErrorActionPreference = 'Stop'
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 # Script version number
-$VER = '1.0.1'
+$VER = '2.0.0'
 
 # Data directory for cache and logs - uses environment variable if set, otherwise defaults to user profile
 $DATA_DIR = if ($env:SYSTEM_UPDATE_HOME) { $env:SYSTEM_UPDATE_HOME } else { Join-Path $env:USERPROFILE '.system_update' }
@@ -393,12 +393,13 @@ function srcBadge([string]$s) {
         'chocolatey' { c '33;1' $s }  # Yellow bold
         'npm' { c '31;1' $s }  # Red bold
         'pnpm' { c '38;5;206;1' $s }  # Pink bold
-        'pip' { c '35;1' $s }  # Magenta bold
+        'pip' { c '36;1' $s }  # Cyan bold
         'bun' { c '94;1' $s }  # Bright blue bold
         'yarn' { c '97;1' $s }  # Bright white bold
         'rust' { c '38;5;129;1' $s }  # Purple bold
         'path' { c '32;1' $s }  # Green bold
         'registry' { gray $s }  # Gray for registry entries
+        'scoop' { c '93;1' $s }  # Bright yellow bold
         default { gray $s }  # Gray for unknown sources
     }
 }
@@ -1055,6 +1056,52 @@ function Scan-Rust {
 
 <#
 .SYNOPSIS
+    Scans Scoop for installed packages.
+.DESCRIPTION
+    Executes 'scoop list' to discover all packages managed by Scoop.
+    Parses the output to extract package name and version.
+.EXAMPLE
+    $apps = Scan-Scoop
+.OUTPUTS
+    Array of PSCustomObject with properties: Name, Source, Version, LatestVersion, AppId, Status
+#>
+function Scan-Scoop {
+    $r = Invoke-Cmd 'scoop' @('list') -AllowFail
+    $apps = @()
+    if (-not $r.Stdout) { return $apps }
+    
+    $lines = $r.Stdout -split "`r?`n"
+    $startIndex = 0
+    
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match 'Name' -and $lines[$i] -match 'Version') {
+            $startIndex = $i + 2
+            break
+        }
+    }
+    
+    for ($i = $startIndex; $i -lt $lines.Count; $i++) {
+        $line = $lines[$i].Trim()
+        if (-not $line -or $line.StartsWith('---') -or $line.StartsWith('+')) { continue }
+        
+        $parts = $line -split '\s+'
+        if ($parts.Count -ge 2) {
+            $name = $parts[0]
+            $version = $parts[1]
+            if ($name -and $version -and -not $name.StartsWith(' ')) {
+                $apps += [PSCustomObject]@{
+                    name = $name; source = 'scoop'; version = $version;
+                    latestVersion = ''; appId = $name; status = $S_UNK;
+                    scanTime = [datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+                }
+            }
+        }
+    }
+    return $apps
+}
+
+<#
+.SYNOPSIS
     Scans Windows Registry for installed applications.
 .DESCRIPTION
     Queries the Windows Registry Uninstall keys to discover installed applications.
@@ -1418,6 +1465,55 @@ function Check-Rust([array]$Apps) {
                 $a.latestVersion = if ($latest.StartsWith('v')) { $latest.Substring(1) } else { $latest }
                 $a.status = $S_UPD; $n++
             }
+        }
+    }
+    return $n
+}
+
+<#
+.SYNOPSIS
+    Checks for Scoop package updates.
+.DESCRIPTION
+    Runs 'scoop status' to find Scoop packages with available updates.
+.PARAMETER Apps
+    Array of application objects to check for updates.
+.EXAMPLE
+    $count = Check-Scoop $apps
+#>
+function Check-Scoop([array]$Apps) {
+    $t = @($Apps | Where-Object { $_.source -eq 'scoop' }); if (-not $t) { return 0 }
+    $r = Invoke-Cmd 'scoop' @('status') -AllowFail
+    if (-not $r.Stdout) { return 0 }
+    
+    $updateMap = @{}
+    $lines = $r.Stdout -split "`r?`n"
+    
+    foreach ($line in $lines) {
+        $line = $line.Trim()
+        if (-not $line -or $line.StartsWith('---')) { continue }
+        $parts = $line -split '\s+' | Where-Object { $_ }
+        if ($parts.Count -ge 2) {
+            $name = $parts[0]
+            $current = $parts[1]
+            if ($parts.Count -ge 3) {
+                $latest = $parts[2]
+                if ($latest.StartsWith('(') -and $latest.EndsWith(')')) {
+                    $latest = $latest.Substring(1, $latest.Length - 2)
+                }
+                if ($current -ne $latest) {
+                    $updateMap[$name] = $latest
+                }
+            }
+        }
+    }
+    
+    $n = 0
+    foreach ($app in $t) {
+        $latest = $updateMap[$app.name]
+        if ($latest) {
+            $app.latestVersion = $latest
+            $app.status = $S_UPD
+            $n++
         }
     }
     return $n
@@ -2133,6 +2229,7 @@ function Main {
             path       = { Scan-Path }
             registry   = { Scan-Registry }
             rust       = { Scan-Rust }
+            scoop      = { Scan-Scoop }
         }
         # Filter scanners based on source selection
         $sel = @($scanners.Keys | Where-Object { $sf.Count -eq 0 -or $sf.ContainsKey($_) })
@@ -2162,6 +2259,7 @@ function Main {
             path       = { Check-PathUpdates $apps }
             registry   = { Check-Registry $apps }
             rust       = { Check-Rust $apps }
+            scoop      = { Check-Scoop $apps }
         }
         $prog2 = New-Progress $checkers.Count "$(E 'update') Checking updates"
         $total = 0

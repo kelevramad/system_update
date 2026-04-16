@@ -33,7 +33,7 @@ const { stdin, stdout } = require('node:process');
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS AND CONFIGURATION
 // ─────────────────────────────────────────────────────────────────────────────
-const VERSION = '1.0.1';
+const VERSION = '2.0.0';
 const APP_NAME = 'system-update';
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -94,6 +94,7 @@ const DEFAULT_CONFIG = {
     path: true,
     registry: true,
     rust: true,
+    scoop: true,
   },
   security: {
     enabled: true,
@@ -227,12 +228,13 @@ function sourceBadge(source) {
     chocolatey: [ANSI.yellow],
     npm: [ANSI.red],
     pnpm: [ANSI.pink],
-    pip: [ANSI.magenta],
+    pip: [ANSI.cyan],
     bun: [ANSI.brightBlue],
     yarn: [ANSI.brightWhite],
     rust: [ANSI.purple],
     path: [ANSI.green],
     registry: [ANSI.gray],
+    scoop: [ANSI.brightYellow],
   }[value] || [ANSI.brightWhite];
   return paint(value, ...cfg);
 }
@@ -1099,6 +1101,101 @@ async function scanRust(timeoutMs) {
 }
 
 /**
+ * Scan system for Scoop-installed packages
+ * @description Executes scoop list command and parses output to discover all packages
+ * installed via Scoop package manager.
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<Array<Object>>} Array of app objects representing installed Scoop packages
+ */
+async function scanScoop(timeoutMs) {
+  await writeLog('scanner: scoop started');
+  const result = await runCommand('scoop', ['list'], { allowFailure: true, timeoutMs });
+  const apps = [];
+  if (!result.stdout) {
+    await writeLog('scanner: scoop no output');
+    return apps;
+  }
+
+  const lines = result.stdout.split(/\r?\n/);
+  let startIndex = 0;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i].trim();
+    if (line.startsWith('Name') && line.includes('Version') && line.includes('')) {
+      startIndex = i + 2;
+      break;
+    }
+  }
+
+  for (let i = startIndex; i < lines.length; i += 1) {
+    const line = lines[i].trim();
+    if (!line || line.startsWith('---') || line.startsWith('+')) continue;
+    const parts = line.split(/\s+/);
+    if (parts.length >= 2) {
+      const name = parts[0];
+      const version = parts[1];
+      if (name && version && !name.startsWith(' ')) {
+        apps.push({
+          name,
+          source: 'scoop',
+          version,
+          latestVersion: '',
+          appId: name,
+          status: Status.UNKNOWN,
+          scanTime: new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  await writeLog(`scanner: scoop finished, count=${apps.length}`);
+  return apps;
+}
+
+/**
+ * Check for Scoop package updates
+ * @description Executes scoop status command to check for available updates.
+ * @param {Array<Object>} apps - Array of all scanned app objects
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<number>} Number of Scoop packages with available updates
+ */
+async function checkScoopUpdates(apps, timeoutMs) {
+  const target = apps.filter((a) => a.source === 'scoop');
+  if (!target.length) return 0;
+  await writeLog('checking scoop updates');
+
+  const result = await runCommand('scoop', ['status'], { allowFailure: true, timeoutMs });
+  if (!result.stdout) return 0;
+
+  let count = 0;
+  const lines = result.stdout.split(/\r?\n/);
+  const updateMap = new Map();
+
+  for (const line of lines) {
+    const match = line.match(/^([^\s]+)\s+([^\s]+)\s+(.*?)(\s+\(Scoop\))?$/);
+    if (match) {
+      const [, name, currentVersion, latestInfo] = match;
+      const latestMatch = latestInfo.match(/(\d+\.\d+\.\d+)/);
+      if (latestMatch && currentVersion !== latestMatch[1]) {
+        updateMap.set(name, latestMatch[1]);
+      }
+    }
+  }
+
+  for (const app of target) {
+    const latest = updateMap.get(app.name);
+    if (latest) {
+      app.latestVersion = latest;
+      app.status = Status.UPDATE_AVAILABLE;
+      count += 1;
+    }
+  }
+
+  await writeLog(`update check: scoop finished, updates=${count}`);
+  return count;
+}
+
+/**
  * Check for Rust crate updates using cargo install-update
  * @description Uses cargo install-update -l command to check for available updates for
  * installed Rust crates. Requires cargo-edit or cargo-update to be installed.
@@ -1684,6 +1781,7 @@ async function scanSystem(config, args) {
     ['path', scanPath],
     ['registry', scanRegistry],
     ['rust', scanRust],
+    ['scoop', scanScoop],
   ];
 
   // Filter sources based on configuration and user filters
@@ -1736,6 +1834,7 @@ async function checkUpdates(apps, config) {
     ['path', () => checkPathUpdates(apps, timeoutMs)],
     ['registry', () => checkRegistryUpdates(apps, timeoutMs)],
     ['rust', () => checkRustUpdates(apps, timeoutMs)],
+    ['scoop', () => checkScoopUpdates(apps, timeoutMs)],
   ];
 
   const progress = createProgress(checks.length, `${emoji('update')} Checking updates`);

@@ -2,9 +2,11 @@
 
 > 🚀 A sophisticated system update tool with enhanced UI and modular design
 
-**Version:** 5.0.0
+**Version:** 2.0.0
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
+
+> **Note:** This repository also includes Node.js (`system_update.js`) and PowerShell (`system_update.ps1`) implementations. See [README_js.md](README_js.md) and [README_ps.md](README_ps.md).
 
 ---
 
@@ -194,6 +196,7 @@ The script uses the following default settings stored in `~/.system_update/confi
 | Rust | ✅ | ✅ | ❌ |
 | PATH | ✅ | ✅ | ❌ |
 | Registry | ✅ | ✅ | ❌ |
+| Scoop | ✅ | ✅ | ❌ |
 
 ---
 
@@ -396,6 +399,32 @@ app.export_results(apps, "json", "report.json")
 
 ---
 
+## 🧪 Testing
+
+This project includes a comprehensive test suite using pytest. Tests are located in the `tests/` directory.
+
+### Run Tests
+
+```bash
+# Install dependencies
+uv sync --all-extras --dev
+
+# Run tests
+uv run pytest
+
+# Run with coverage
+uv run pytest --cov=system_update --cov-report=term-missing
+```
+
+### Test Files
+
+```
+tests/
+└── test_system_update.py    # Python tests (pytest)
+```
+
+---
+
 ## 📝 Requirements
 
 ### Python Dependencies
@@ -440,3 +469,11 @@ For issues or questions:
 ## 📄 License
 
 This project is provided as-is for system administration and package management tasks.
+
+---
+
+## 🆕 Latest Changes (v5.0.0)
+
+- **Scoop support**: Added Scoop package manager support
+
+Contributions and enhancements are always welcome!

@@ -2,9 +2,11 @@
 
 > 🚀 A powerful PowerShell-based system update tool (requires PowerShell 7+)
 
-**Version:** 1.0.1
+**Version:** 2.0.0
 **Runtime:** PowerShell 7+
 **Platform:** Windows
+
+> **Note:** This repository also includes Node.js (`system_update.js`) and Python (`system_update.py`) implementations. See [README_js.md](README_js.md) and [README_py.md](README_py.md).
 
 ---
 
@@ -171,6 +173,7 @@ $CFG_SEVERITY = 'medium'      # Vulnerability severity threshold
 | Rust | ✅ | ✅ | ❌ |
 | PATH | ✅ | ✅ | ❌ |
 | Registry | ✅ | ✅ | ❌ |
+| Scoop | ✅ | ✅ | ❌ |
 
 ---
 
@@ -385,6 +388,29 @@ Register-ScheduledTask -TaskName "SystemUpdate" `
 
 ---
 
+## 🧪 Testing
+
+This project includes a comprehensive test suite using Pester. Tests are located in the `tests/` directory.
+
+### Run Tests
+
+```powershell
+# Run Pester tests
+pwsh -File ./tests/test_system_update.ps1
+
+# Or if Pester is installed
+Invoke-Pester ./tests/*.ps1
+```
+
+### Test Files
+
+```
+tests/
+└── test_system_update.ps1    # PowerShell tests (Pester)
+```
+
+---
+
 ## 📝 Requirements
 
 ### System Requirements
@@ -432,3 +458,12 @@ For issues or questions:
 ## 📄 License
 
 This project is provided as-is for system administration and package management tasks.
+
+---
+
+## 🆕 Latest Changes (v1.0.1)
+
+- **New `-ShowAll` flag**: Show all packages including up-to-date ones (default shows only updates)
+- **Scoop support**: Added Scoop package manager support
+
+Contributions and enhancements are always welcome!
