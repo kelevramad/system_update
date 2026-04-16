@@ -191,13 +191,44 @@ When updating version numbers:
 
 ---
 
-## Release Guidelines
+## Release Automation Guidelines
 
-When creating releases, document:
+When creating GitHub releases, always follow this structure:
 
-1. **Version** - New version number
-2. **Features** - New features added
-3. **Bug Fixes** - Bug fixes resolved
-4. **Changes** - Any breaking changes or important updates
+### 1. Title:
+- Format: `v<version> - <short summary>`
 
-Update "Latest Changes" section in all README files before releasing.
+### 2. Overview:
+- 1–2 sentences explaining the purpose of this release.
+
+### 3. 🚀 Features
+- List new features with concise bullet points.
+
+### 4. 🛠 Improvements
+- Enhancements or optimizations.
+
+### 5. 🐛 Bug Fixes
+- Clearly describe fixes.
+
+### 6. 🔐 Security
+- Mention any security updates.
+
+### 7. ⚠️ Breaking Changes (if any)
+- Clearly warn users.
+
+### 8. 📦 CLI Usage (if relevant)
+- Show updated commands or examples.
+
+### 9. 📊 Full Changelog
+- Format: `<previous_version>...<current_version>`
+
+### 10. 👥 Contributors (optional)
+
+**Rules:**
+- Keep it concise but professional.
+- Use emojis for sections.
+- Use markdown formatting.
+- Always maintain the same structure.
+- Never omit sections (write "None" if empty).
+
+Use `gh release create v<version> --title "v<version> - <summary>" --notes "<markdown>"` to create releases.
