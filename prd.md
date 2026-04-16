@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update Node CLI
 
-**Document Version:** 1.1
-**Last Updated:** March 13, 2026
+**Document Version:** 2.1
+**Last Updated:** April 16, 2026
 **Author:** Qwen Code
-**Based On:** `system_update.js` v1.0.1
+**Based On:** `system_update.js` v2.1.0
 
 ---
 
@@ -65,7 +65,7 @@ A single CLI tool that:
 
 ### 2.3 Key Differentiators
 
-- **Multi-source support**: 10 different package sources including Rust
+- **Multi-source support**: 12 different package sources including .NET
 - **Security-first**: Built-in vulnerability scanning for NPM and PIP
 - **Performance**: Parallel scanning with configurable timeouts
 - **Developer experience**: Rich terminal UI with colors, emojis, and progress bars
@@ -131,6 +131,7 @@ A single CLI tool that:
 | F-09 | Scan Windows Registry applications | P1 | Implemented |
 | F-10 | Deduplicate results across sources | P0 | Implemented |
 | F-11 | Scan Rust packages (cargo install) | P1 | Implemented |
+| F-11a | Scan .NET Global Tools (dotnet tool list -g) | P1 | Implemented |
 
 ### 5.2 Update Detection
 
@@ -146,6 +147,7 @@ A single CLI tool that:
 | F-19 | Check PATH tools via GitHub API / commands | P1 | Implemented |
 | F-20 | Cross-reference Registry with Winget | P1 | Implemented |
 | F-21 | Check Rust for updates (cargo install-update) | P1 | Implemented |
+| F-21a | Check .NET Global Tools for updates (dotnet tool list -g --outdated) | P1 | Implemented |
 
 ### 5.3 Security Features
 
@@ -169,6 +171,7 @@ A single CLI tool that:
 | F-32 | Confirmation prompts | P0 | Implemented |
 | F-33 | Skip prompts with --yes flag | P1 | Implemented |
 | F-34 | Update Rust packages (cargo install-update) | P1 | Implemented |
+| F-34a | Update .NET Global Tools (dotnet tool update -g) | P1 | Implemented |
 
 ### 5.5 Caching System
 
@@ -356,6 +359,8 @@ Each source is displayed with a unique color badge:
 | Rust | Magenta |
 | PATH | Green |
 | Registry | Gray |
+| Scoop | Gold |
+| dotnet | Gold |
 
 ### 7.5 Accessibility
 
@@ -556,6 +561,8 @@ const DEFAULT_CONFIG = {
     path: true,
     registry: true,
     rust: true,
+    scoop: true,
+    dotnet: true,
   },
   security: {
     enabled: true,
@@ -626,6 +633,8 @@ node system_update.js [options]
 - `path`
 - `registry`
 - `rust`
+- `scoop`
+- `dotnet`
 
 ### 12.4 Example Commands
 
@@ -852,6 +861,7 @@ Errors are displayed with appropriate styling:
 |---------|------|---------|
 | 1.0.0 | - | Initial release |
 | 1.0.1 | March 2026 | Added Rust source support, --log and --debug flags, enhanced PATH version detection, Registry updates via winget, updated source badge colors, **--show-all flag** (show all packages including up-to-date), improved output format with "💾 Showing" line after table and "🎯 Found" message |
+| 2.1.0 | April 2026 | Added .NET Global Tools support (dotnet tool list -g), dotnet update checking (dotnet tool list -g --outdated), 12 sources now supported |
 
 ## Appendix B: Glossary
 
