@@ -44,3 +44,5 @@ dist/
 build/
 *.egg-info/
 ENHANCEMENT_PLAN.md
+coverage/
+.coverage

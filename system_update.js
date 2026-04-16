@@ -33,7 +33,7 @@ const { stdin, stdout } = require('node:process');
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS AND CONFIGURATION
 // ─────────────────────────────────────────────────────────────────────────────
-const VERSION = '2.0.0';
+const VERSION = '2.1.0';
 const APP_NAME = 'system-update';
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -43,6 +43,7 @@ const PREFERRED_DATA_DIR = process.env.SYSTEM_UPDATE_HOME
   : path.join(os.homedir(), '.system_update');
 let ACTIVE_DATA_DIR = PREFERRED_DATA_DIR;
 let CACHE_FILE = path.join(ACTIVE_DATA_DIR, 'cache.json');
+let CONFIG_FILE = path.join(ACTIVE_DATA_DIR, 'config.json');
 let LOG_FILE = path.join(ACTIVE_DATA_DIR, 'system.log');
 
 // Terminal capabilities detection
@@ -95,6 +96,7 @@ const DEFAULT_CONFIG = {
     registry: true,
     rust: true,
     scoop: true,
+    dotnet: true,
   },
   security: {
     enabled: true,
@@ -117,6 +119,7 @@ function switchToLocalDataDir() {
   const fallback = path.join(process.cwd(), '.system_update');
   ACTIVE_DATA_DIR = fallback;
   CACHE_FILE = path.join(ACTIVE_DATA_DIR, 'cache.json');
+  CONFIG_FILE = path.join(ACTIVE_DATA_DIR, 'config.json');
   LOG_FILE = path.join(ACTIVE_DATA_DIR, 'system.log');
   writeLog(`switched to local data dir: ${fallback}`);
   return true;
@@ -235,6 +238,7 @@ function sourceBadge(source) {
     path: [ANSI.green],
     registry: [ANSI.gray],
     scoop: [ANSI.brightYellow],
+    dotnet: [ANSI.gold],
   }[value] || [ANSI.brightWhite];
   return paint(value, ...cfg);
 }
@@ -328,29 +332,60 @@ function createProgress(total, label) {
  * @param {string} url - URL to fetch
  * @returns {Promise<Object>} Parsed JSON response
  */
-function fetchJson(url) {
-  return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'SystemUpdateCLI' } }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return fetchJson(res.headers.location).then(resolve).catch(reject);
-      }
-      if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
-      let data = '';
-      res.on('data', c => data += c);
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(data);
-          resolve(parsed);
-        } catch (err) {
-          writeLog(`fetchJson parse error: url=${url}, error=${err.message}`);
-          reject(err);
-        }
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchJson(url, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const parsed = await new Promise((resolve, reject) => {
+        https.get(url, { headers: { 'User-Agent': 'SystemUpdateCLI' } }, (res) => {
+          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            return fetchJson(res.headers.location, retries - attempt).then(resolve).catch(reject);
+          }
+          if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
+          let data = '';
+          res.on('data', c => data += c);
+          res.on('end', () => {
+            try {
+              resolve(JSON.parse(data));
+            } catch (err) {
+              reject(err);
+            }
+          });
+        }).on('error', reject);
       });
-    }).on('error', (err) => {
-      writeLog(`fetchJson network error: url=${url}, error=${err.message}`);
-      reject(err);
-    });
-  });
+      return parsed;
+    } catch (err) {
+      await writeLog(`fetchJson retry=${attempt + 1} url=${url} error=${err.message}`);
+      if (attempt >= retries) throw err;
+      await sleep((attempt + 1) * 400);
+    }
+  }
+  throw new Error('fetchJson retry loop exhausted');
+}
+
+function deepMerge(target, source) {
+  if (!source || typeof source !== 'object') return target;
+  for (const [key, value] of Object.entries(source)) {
+    if (value && typeof value === 'object' && !Array.isArray(value) && target[key] && typeof target[key] === 'object') {
+      deepMerge(target[key], value);
+    } else {
+      target[key] = value;
+    }
+  }
+  return target;
+}
+
+async function loadConfig() {
+  const base = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+  try {
+    const raw = await fs.readFile(CONFIG_FILE, 'utf8');
+    return deepMerge(base, JSON.parse(raw));
+  } catch {
+    return base;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -543,13 +578,13 @@ function parseArgs(argv) {
         args.version = argv[++i] || null;
         break;
       case '--source':
-        args.source = (argv[++i] || '').toLowerCase() || null;
+        args.source = normalizeSource(argv[++i] || '');
         break;
       case '--update-source':
-        args.updateSource = (argv[++i] || '').toLowerCase() || null;
+        args.updateSource = normalizeSource(argv[++i] || '');
         break;
       case '--include':
-        args.include = (argv[++i] || null);
+        args.include = parseIncludeSources(argv[++i] || '').join(',');
         break;
       case '--yes':
       case '-y':
@@ -1153,6 +1188,86 @@ async function scanScoop(timeoutMs) {
 }
 
 /**
+ * Scan .NET Global Tools installed via dotnet.
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<Array<Object>>} Array of app objects representing installed .NET Global Tools
+ */
+async function scanDotnet(timeoutMs) {
+  await writeLog('scanner: dotnet started');
+  const result = await runCommand('dotnet', ['tool', 'list', '-g'], { allowFailure: true, timeoutMs });
+  const apps = [];
+  if (!result.stdout) {
+    await writeLog('scanner: dotnet no output');
+    return apps;
+  }
+
+  const lines = result.stdout.split(/\r?\n/);
+  for (let i = 1; i < lines.length; i += 1) {
+    const line = lines[i].trim();
+    if (!line || line.startsWith('---') || line.startsWith('Package')) continue;
+    const parts = line.split(/\s+/);
+    if (parts.length >= 2) {
+      const name = parts[0];
+      const version = parts[1];
+      if (name && version) {
+        apps.push({
+          name,
+          source: 'dotnet',
+          version,
+          latestVersion: '',
+          appId: name,
+          status: Status.UNKNOWN,
+          scanTime: new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  await writeLog(`scanner: dotnet finished, count=${apps.length}`);
+  return apps;
+}
+
+/**
+ * Check for .NET Global Tool updates.
+ * @param {Array<Object>} apps - Array of all scanned app objects
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<number>} Number of .NET tools with available updates
+ */
+async function checkDotnetUpdates(apps, timeoutMs) {
+  const target = apps.filter((a) => a.source === 'dotnet');
+  if (!target.length) return 0;
+  await writeLog('checking dotnet updates');
+
+  const result = await runCommand('dotnet', ['tool', 'list', '-g', '--outdated'], { allowFailure: true, timeoutMs });
+  if (!result.stdout) return 0;
+
+  let count = 0;
+  const lines = result.stdout.split(/\r?\n/);
+  const updateMap = new Map();
+
+  for (let i = 1; i < lines.length; i += 1) {
+    const line = lines[i].trim();
+    if (!line || line.startsWith('---') || line.startsWith('Package')) continue;
+    const parts = line.split(/\s+/);
+    if (parts.length >= 2) {
+      updateMap.set(parts[0], parts[1]);
+    }
+  }
+
+  for (const app of target) {
+    const latest = updateMap.get(app.name);
+    if (latest) {
+      app.latestVersion = latest;
+      app.status = Status.UPDATE_AVAILABLE;
+      count += 1;
+    }
+  }
+
+  await writeLog(`update check: dotnet finished, updates=${count}`);
+  return count;
+}
+
+/**
  * Check for Scoop package updates
  * @description Executes scoop status command to check for available updates.
  * @param {Array<Object>} apps - Array of all scanned app objects
@@ -1733,7 +1848,7 @@ function finalizeStatuses(apps) {
         if (!app.latestVersion) app.latestVersion = '-';
         continue;
     }
-    if (app.latestVersion || ['winget', 'chocolatey', 'npm', 'pnpm', 'bun', 'yarn', 'pip', 'rust', 'path'].includes(app.source)) {
+    if (app.latestVersion || ['winget', 'chocolatey', 'npm', 'pnpm', 'bun', 'yarn', 'pip', 'rust', 'path', 'dotnet'].includes(app.source)) {
       app.status = Status.UP_TO_DATE;
       if (!app.latestVersion) app.latestVersion = '-';
     } else {
@@ -1757,16 +1872,9 @@ function finalizeStatuses(apps) {
  */
 async function scanSystem(config, args) {
   const timeoutMs = Number(config.performance.timeoutSeconds || 45) * 1000;
-  const sourceFilter = new Set(
-    args.include
-      ? String(args.include)
-        .split(',')
-        .map((x) => x.trim().toLowerCase())
-        .filter(Boolean)
-      : []
-  );
+  const sourceFilter = new Set(parseIncludeSources(args.include));
   if (args.source) {
-    sourceFilter.add(args.source.toLowerCase());
+    sourceFilter.add(normalizeSource(args.source));
   }
 
   // Define all available scanner sources
@@ -1782,6 +1890,7 @@ async function scanSystem(config, args) {
     ['registry', scanRegistry],
     ['rust', scanRust],
     ['scoop', scanScoop],
+    ['dotnet', scanDotnet],
   ];
 
   // Filter sources based on configuration and user filters
@@ -1835,6 +1944,7 @@ async function checkUpdates(apps, config) {
     ['registry', () => checkRegistryUpdates(apps, timeoutMs)],
     ['rust', () => checkRustUpdates(apps, timeoutMs)],
     ['scoop', () => checkScoopUpdates(apps, timeoutMs)],
+    ['dotnet', () => checkDotnetUpdates(apps, timeoutMs)],
   ];
 
   const progress = createProgress(checks.length, `${emoji('update')} Checking updates`);
@@ -2200,6 +2310,22 @@ function sourceName(source) {
   return String(source || '').toLowerCase();
 }
 
+const SOURCE_ALIASES = Object.freeze({
+  choco: 'chocolatey',
+});
+
+function normalizeSource(source) {
+  const key = sourceName(source).trim();
+  return SOURCE_ALIASES[key] || key;
+}
+
+function parseIncludeSources(includeValue) {
+  return String(includeValue || '')
+    .split(',')
+    .map((s) => normalizeSource(s))
+    .filter(Boolean);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // UPDATE EXECUTION
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2250,6 +2376,9 @@ async function executeSingleUpdate(app, dryRun, timeoutMs) {
   } else if (src === 'rust') {
     command = 'cargo';
     args = ['install-update', app.name];
+  } else if (src === 'dotnet') {
+    command = 'dotnet';
+    args = ['tool', 'update', '-g', app.name];
   } else if (src === 'path') {
     if (app.name === 'bun') {
       command = 'bun';
@@ -2365,7 +2494,7 @@ async function main() {
     return;
   }
 
-  const config = DEFAULT_CONFIG;
+  const config = await loadConfig();
   await ensureConfigDir();
   LOGGING_ENABLED = args.log;
   DEBUG_ENABLED = args.debug;
@@ -2385,6 +2514,7 @@ async function main() {
   console.log();
 
   const start = Date.now();
+  let securityFindings = [];
 
   let apps = null;
   if (!args.noCache) {
@@ -2405,9 +2535,9 @@ async function main() {
 
     if (config.security?.enabled && config.security.autoCheck) {
       console.log(`${emoji('lock')} ${paint('Checking security vulnerabilities...', ANSI.bold, ANSI.magenta)}`);
-      const vulnerabilities = await checkSecurityVulnerabilities(apps, config);
-      if (vulnerabilities.length) {
-        console.log(`${emoji('fire')} ${paint(`Found ${vulnerabilities.length} security vulnerabilities.`, ANSI.bold, ANSI.red)}\n`);
+      securityFindings = await checkSecurityVulnerabilities(apps, config);
+      if (securityFindings.length) {
+        console.log(`${emoji('fire')} ${paint(`Found ${securityFindings.length} security vulnerabilities.`, ANSI.bold, ANSI.red)}\n`);
       } else {
         console.log(`${emoji('shield')} ${paint('No security vulnerabilities found.', ANSI.green)}\n`);
       }
@@ -2417,10 +2547,11 @@ async function main() {
   }
 
   if (args.source) {
-    apps = apps.filter((a) => String(a.source).toLowerCase() === args.source);
+    const requestedSource = normalizeSource(args.source);
+    apps = apps.filter((a) => String(a.source).toLowerCase() === requestedSource);
   }
   if (args.include) {
-    const includedSources = args.include.toLowerCase().split(',').map((s) => s.trim());
+    const includedSources = parseIncludeSources(args.include);
     apps = apps.filter((a) => includedSources.includes(String(a.source).toLowerCase()));
   }
 
@@ -2448,15 +2579,8 @@ async function main() {
     console.log(`\n${emoji('disk')} Showing: updates only`);
   }
 
-  const vulnerableApps = apps.filter((a) => a.status === Status.VULNERABLE);
-  if (vulnerableApps.length && config.security?.enabled) {
-    const vulnerabilities = vulnerableApps.map((a) => ({
-      packageName: a.name,
-      severity: 'high',
-      cve: 'N/A',
-      description: 'Security update recommended',
-    }));
-    printSecurityTable(vulnerabilities);
+  if (securityFindings.length && config.security?.enabled) {
+    printSecurityTable(securityFindings);
   }
 
   // Display found updates message after table
@@ -2514,6 +2638,14 @@ async function main() {
     const file = await exportResults(apps, args.export, args.output);
     console.log(`\n${emoji('export')} ${paint(`Exported results to: ${file}`, ANSI.green, ANSI.bold)}`);
     await writeLog(`export: format=${args.export}, file=${file}`);
+  }
+
+  if (securityFindings.length > 0) {
+    process.exitCode = 20;
+  } else if (appsWithUpdates.length > 0) {
+    process.exitCode = 10;
+  } else {
+    process.exitCode = 0;
   }
 
   await writeLog(`session end: duration=${((Date.now() - start) / 1000).toFixed(2)}s`);

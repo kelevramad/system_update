@@ -181,13 +181,15 @@ Pull requests should explain:
 
 ## Version Updates
 
-When updating version numbers:
+When updating version numbers, update ALL of these locations to match:
 
 1. **Node.js**: Update `VERSION` constant in `system_update.js` (line ~36)
-2. **Python**: Update `VERSION` in `system_update.py` (check Config class)
-3. **PowerShell**: Update `$VERSION` in `system_update.ps1` (check top of script)
-4. **README files**: Update version in headers and "Latest Changes" sections
-5. **AGENTS.md**: Update version in Project Overview table if needed
+2. **Python**: Update `Version:` in docstring header of `system_update.py` (line 6)
+3. **PowerShell**: Update `$VER` in `system_update.ps1` (line ~150)
+4. **pyproject.toml**: Update `version` in `[project]` section (line 3)
+5. **README files**: Update version in headers AND "Latest Changes" sections in ALL README*.md files
+6. **ENHANCEMENT_PLAN.md**: Update version in Feature Checklist footer
+7. **AGENTS.md**: Update version in Project Overview table if needed
 
 ---
 

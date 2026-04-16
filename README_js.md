@@ -2,7 +2,7 @@
 
 > 🚀 A powerful multi-source system update tool for Windows
 
-**Version:** 2.0.0
+**Version:** 2.1.0
 **Runtime:** Node.js
 **Platform:** Windows (primarily), cross-platform support
 
@@ -199,6 +199,7 @@ The script uses the following default settings:
 | PATH | ✅ | ✅ | ❌ |
 | Registry | ✅ | ✅ | ❌ |
 | Scoop | ✅ | ✅ | ❌ |
+| dotnet | ✅ | ✅ | ❌ |
 
 ---
 
@@ -372,8 +373,9 @@ This project is provided as-is for system administration and package management 
 
 ---
 
-## 🆕 Latest Changes (v1.0.1)
+## 🆕 Latest Changes (v2.1.0)
 
+- **.NET Global Tools support**: Added .NET CLI tools scanning via `dotnet tool list -g`
 - **New `--show-all` flag**: Show all packages including up-to-date ones (default shows only updates)
 - **Improved output format**: "💾 Showing" line now appears after the package table
 - **New "🎯 Found" message**: Clear indication of available updates count at the end

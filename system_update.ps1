@@ -147,7 +147,7 @@ $ErrorActionPreference = 'Stop'
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 # Script version number
-$VER = '2.0.0'
+$VER = '2.1.0'
 
 # Data directory for cache and logs - uses environment variable if set, otherwise defaults to user profile
 $DATA_DIR = if ($env:SYSTEM_UPDATE_HOME) { $env:SYSTEM_UPDATE_HOME } else { Join-Path $env:USERPROFILE '.system_update' }
@@ -171,6 +171,33 @@ $CFG_CACHE_HOURS = 2    # Cache validity period in hours
 $CFG_TIMEOUT = 45       # Default command timeout in seconds
 $CFG_SECURITY = $true   # Enable security vulnerability scanning
 $CFG_SEVERITY = 'medium'  # Minimum severity level to report (critical, high, medium, low)
+
+function Get-EnvBool([string]$Name, [bool]$Default = $false) {
+    $raw = [Environment]::GetEnvironmentVariable($Name)
+    if ([string]::IsNullOrWhiteSpace($raw)) { return $Default }
+    switch ($raw.Trim().ToLowerInvariant()) {
+        '1' { return $true }
+        'true' { return $true }
+        'yes' { return $true }
+        'on' { return $true }
+        '0' { return $false }
+        'false' { return $false }
+        'no' { return $false }
+        'off' { return $false }
+        default { return $Default }
+    }
+}
+
+$envTimeout = [Environment]::GetEnvironmentVariable('SYSTEM_UPDATE_CMD_TIMEOUT')
+if ($envTimeout) {
+    $parsedTimeout = 0
+    if ([int]::TryParse($envTimeout, [ref]$parsedTimeout) -and $parsedTimeout -gt 0) {
+        $CFG_TIMEOUT = $parsedTimeout
+    }
+}
+
+$CFG_SECURITY = Get-EnvBool 'SYSTEM_UPDATE_SECURITY' $CFG_SECURITY
+$CFG_SKIP_UPDATE_CHECKS = Get-EnvBool 'SYSTEM_UPDATE_SKIP_UPDATE_CHECKS' $false
 
 # ── ANSI Color Functions ───────────────────────────────────────────────────────
 # Detect if the host console supports ANSI virtual terminal sequences
@@ -400,6 +427,7 @@ function srcBadge([string]$s) {
         'path' { c '32;1' $s }  # Green bold
         'registry' { gray $s }  # Gray for registry entries
         'scoop' { c '93;1' $s }  # Bright yellow bold
+        'dotnet' { c '33;1' $s }  # Gold bold
         default { gray $s }  # Gray for unknown sources
     }
 }
@@ -1102,6 +1130,43 @@ function Scan-Scoop {
 
 <#
 .SYNOPSIS
+    Scans .NET Global Tools installed via dotnet.
+.DESCRIPTION
+    Executes 'dotnet tool list -g' to discover all .NET CLI tools installed globally.
+    Parses the output to extract package name and version.
+.EXAMPLE
+    $apps = Scan-Dotnet
+.OUTPUTS
+    Array of PSCustomObject with properties: Name, Source, Version, LatestVersion, AppId, Status
+#>
+function Scan-Dotnet {
+    $r = Invoke-Cmd 'dotnet' @('tool', 'list', '-g') -AllowFail
+    $apps = @()
+    if (-not $r.Stdout) { return $apps }
+
+    $lines = $r.Stdout -split "`r?`n"
+    for ($i = 1; $i -lt $lines.Count; $i++) {
+        $line = $lines[$i].Trim()
+        if (-not $line -or $line.StartsWith('---') -or $line.StartsWith('Package')) { continue }
+
+        $parts = $line -split '\s+'
+        if ($parts.Count -ge 2) {
+            $name = $parts[0]
+            $version = $parts[1]
+            if ($name -and $version) {
+                $apps += [PSCustomObject]@{
+                    name = $name; source = 'dotnet'; version = $version;
+                    latestVersion = ''; appId = $name; status = $S_UNK;
+                    scanTime = [datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+                }
+            }
+        }
+    }
+    return $apps
+}
+
+<#
+.SYNOPSIS
     Scans Windows Registry for installed applications.
 .DESCRIPTION
     Queries the Windows Registry Uninstall keys to discover installed applications.
@@ -1193,6 +1258,10 @@ function Load-Cache {
     if (-not(Test-Path $CACHE_FILE)) { return $null }
     try {
         $j = Get-Content $CACHE_FILE -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not $j.timestamp) { return $null }
+        $cacheTs = [datetime]::Parse($j.timestamp).ToUniversalTime()
+        $cacheAge = ([datetime]::UtcNow - $cacheTs).TotalHours
+        if ($cacheAge -gt $CFG_CACHE_HOURS) { return $null }
         # Map camelCase to PowerShell object properties
         $apps = @()
         if ($j.apps) {
@@ -1521,6 +1590,43 @@ function Check-Scoop([array]$Apps) {
 
 <#
 .SYNOPSIS
+    Checks for .NET Global Tool updates.
+.DESCRIPTION
+    Runs 'dotnet tool list -g --outdated' to find .NET tools with newer versions.
+.PARAMETER Apps
+    Array of application objects to check for updates.
+.EXAMPLE
+    $count = Check-Dotnet $apps
+.OUTPUTS
+    Number of packages with available updates.
+#>
+function Check-Dotnet([array]$Apps) {
+    $t = @($Apps | Where-Object { $_.source -eq 'dotnet' }); if (-not $t) { return 0 }
+    $r = Invoke-Cmd 'dotnet' @('tool', 'list', '-g', '--outdated') -AllowFail
+    if (-not $r.Stdout) { return 0 }
+
+    $n = 0
+    $lines = $r.Stdout -split "`r?`n"
+    for ($i = 1; $i -lt $lines.Count; $i++) {
+        $line = $lines[$i].Trim()
+        if (-not $line -or $line.StartsWith('---') -or $line.StartsWith('Package')) { continue }
+        $parts = $line -split '\s+' | Where-Object { $_ }
+        if ($parts.Count -ge 2) {
+            $name = $parts[0]
+            $latest = $parts[1]
+            $app = $t | Where-Object { $_.name.ToLower() -eq $name.ToLower() } | Select-Object -First 1
+            if ($app -and $latest) {
+                $app.latestVersion = $latest
+                $app.status = $S_UPD
+                $n++
+            }
+        }
+    }
+    return $n
+}
+
+<#
+.SYNOPSIS
     Checks for Python pip package updates.
 .DESCRIPTION
     Runs 'pip list --outdated --format=json' to find Python packages with newer
@@ -1640,7 +1746,7 @@ function Check-PathUpdates([array]$Apps) {
     Finalize $apps
 #>
 function Finalize([array]$Apps) {
-    $managed = @('winget', 'chocolatey', 'npm', 'pnpm', 'bun', 'yarn', 'pip', 'registry', 'rust', 'path')
+    $managed = @('winget', 'chocolatey', 'npm', 'pnpm', 'bun', 'yarn', 'pip', 'registry', 'rust', 'path', 'dotnet')
     foreach ($a in $Apps) {
         if ($a.status -in @($S_UPD, $S_OK)) { 
             if ($a.status -eq $S_OK -and -not $a.latestVersion) { $a.latestVersion = '-' }
@@ -2052,6 +2158,7 @@ function Exec-Update([PSCustomObject]$App, [switch]$Dry) {
             return (Invoke-Cmd 'pip' @('install', $pkg) -AllowFail).Ok
         }
         'rust' { $cmd = 'cargo'; $ca = @('install-update', $App.Name) }
+        'dotnet' { $cmd = 'dotnet'; $ca = @('tool', 'update', '-g', $App.Name) }
         'path' {
             switch ($App.Name) {
                 'bun' { $cmd = 'bun'; $ca = @('upgrade') }
@@ -2188,6 +2295,10 @@ Examples:
     Exit codes: 0 (success), 1 (fatal error), 2 (package not found)
 #>
 function Main {
+    $script:SecurityFindings = @()
+    $sourceAliases = @{ choco = 'chocolatey' }
+    $normalizedSource = if ($Source) { ($sourceAliases[$Source.ToLower()] ?? $Source.ToLower()) } else { $null }
+    $normalizedUpdateSource = if ($UpdateSource) { ($sourceAliases[$UpdateSource.ToLower()] ?? $UpdateSource.ToLower()) } else { $null }
     # Handle help flag first
     if ($Help) { Show-Help; return }
     # Ensure data directory exists
@@ -2204,8 +2315,13 @@ function Main {
     $start = [datetime]::Now
     # Build source filter from -Source or -Include options
     $sf = @{}
-    if ($Source) { $sf[$Source.ToLower()] = $true }
-    if ($Include) { $Include.Split(',') | ForEach-Object { $sf[$_.Trim().ToLower()] = $true } }
+    if ($normalizedSource) { $sf[$normalizedSource] = $true }
+    if ($Include) {
+        $Include.Split(',') | ForEach-Object {
+            $s = $_.Trim().ToLower()
+            if ($s) { $sf[($sourceAliases[$s] ?? $s)] = $true }
+        }
+    }
 
     # Try to load from cache first (unless -NoCache)
     $apps = $null
@@ -2230,6 +2346,7 @@ function Main {
             registry   = { Scan-Registry }
             rust       = { Scan-Rust }
             scoop      = { Scan-Scoop }
+            dotnet    = { Scan-Dotnet }
         }
         # Filter scanners based on source selection
         $sel = @($scanners.Keys | Where-Object { $sf.Count -eq 0 -or $sf.ContainsKey($_) })
@@ -2245,43 +2362,50 @@ function Main {
         $apps = Get-Unique $all
 
         Write-Host "`n$(E 'package') $(bold "Discovered $($apps.Count) unique apps.")"
-        Write-Host "$(E 'update') $(bold (cyan 'Checking for updates...'))"
+        if ($CFG_SKIP_UPDATE_CHECKS) {
+            Finalize $apps
+            Write-Host "$(E 'update') $(yellow 'Skipping update checks (SYSTEM_UPDATE_SKIP_UPDATE_CHECKS).')`n"
+        } else {
+            Write-Host "$(E 'update') $(bold (cyan 'Checking for updates...'))"
 
-        # Define update checker functions for each source
-        $checkers = [ordered]@{
-            winget     = { Check-Winget $apps }
-            chocolatey = { Check-Choco $apps }
-            npm        = { Check-Npm $apps }
-            pnpm       = { Check-Pnpm $apps }
-            bun        = { Check-Bun $apps }
-            yarn       = { Check-Yarn $apps }
-            pip        = { Check-Pip $apps }
-            path       = { Check-PathUpdates $apps }
-            registry   = { Check-Registry $apps }
-            rust       = { Check-Rust $apps }
-            scoop      = { Check-Scoop $apps }
+            # Define update checker functions for each source
+            $checkers = [ordered]@{
+                winget     = { Check-Winget $apps }
+                chocolatey = { Check-Choco $apps }
+                npm        = { Check-Npm $apps }
+                pnpm       = { Check-Pnpm $apps }
+                bun        = { Check-Bun $apps }
+                yarn       = { Check-Yarn $apps }
+                pip        = { Check-Pip $apps }
+                path       = { Check-PathUpdates $apps }
+                registry   = { Check-Registry $apps }
+                rust       = { Check-Rust $apps }
+                scoop      = { Check-Scoop $apps }
+                dotnet    = { Check-Dotnet $apps }
+            }
+            $prog2 = New-Progress $checkers.Count "$(E 'update') Checking updates"
+            $total = 0
+            # Run each checker and count updates
+            foreach ($src in $checkers.Keys) {
+                $cnt = & $checkers[$src]
+                $msg = if ($cnt -gt 0) { "$(srcBadge $src) $(yellow "$cnt update(s)")" } else { "$(srcBadge $src) $(gray 'none')" }
+                $prog2.Tick($msg); $total += $cnt
+            }
+            $prog2.Done((green "$(E 'ok') update checks complete"))
+            Finalize $apps
+            $udColor = if ($total -gt 0) { '33' } else { '32' }
+            Write-Host "$(E 'chart') $(c "$udColor;1" "Detected $total update candidates.")`n"
         }
-        $prog2 = New-Progress $checkers.Count "$(E 'update') Checking updates"
-        $total = 0
-        # Run each checker and count updates
-        foreach ($src in $checkers.Keys) {
-            $cnt = & $checkers[$src]
-            $msg = if ($cnt -gt 0) { "$(srcBadge $src) $(yellow "$cnt update(s)")" } else { "$(srcBadge $src) $(gray 'none')" }
-            $prog2.Tick($msg); $total += $cnt
-        }
-        $prog2.Done((green "$(E 'ok') update checks complete"))
-        Finalize $apps
-        $udColor = if ($total -gt 0) { '33' } else { '32' }
-        Write-Host "$(E 'chart') $(c "$udColor;1" "Detected $total update candidates.")`n"
 
         # Security vulnerability scanning (if enabled)
-        if ($CFG_SECURITY) {
+        if ($CFG_SECURITY -and -not $CFG_SKIP_UPDATE_CHECKS) {
             Write-Host "$(E 'lock') $(bold (magenta 'Checking security vulnerabilities...'))"
             $sevOrder = @{critical = 4; high = 3; medium = 2; low = 1 }
             $thresh = $sevOrder[$CFG_SEVERITY]; if (-not $thresh) { $thresh = 2 }
             $vulns = @(Check-NpmVulns $apps) + @(Check-PipVulns $apps)
             # Filter vulnerabilities by severity threshold
             $vulns = @($vulns | Where-Object { $sv = $sevOrder[$_.Sev.ToLower()]; if (-not $sv) { $sv = 1 }; $sv -ge $thresh })
+            $script:SecurityFindings = $vulns
             if ($vulns.Count -gt 0) {
                 $vulns | ForEach-Object {
                     $vPkg = $_.Pkg
@@ -2298,8 +2422,14 @@ function Main {
     }
 
     # Apply source filters if specified
-    if ($Source) { $apps = @($apps | Where-Object { $_.Source.ToLower() -eq $Source.ToLower() }) }
-    if ($Include) { $inc = @($Include.ToLower().Split(',')); $apps = @($apps | Where-Object { $_.Source.ToLower() -in $inc }) }
+    if ($normalizedSource) { $apps = @($apps | Where-Object { $_.Source.ToLower() -eq $normalizedSource }) }
+    if ($Include) {
+        $inc = @($Include.ToLower().Split(',') | ForEach-Object {
+                $s = $_.Trim()
+                if ($s) { ($sourceAliases[$s] ?? $s) }
+            })
+        $apps = @($apps | Where-Object { $_.Source.ToLower() -in $inc })
+    }
 
     # Calculate summary statistics
     $updApps = @($apps | Where-Object { $_.Status -eq $S_UPD })
@@ -2329,7 +2459,11 @@ function Main {
     # Display vulnerability table if vulnerabilities found
     $va = @($apps | Where-Object { $_.Status -eq $S_VULN })
     if ($va -and $CFG_SECURITY) {
-        Print-VulnTable ($va | ForEach-Object { [PSCustomObject]@{Pkg = $_.Name; Sev = 'high'; CVE = 'N/A'; Desc = 'Security update recommended' } })
+        if ($script:SecurityFindings -and $script:SecurityFindings.Count -gt 0) {
+            Print-VulnTable $script:SecurityFindings
+        } else {
+            Print-VulnTable ($va | ForEach-Object { [PSCustomObject]@{Pkg = $_.Name; Sev = 'high'; CVE = 'N/A'; Desc = 'Security update recommended' } })
+        }
     }
 
     # Display status message if no specific action requested
@@ -2341,7 +2475,7 @@ function Main {
     # Handle -Package: update specific package
     if ($Package) {
         $wanted = $Package.ToLower()
-        $m = @($apps | Where-Object { $_.name.ToLower() -eq $wanted -and (-not $Source -or $_.Source.ToLower() -eq $Source.ToLower()) })
+        $m = @($apps | Where-Object { $_.name.ToLower() -eq $wanted -and (-not $normalizedSource -or $_.Source.ToLower() -eq $normalizedSource) })
         if (-not $m) { Write-Host "`n$(E 'fail') $(red (bold "Package not found: $Package"))"; exit 2 }
         if ($m.Count -gt 1 -and -not $Source) {
             Write-Host "`n$(E 'warn') $(yellow 'Multiple matches. Re-run with -Source.')"
@@ -2355,9 +2489,9 @@ function Main {
     }
     # Handle -UpdateSource: update all from specific source
     elseif ($UpdateSource) {
-        $cand = @($updApps | Where-Object { $_.Source.ToLower() -eq $UpdateSource.ToLower() })
-        if (-not $cand) { Write-Host "`n$(E 'ok') $(green "No updates for: $UpdateSource")" }
-        elseif (Ask "Proceed with $($cand.Count) update(s) from $UpdateSource?" -Auto:$Yes) { Exec-Updates $cand -Dry:$DryRun }
+        $cand = @($updApps | Where-Object { $_.Source.ToLower() -eq $normalizedUpdateSource })
+        if (-not $cand) { Write-Host "`n$(E 'ok') $(green "No updates for: $normalizedUpdateSource")" }
+        elseif (Ask "Proceed with $($cand.Count) update(s) from $normalizedUpdateSource?" -Auto:$Yes) { Exec-Updates $cand -Dry:$DryRun }
     }
     # Handle -UpdateAll: update everything
     elseif ($UpdateAll) {

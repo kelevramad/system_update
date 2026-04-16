@@ -2,7 +2,7 @@
 
 > 🚀 A sophisticated system update tool with enhanced UI and modular design
 
-**Version:** 2.0.0
+**Version:** 2.1.0
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
 
@@ -197,6 +197,7 @@ The script uses the following default settings stored in `~/.system_update/confi
 | PATH | ✅ | ✅ | ❌ |
 | Registry | ✅ | ✅ | ❌ |
 | Scoop | ✅ | ✅ | ❌ |
+| dotnet | ✅ | ✅ | ❌ |
 
 ---
 
@@ -472,8 +473,9 @@ This project is provided as-is for system administration and package management 
 
 ---
 
-## 🆕 Latest Changes (v5.0.0)
+## 🆕 Latest Changes (v2.1.0)
 
+- **.NET Global Tools support**: Added .NET CLI tools scanning via `dotnet tool list -g`
 - **Scoop support**: Added Scoop package manager support
 
 Contributions and enhancements are always welcome!
