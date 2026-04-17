@@ -2378,7 +2378,10 @@ function wrapText(text, maxWidth) {
   const words = text.split(' ');
   let current = '';
 
-  for (const word of words) {
+  for (let word of words) {
+    if (word.length > maxWidth && maxWidth > 3) {
+      word = word.slice(0, maxWidth - 3) + '...';
+    }
     if ((current + ' ' + word).trim().length <= maxWidth) {
       current = (current + ' ' + word).trim();
     } else {
