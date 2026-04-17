@@ -33,7 +33,7 @@ const { stdin, stdout } = require('node:process');
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS AND CONFIGURATION
 // ─────────────────────────────────────────────────────────────────────────────
-const VERSION = '2.3.0';
+const VERSION = '2.3.1';
 const APP_NAME = 'system-update';
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -2133,6 +2133,7 @@ async function checkNpmVulnerabilities(apps, timeoutMs) {
       const app = npmApps.find((a) => a.name.toLowerCase() === pkgName.toLowerCase());
       if (!app) continue;
 
+      app.status = Status.VULNERABLE;
       vulnerabilities.push({
         packageName: pkgName,
         severity,
@@ -2149,7 +2150,7 @@ async function checkNpmVulnerabilities(apps, timeoutMs) {
 
 /**
  * Check for Python PIP package security vulnerabilities
- * @description Executes pip check --format=json command and parses vulnerability data.
+ * @description Executes pip-audit command and parses vulnerability data.
  * Extracts CVE, severity, and description for each vulnerable package.
  * @param {Array<Object>} apps - Array of scanned app objects
  * @param {number} timeoutMs - Timeout in milliseconds for the command execution
@@ -2160,24 +2161,28 @@ async function checkPipVulnerabilities(apps, timeoutMs) {
   if (!pipApps.length) return [];
   await writeLog('checking pip vulnerabilities');
 
-  const result = await runPip(['check', '--format=json'], timeoutMs);
+  const result = await runCommand('pip-audit', ['-o', '-', '-f', 'json'], { allowFailure: true, timeoutMs });
   if (!result.stdout) return [];
 
   try {
     const parsed = JSON.parse(result.stdout);
     const vulnerabilities = [];
+    const deps = parsed.dependencies || [];
 
-    for (const item of parsed) {
-      if (!item.vulnerabilities || !item.vulnerabilities.length) continue;
+    for (const dep of deps) {
+      const pkgName = dep.name;
+      if (!pkgName || !dep.vulns || !dep.vulns.length) continue;
 
-      const app = pipApps.find((a) => a.name.toLowerCase() === String(item.package_name || item.name).toLowerCase());
+      const app = pipApps.find((a) => a.name.toLowerCase() === pkgName.toLowerCase());
       if (!app) continue;
 
-      for (const vuln of item.vulnerabilities) {
+      app.status = Status.VULNERABLE;
+      for (const vuln of dep.vulns) {
+        const cve = vuln.id || (vuln.aliases && vuln.aliases[0]) || 'N/A';
         vulnerabilities.push({
-          packageName: item.package_name || item.name,
-          severity: vuln.severity || 'medium',
-          cve: vuln.cve_id || 'N/A',
+          packageName: pkgName,
+          severity: 'medium',
+          cve,
           description: vuln.description || 'Security vulnerability',
           appInfo: app,
         });
@@ -2249,11 +2254,12 @@ async function checkOsvVulnerabilities(apps, timeoutMs) {
           severity = vuln.database_specific.severity;
         }
 
+        app.status = Status.VULNERABLE;
         vulnerabilities.push({
           packageName: app.name,
           severity: severity.toUpperCase(),
           cve: vuln.id || 'N/A',
-          description: (vuln.summary || '').slice(0, 200),
+          description: vuln.summary || '',
           appInfo: app,
         });
       }
@@ -2360,38 +2366,117 @@ function printAppsTable(apps, showAll = false) {
 }
 
 /**
+ * Wrap text to fit within a specified width
+ * @description Breaks long text into multiple lines that fit within maxWidth characters.
+ * @param {string} text - Text to wrap
+ * @param {number} maxWidth - Maximum width per line
+ * @returns {Array<string>} Array of wrapped lines
+ */
+function wrapText(text, maxWidth) {
+  if (!text) return [''];
+  const lines = [];
+  const words = text.split(' ');
+  let current = '';
+
+  for (const word of words) {
+    if ((current + ' ' + word).trim().length <= maxWidth) {
+      current = (current + ' ' + word).trim();
+    } else {
+      if (current) lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.length ? lines : [''];
+}
+
+/**
+ * Truncate text with ellipsis
+ * @description Truncates text to maxWidth and adds "... " if truncated.
+ * @param {string} text - Text to truncate
+ * @param {number} maxWidth - Maximum width
+ * @returns {string} Truncated text
+ */
+function truncateText(text, maxWidth) {
+  if (!text) return '';
+  const cleaned = text.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+  if (cleaned.length <= maxWidth) return cleaned;
+  return cleaned.slice(0, maxWidth - 4) + '...';
+}
+
+/**
  * Display formatted table of security vulnerabilities
  * @description Renders a formatted table showing vulnerable packages with their severity,
  * CVE identifier, and description. Uses color coding based on severity level.
+ * Matches Python Rich Table output style.
  * @param {Array<Object>} vulnerabilities - Array of vulnerability objects to display
  */
 function printSecurityTable(vulnerabilities) {
   if (!vulnerabilities.length) return;
   writeLog(`printing security table: count=${vulnerabilities.length}`);
 
-  console.log(`\n${paint('┌'.padEnd(74, '─') + '┐', ANSI.cyan)}`);
-  console.log(paint(`│ ${emoji('fire')} Security Vulnerabilities Detected`.padEnd(72) + '│', ANSI.bold, ANSI.red));
-  console.log(paint('├'.padEnd(74, '─') + '┤', ANSI.cyan));
+  const colWidths = { package: 12, severity: 10, cve: 18, description: 50 };
+  const colGap = 2;
+  const innerWidth = colWidths.package + colGap + colWidths.severity + colGap + colWidths.cve + colGap + colWidths.description;
+  const tableWidth = innerWidth + 4; // 2 for border chars + 2 for inner padding
 
-  const header = ['Package', 'Severity', 'CVE', 'Description'].map((h, i) => {
-    const widths = [20, 10, 18, 22];
-    return paint(h.padEnd(widths[i]), ANSI.bold, ANSI.red);
-  }).join('  ');
-  console.log(paint(`│ ${header} │`, ANSI.cyan));
-  console.log(paint('├'.padEnd(74, '─') + '┤', ANSI.cyan));
+  const borderTop = paint('┌' + '─'.repeat(tableWidth - 2) + '┐', ANSI.red);
+  const borderMid = paint('├' + '─'.repeat(tableWidth - 2) + '┤', ANSI.red);
+  const borderBot = paint('└' + '─'.repeat(tableWidth - 2) + '┘', ANSI.red);
+  const borderL = paint('│', ANSI.red);
+  const borderR = paint('│', ANSI.red);
 
-  for (const v of vulnerabilities) {
+  console.log(`\n${borderTop}`);
+  const title = ` ${emoji('fire')} Security Vulnerabilities Detected `;
+  const titlePad = Math.max(0, tableWidth - 2 - title.length);
+  console.log(`${borderL}${paint(title, ANSI.bold, ANSI.red)}${' '.repeat(titlePad)}${borderR}`);
+  console.log(borderMid);
+
+  const headerText = ' ' +
+    paint('Package'.padEnd(colWidths.package), ANSI.bold, ANSI.cyan) + ' '.repeat(colGap) +
+    paint('Severity'.padEnd(colWidths.severity), ANSI.bold, ANSI.cyan) + ' '.repeat(colGap) +
+    paint('CVE'.padEnd(colWidths.cve), ANSI.bold, ANSI.cyan) + ' '.repeat(colGap) +
+    paint('Description'.padEnd(colWidths.description), ANSI.bold, ANSI.cyan) + ' ';
+  console.log(`${borderL}${headerText}${borderR}`);
+  console.log(borderMid);
+
+  const prefixWidth = colWidths.package + colGap + colWidths.severity + colGap + colWidths.cve + colGap;
+
+  for (let i = 0; i < vulnerabilities.length; i++) {
+    const v = vulnerabilities[i];
     const sevColor = { critical: ANSI.red, high: ANSI.red, medium: ANSI.yellow, low: ANSI.green }[v.severity.toLowerCase()] || ANSI.white;
-    const row = [
-      paint(v.packageName.padEnd(20), ANSI.bold),
-      paint(v.severity.toUpperCase().padEnd(10), sevColor, ANSI.bold),
-      paint(v.cve.padEnd(18), ANSI.cyan),
-      paint(v.description.padEnd(22), ANSI.dim),
-    ].join('  ');
-    console.log(paint(`│ ${row} │`, ANSI.cyan));
+
+    const pkg = paint(truncateText(v.packageName, colWidths.package), ANSI.cyan);
+    const sev = paint(v.severity.toUpperCase().padEnd(colWidths.severity), sevColor);
+    const cveId = truncateText(v.cve, colWidths.cve);
+
+    // Clean description and wrap into multiple lines
+    const cleanDesc = (v.description || '').replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+    const descLines = wrapText(cleanDesc, colWidths.description);
+
+    // First line: show all columns
+    const firstDescLine = (descLines[0] || '').padEnd(colWidths.description);
+    const firstRow = ' ' +
+      padAnsi(pkg, colWidths.package) + ' '.repeat(colGap) +
+      padAnsi(sev, colWidths.severity) + ' '.repeat(colGap) +
+      cveId.padEnd(colWidths.cve) + ' '.repeat(colGap) +
+      paint(firstDescLine, ANSI.dim) + ' ';
+    console.log(`${borderL}${firstRow}${borderR}`);
+
+    // Continuation lines: empty prefix columns, only description text
+    for (let j = 1; j < descLines.length; j++) {
+      const contDesc = descLines[j].padEnd(colWidths.description);
+      const contRow = ' ' + ' '.repeat(prefixWidth) + paint(contDesc, ANSI.dim) + ' ';
+      console.log(`${borderL}${contRow}${borderR}`);
+    }
+
+    // Separator between rows (but not after the last row)
+    if (i < vulnerabilities.length - 1) {
+      console.log(borderMid);
+    }
   }
 
-  console.log(paint('└'.padEnd(74, '─') + '┘', ANSI.cyan));
+  console.log(borderBot);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2779,17 +2864,18 @@ async function main() {
     console.log(`\n${emoji('disk')} Showing: updates only`);
   }
 
-  if (securityFindings.length && config.security?.enabled) {
-    printSecurityTable(securityFindings);
-  }
-
-  // Display found updates message after table
+  // Display found updates message before security table
   if (!args.packageName && !args.updateSource && !args.updateAll) {
     if (!appsWithUpdates.length) {
       console.log(`\n${emoji('sparkle')} ${paint('System is up to date!', ANSI.green)}`);
     } else {
       console.log(`\n${emoji('target')} ${paint(`Found ${appsWithUpdates.length} available updates`, ANSI.yellow, ANSI.bold)}`);
     }
+  }
+
+  // Display security table at the end (matching Python behavior)
+  if (securityFindings.length && config.security?.enabled) {
+    printSecurityTable(securityFindings);
   }
 
   if (args.packageName) {

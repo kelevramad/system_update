@@ -147,7 +147,7 @@ $ErrorActionPreference = 'Stop'
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 # Script version number
-$VER = '2.3.0'
+$VER = '2.3.1'
 
 # Data directory for cache and logs - uses environment variable if set, otherwise defaults to user profile
 $DATA_DIR = if ($env:SYSTEM_UPDATE_HOME) { $env:SYSTEM_UPDATE_HOME } else { Join-Path $env:USERPROFILE '.system_update' }
@@ -1974,9 +1974,8 @@ function Check-NpmVulns([array]$Apps) {
 .SYNOPSIS
     Checks pip packages for security vulnerabilities.
 .DESCRIPTION
-    Runs 'pip check --format=json' to identify known security vulnerabilities
-    in installed Python packages. Tries multiple Python executables for
-    compatibility.
+    Runs 'pip-audit' to identify known security vulnerabilities
+    in installed Python packages.
 .PARAMETER Apps
     Array of application objects to check for vulnerabilities.
 .EXAMPLE
@@ -1984,31 +1983,27 @@ function Check-NpmVulns([array]$Apps) {
 .OUTPUTS
     Array of PSCustomObject with properties: Pkg, Sev, CVE, Desc
 .NOTES
-    Returns empty array if no vulnerabilities found or pip check fails.
-    Tries py, python, then pip executables in order.
+    Returns empty array if no vulnerabilities found or pip-audit fails.
 #>
 function Check-PipVulns([array]$Apps) {
     $t = @($Apps | Where-Object { $_.source -eq 'pip' }); if (-not $t) { return @() }; $vulns = @()
-    foreach ($run in @('py', 'python', 'pip')) {
-        $a = if ($run -ne 'pip') { @('-m', 'pip', 'check', '--format=json') } else { @('check', '--format=json') }
-        $r = Invoke-Cmd $run $a -AllowFail
-        if ($r.Stdout) {
-            try {
-                ($r.Stdout | ConvertFrom-Json) | ForEach-Object {
-                    if (-not $_.vulnerabilities -or $_.vulnerabilities.Count -eq 0) { return }
-                    $pn = if ($_.package_name) { $_.package_name } else { $_.name }
-                    $found = $t | Where-Object { $_.name.ToLower() -eq $pn.ToLower() } | Select-Object -First 1
-                    if (-not $found) { return }
-                    foreach ($vv in $_.vulnerabilities) {
-                        $sev = if ($vv.severity) { $vv.severity } else { 'medium' }
-                        $cve = if ($vv.cve_id) { $vv.cve_id } else { 'N/A' }
-                        $desc = if ($vv.description) { $vv.description } else { 'Security vulnerability' }
-                        $vulns += [PSCustomObject]@{Pkg = $pn; Sev = $sev; CVE = $cve; Desc = $desc }
-                    }
-                }; break
+    $r = Invoke-Cmd 'pip-audit' @('-o', '-', '-f', 'json') -AllowFail
+    if ($r.Stdout) {
+        try {
+            $j = $r.Stdout | ConvertFrom-Json
+            foreach ($dep in $j.dependencies) {
+                if (-not $dep.name -or -not $dep.vulns) { continue }
+                $pn = $dep.name
+                $found = $t | Where-Object { $_.name.ToLower() -eq $pn.ToLower() } | Select-Object -First 1
+                if (-not $found) { continue }
+                foreach ($vv in $dep.vulns) {
+                    $cve = if ($vv.id) { $vv.id } elseif ($vv.aliases -and $vv.aliases.Count -gt 0) { $vv.aliases[0] } else { 'N/A' }
+                    $desc = if ($vv.description) { $VV.description } else { 'Security vulnerability' }
+                    $vulns += [PSCustomObject]@{Pkg = $pn; Sev = 'MEDIUM'; CVE = $cve; Desc = $desc}
+                }
             }
-            catch {}
         }
+        catch {}
     }
     return $vulns
 }
@@ -2070,7 +2065,7 @@ function Check-OsvVulns([array]$Apps) {
                     Pkg = $app.name
                     Sev = $sev.ToUpper()
                     CVE = if ($vuln.id) { $vuln.id } else { 'N/A' }
-                    Desc = if ($vuln.summary) { $vuln.summary.Substring(0, [Math]::Min(200, $vuln.summary.Length)) } else { 'Security vulnerability' }
+                    Desc = if ($vuln.summary) { $vuln.summary } else { 'Security vulnerability' }
                 }
             }
         }
@@ -2211,22 +2206,89 @@ function Print-Table([array]$Apps, [switch]$ShowAll) {
 .OUTPUTS
     Writes formatted vulnerability table to host output.
 #>
+function Truncate-Text([string]$Text, [int]$MaxWidth) {
+    if (-not $Text) { return '' }
+    $cleaned = $Text -replace "`r?`n", ' ' -replace '\s+', ' '
+    $cleaned = $cleaned.Trim()
+    if ($MaxWidth -le 3) { return '' }
+    if ($cleaned.Length -le $MaxWidth) { return $cleaned }
+    return $cleaned.Substring(0, $MaxWidth - 3) + '...'
+}
+
+function Wrap-Text([string]$Text, [int]$MaxWidth) {
+    if (-not $Text) { return @('') }
+    $lines = @()
+    $words = $Text.Split(' ')
+    $current = ''
+    foreach ($word in $words) {
+        $test = if ($current) { "$current $word" } else { $word }
+        if ($test.Length -le $MaxWidth) {
+            $current = $test
+        } else {
+            if ($current) { $lines += $current }
+            $current = $word
+        }
+    }
+    if ($current) { $lines += $current }
+    if ($lines.Count -eq 0) { return @('') }
+    return $lines
+}
+
 function Print-VulnTable([array]$Vulns) {
     if (-not $Vulns) { return }
-    # Draw table header with warning styling
-    $w = [Math]::Min(73, $Host.UI.RawUI.WindowSize.Width - 2)
-    Write-Host ''; Write-Host (cyan "┌$('─'*$w)┐")
-    Write-Host (c '1;31' "│ $(E 'fire') Security Vulnerabilities Detected$(' '*($w - 34))│")
-    Write-Host (cyan "├$('─'*$w)┤")
-    Write-Host (cyan "│ $(c '1;31' 'Package'.PadRight(20))  $(c '1;31' 'Severity'.PadRight(10))  $(c '1;31' 'CVE'.PadRight(18))  $(c '1;31' 'Description'.PadRight(22)) │")
-    Write-Host (cyan "├$('─'*74)┤")
-    # Display each vulnerability with severity-based coloring
-    foreach ($v in $Vulns) {
-        $sc = switch ($v.Sev.ToLower()) { 'critical' { '31' } 'high' { '31' } 'medium' { '33' } default { '32' } }
-        $row = "$(bold $v.Pkg.PadRight(20))  $(c "$sc;1" $v.Sev.ToUpper().PadRight(10))  $(cyan $v.CVE.PadRight(18))  $($v.Desc.PadRight(22))"
-        Write-Host (cyan "│ $row │")
+    $packageWidth = 12
+    $severityWidth = 10
+    $cveWidth = 18
+    $descWidth = 50
+    $colGap = 2
+    $innerWidth = $packageWidth + $colGap + $severityWidth + $colGap + $cveWidth + $colGap + $descWidth + 2
+    $w = $innerWidth
+
+    $borderColor = '31'
+    Write-Host ''
+    Write-Host (c $borderColor "┌$('─'*$w)┐")
+    $title = " $(E 'fire') Security Vulnerabilities Detected "
+    $titlePad = ' ' * [Math]::Max(0, $w - $title.Length)
+    Write-Host "$(c $borderColor '│')$(c '1;31' $title)$titlePad$(c $borderColor '│')"
+    Write-Host (c $borderColor "├$('─'*$w)┤")
+
+    $header = ' ' + 'Package'.PadRight($packageWidth) + (' ' * $colGap) + 'Severity'.PadRight($severityWidth) + (' ' * $colGap) + 'CVE'.PadRight($cveWidth) + (' ' * $colGap) + 'Description'.PadRight($descWidth) + ' '
+    Write-Host "$(c $borderColor '│')$(c '1;36' $header)$(c $borderColor '│')"
+    Write-Host (c $borderColor "├$('─'*$w)┤")
+
+    $prefixWidth = $packageWidth + $colGap + $severityWidth + $colGap + $cveWidth + $colGap
+
+    for ($i = 0; $i -lt $Vulns.Count; $i++) {
+        $v = $Vulns[$i]
+        $sevColorMap = @{ critical = '31'; high = '31'; medium = '33'; low = '32' }
+        $sevColor = $sevColorMap[$v.Sev.ToLower()]; if (-not $sevColor) { $sevColor = '37' }
+
+        $pkg = (Truncate-Text $v.Pkg $packageWidth)
+        $sev = $v.Sev.ToUpper().PadRight($severityWidth)
+        $cveId = (Truncate-Text $v.CVE $cveWidth)
+
+        # Clean description and wrap into multiple lines
+        $cleanDesc = if ($v.Desc) { ($v.Desc -replace "`r?`n", ' ' -replace '\s+', ' ').Trim() } else { '' }
+        $descLines = @(Wrap-Text $cleanDesc $descWidth)
+
+        # First line: show all columns
+        $firstDesc = $descLines[0].PadRight($descWidth)
+        $firstRow = ' ' + (c '36' $pkg.PadRight($packageWidth)) + (' ' * $colGap) + (c $sevColor $sev.PadRight($severityWidth)) + (' ' * $colGap) + $cveId.PadRight($cveWidth) + (' ' * $colGap) + (c '2' $firstDesc) + ' '
+        Write-Host "$(c $borderColor '│')$firstRow$(c $borderColor '│')"
+
+        # Continuation lines: empty prefix, only description text
+        for ($j = 1; $j -lt $descLines.Count; $j++) {
+            $contDesc = $descLines[$j].PadRight($descWidth)
+            $contRow = ' ' + (' ' * $prefixWidth) + (c '2' $contDesc) + ' '
+            Write-Host "$(c $borderColor '│')$contRow$(c $borderColor '│')"
+        }
+
+        # Separator between rows (but not after the last row)
+        if ($i -lt $Vulns.Count - 1) {
+            Write-Host (c $borderColor "├$('─'*$w)┤")
+        }
     }
-    Write-Host (cyan "└$('─'*$w)┘")
+    Write-Host (c $borderColor "└$('─'*$w)┘")
 }
 
 # ── Export Functions ───────────────────────────────────────────────────────────
@@ -2653,7 +2715,14 @@ function Main {
         Write-Host "`n$(E 'disk') $(dim 'Showing: updates only')"
     }
 
-    # Display vulnerability table if vulnerabilities found
+    # Display status message before security table (matching Python behavior)
+    if (-not $Package -and -not $UpdateAll -and -not $UpdateSource) {
+        $updCount = if ($updApps) { $updApps.Count } else { 0 }
+        if ($updCount -eq 0) { Write-Host "`n$(E 'sparkle') $(green 'System is up to date!')" }
+        else { Write-Host "`n$(E 'target') $(yellow (bold "Found $updCount available updates"))" }
+    }
+
+    # Display vulnerability table at the end (matching Python behavior)
     $va = @($apps | Where-Object { $_.Status -eq $S_VULN })
     $vaCount = if ($va) { $va.Count } else { 0 }
     if ($vaCount -gt 0 -and $CFG_SECURITY) {
@@ -2663,13 +2732,6 @@ function Main {
         } else {
             Print-VulnTable ($va | ForEach-Object { [PSCustomObject]@{Pkg = $_.Name; Sev = 'high'; CVE = 'N/A'; Desc = 'Security update recommended' } })
         }
-    }
-
-    # Display status message if no specific action requested
-    if (-not $Package -and -not $UpdateAll -and -not $UpdateSource) {
-        $updCount = if ($updApps) { $updApps.Count } else { 0 }
-        if ($updCount -eq 0) { Write-Host "`n$(E 'sparkle') $(green 'System is up to date!')" }
-        else { Write-Host "`n$(E 'target') $(yellow (bold "Found $updCount available updates"))" }
     }
 
     # Handle -Package: update specific package
