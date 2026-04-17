@@ -2,7 +2,7 @@
 
 > 🚀 A sophisticated system update tool with enhanced UI and modular design
 
-**Version:** 2.6.0
+ **Version:** 2.7.0
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
 
@@ -472,6 +472,14 @@ For issues or questions:
 ## 📄 License
 
 This project is provided as-is for system administration and package management tasks.
+
+---
+
+## 🆕 Latest Changes (v2.7.0)
+- **CVSS Score Display**: Show CVSS scores for vulnerabilities in security tables
+- **Security Summary Stats**: Added detailed security summary with colored severity counts and affected package counts
+- **Vulnerability History**: Implemented persistent vulnerability tracking over time in `vulnerability_history.json`
+- **Enhanced CVE Details**: Added detailed vulnerability metadata including affected versions and published dates
 
 ---
 

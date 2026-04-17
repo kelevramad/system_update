@@ -147,7 +147,7 @@ $ErrorActionPreference = 'Stop'
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 # Script version number
-$VER = '2.6.0'
+ $VER = '2.7.0'
 
 # Data directory for cache and logs - uses environment variable if set, otherwise defaults to user profile
 $DATA_DIR = if ($env:SYSTEM_UPDATE_HOME) { $env:SYSTEM_UPDATE_HOME } else { Join-Path $env:USERPROFILE '.system_update' }
@@ -198,6 +198,78 @@ if ($envTimeout) {
 
 $CFG_SECURITY = Get-EnvBool 'SYSTEM_UPDATE_SECURITY' $CFG_SECURITY
 $CFG_SKIP_UPDATE_CHECKS = Get-EnvBool 'SYSTEM_UPDATE_SKIP_UPDATE_CHECKS' $false
+
+# Path to vulnerability history JSON file
+$HISTORY_FILE = Join-Path $DATA_DIR 'vulnerability_history.json'
+
+# Initialize vulnerability history entries array (script scope)
+$script:VulnHistoryEntries = @()
+
+# ── Vulnerability History Tracking ───────────────────────────────────────────────
+# Script-scoped vulnerability history collection
+$script:VulnHistoryEntries = @()
+
+function Get-ScanId {
+    # Generate a unique scan identifier using timestamp and random component
+    $timestamp = [datetime]::UtcNow.ToString("yyyyMMddHHmmss")
+    $random = Get-Random -Minimum 1000 -Maximum 9999
+    return "scan_${timestamp}_${random}"
+}
+
+function Load-VulnerabilityHistory {
+    # Load vulnerability history from JSON file
+    if (-not (Test-Path $HISTORY_FILE)) { return }
+    try {
+        $data = Get-Content $HISTORY_FILE -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($data -and $data.entries) {
+            $script:VulnHistoryEntries = @($data.entries)
+        }
+    } catch { $script:VulnHistoryEntries = @() }
+}
+
+function Save-VulnerabilityHistory {
+    # Save vulnerability history to JSON file
+    try {
+        if (-not (Test-Path $DATA_DIR)) { New-Item -ItemType Directory $DATA_DIR -Force | Out-Null }
+        @{entries = $script:VulnHistoryEntries; version = 1} | ConvertTo-Json -Depth 10 | Set-Content $HISTORY_FILE -Encoding UTF8
+    } catch {}
+}
+
+function Record-Vulnerability {
+    param([PSCustomObject]$Vuln, [string]$ScanId)
+    $entry = [PSCustomObject]@{
+        Package          = $Vuln.Pkg
+        Severity         = $Vuln.Sev
+        CVSS             = if ($Vuln.CVSS) { $Vuln.CVSS } else { $null }
+        CVE              = $Vuln.CVE
+        AdvisoryUrl      = if ($Vuln.AdvisoryUrl) { $Vuln.AdvisoryUrl } else { '' }
+        AffectedVersions = if ($Vuln.AffectedVersions) { $Vuln.AffectedVersions } else { '' }
+        PublishedDate    = if ($Vuln.PublishedDate) { $Vuln.PublishedDate } else { '' }
+        FixAvailable     = if ($null -ne $Vuln.FixAvailable) { $Vuln.FixAvailable } else { $false }
+        Source           = if ($Vuln.Source) { $Vuln.Source } else { 'unknown' }
+        ScanId           = $ScanId
+        Timestamp        = [datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+    }
+    $script:VulnHistoryEntries += $entry
+    Save-VulnerabilityHistory
+}
+
+function Get-VulnerabilityStatistics {
+    # Compute security statistics from vulnerability history
+    $total = $script:VulnHistoryEntries.Count
+    $bySeverity = @{ critical = 0; high = 0; medium = 0; low = 0 }
+    $packages = @{}
+    foreach ($e in $script:VulnHistoryEntries) {
+        $sev = $e.Severity.ToLower()
+        if ($bySeverity.ContainsKey($sev)) { $bySeverity[$sev]++ } else { $bySeverity[$sev] = 1 }
+        $packages[$e.Package.ToLower()] = $true
+    }
+    return @{
+        TotalVulnerabilities = $total
+        SeverityBreakdown    = $bySeverity
+        UniquePackages       = $packages.Keys.Count
+    }
+}
 
 # ── ANSI Color Functions ───────────────────────────────────────────────────────
 # Detect if the host console supports ANSI virtual terminal sequences
@@ -1929,6 +2001,26 @@ function Is-NewerVersion([string]$current, [string]$latest) {
            ($lat[0] -eq $curr[0] -and $lat[1] -eq $curr[1] -and $lat[2] -gt $curr[2])
 }
 
+<#
+.SYNOPSIS
+    Converts a numeric CVSS score to a severity string.
+.DESCRIPTION
+    Maps CVSS scores to NVD severity levels: 0-3.9=LOW, 4-6.9=MEDIUM, 7-8.9=HIGH, 9-10=CRITICAL.
+.PARAMETER Score
+    The numeric CVSS score (0-10).
+.EXAMPLE
+    Convert-ScoreToSeverity 7.5  # Returns 'HIGH'
+.OUTPUTS
+    Severity string: CRITICAL, HIGH, MEDIUM, LOW, or UNKNOWN
+#>
+function Convert-ScoreToSeverity([double]$Score) {
+    if ($Score -ge 9.0) { return 'CRITICAL' }
+    elseif ($Score -ge 7.0) { return 'HIGH' }
+    elseif ($Score -ge 4.0) { return 'MEDIUM' }
+    elseif ($Score -ge 0.0) { return 'LOW' }
+    else { return 'UNKNOWN' }
+}
+
 # ── Security Vulnerability Functions ───────────────────────────────────────────
 
 <#
@@ -1959,36 +2051,94 @@ function Check-NpmVulns([array]$Apps) {
                 $nm = $_.Name; $v = $j.vulnerabilities.$nm
                 $a = $t | Where-Object { $_.name.ToLower() -eq $nm.ToLower() } | Select-Object -First 1
                 if (-not $a) { return }
-                $sev = if ($v.severity) { $v.severity } else { 'low' }
-                $cve = 'N/A'
-                $desc = 'Vulnerability found'
-                $advisoryUrl = ''
-                $fixAvailable = $false
 
+                # Extract severity
+                $sev = if ($v.severity) { $v.severity } else { 'low' }
+
+                # Extract CVSS score from via array (prefer cvss, fallback to score)
+                $cvss = $null
+                if ($v.via -and $v.via.Count -gt 0) {
+                    $firstVia = $v.via[0]
+                    if ($firstVia -is [PSCustomObject] -or $firstVia -is [System.Collections.Hashtable]) {
+                        if ($firstVia.cvss) {
+                            # cvss can be a number or an object with score
+                            if ($firstVia.cvss -is [double] -or $firstVia.cvss -is [int]) {
+                                $cvss = [double]$firstVia.cvss
+                            } elseif ($firstVia.cvss.PSObject.Properties['score']) {
+                                $cvss = [double]$firstVia.cvss.score
+                            }
+                        } elseif ($firstVia.score) {
+                            $cvss = [double]$firstVia.score
+                        }
+                    }
+                }
+
+                # Extract CVE
+                $cve = 'N/A'
                 if ($v.via -and $v.via.Count -gt 0) {
                     $firstVia = $v.via[0]
                     if ($firstVia -is [PSCustomObject] -or $firstVia -is [System.Collections.Hashtable]) {
                         $cve = if ($firstVia.id) { $firstVia.id } elseif ($firstVia.cve) { $firstVia.cve } else { 'N/A' }
-                        $desc = if ($firstVia.title) { $firstVia.title } elseif ($firstVia.url) { $firstVia.url } else { 'Vulnerability found' }
-                        $advisoryUrl = if ($firstVia.url) { $firstVia.url } else { '' }
-                        if ($firstVia.severity) { $sev = $firstVia.severity }
-                    }
-                    elseif ($firstVia -is [string]) {
-                        $desc = "Via: $firstVia"
                     }
                 }
 
-                $fixAvailable = if ($v.fixAvailable -eq $true) { $true } elseif ($v.fixAvailable -is [PSCustomObject]) { $true } else { $false }
+                # Extract description
+                $desc = 'Vulnerability found'
+                if ($v.via -and $v.via.Count -gt 0) {
+                    $firstVia = $v.via[0]
+                    if ($firstVia -is [PSCustomObject] -or $firstVia -is [System.Collections.Hashtable]) {
+                        $desc = if ($firstVia.title) { $firstVia.title } elseif ($firstVia.url) { $firstVia.url } else { 'Vulnerability found' }
+                    }
+                }
+
+                # Extract advisory URL
+                $advisoryUrl = ''
+                if ($v.via -and $v.via.Count -gt 0) {
+                    $firstVia = $v.via[0]
+                    if ($firstVia -is [PSCustomObject] -or $firstVia -is [System.Collections.Hashtable]) {
+                        $advisoryUrl = if ($firstVia.url) { $firstVia.url } else { '' }
+                    }
+                }
+
+                # Extract affected versions (from version ranges if available)
+                $affectedVersions = ''
+                if ($v.via -and $v.via.Count -gt 0) {
+                    $firstVia = $v.via[0]
+                    if ($firstVia -is [PSCustomObject] -or $firstVia -is [System.Collections.Hashtable]) {
+                        if ($firstVia.range) { $affectedVersions = $firstVia.range }
+                    }
+                }
+
+                # Extract published date
+                $publishedDate = ''
+                if ($v.via -and $v.via.Count -gt 0) {
+                    $firstVia = $v.via[0]
+                    if ($firstVia -is [PSCustomObject] -or $firstVia -is [System.Collections.Hashtable]) {
+                        if ($firstVia.published) { $publishedDate = $firstVia.published }
+                    }
+                }
+
+                # Fix available
+                $fixAvailable = $false
+                if ($v.fixAvailable -eq $true) { $fixAvailable = $true }
+                elseif ($v.fixAvailable -is [PSCustomObject]) { $fixAvailable = $true }
+
+                # Source
+                $source = 'npm'
 
                 $vulns += [PSCustomObject]@{
-                    Pkg = $nm
-                    Sev = $sev
-                    CVE = $cve
-                    Desc = $desc
-                    AdvisoryUrl = $advisoryUrl
-                    FixAvailable = $fixAvailable
-                    IsDirect = if ($v.isDirect) { $v.isDirect } else { $false }
-                    Effects = if ($v.effects) { $v.effects } else { @() }
+                    Pkg              = $nm
+                    Sev              = $sev
+                    CVSS             = $cvss
+                    CVE              = $cve
+                    Desc             = $desc
+                    AdvisoryUrl      = $advisoryUrl
+                    AffectedVersions = $affectedVersions
+                    PublishedDate    = $publishedDate
+                    FixAvailable     = $fixAvailable
+                    Source           = $source
+                    IsDirect         = if ($v.isDirect) { $v.isDirect } else { $false }
+                    Effects          = if ($v.effects) { $v.effects } else { @() }
                 }
             }
         }
@@ -2028,9 +2178,46 @@ function Check-PipVulns([array]$Apps) {
                 $found = $t | Where-Object { $_.name.ToLower() -eq $pn.ToLower() } | Select-Object -First 1
                 if (-not $found) { continue }
                 foreach ($vv in $dep.vulns) {
+                    # Extract CVSS from vulnerability data
+                    $cvss = $null
+                    if ($vv.cvss -and $vv.cvss.score) {
+                        $cvss = [double]$vv.cvss.score
+                    } elseif ($vv.cvss_score) {
+                        $cvss = [double]$vv.cvss_score
+                    }
+
                     $cve = if ($vv.id) { $vv.id } elseif ($vv.aliases -and $vv.aliases.Count -gt 0) { $vv.aliases[0] } else { 'N/A' }
-                    $desc = if ($vv.description) { $VV.description } else { 'Security vulnerability' }
-                    $vulns += [PSCustomObject]@{Pkg = $pn; Sev = 'MEDIUM'; CVE = $cve; Desc = $desc}
+                    $desc = if ($vv.description) { $vv.description } else { 'Security vulnerability' }
+
+                    # Extract affected versions
+                    $affectedVersions = ''
+                    if ($vv.affected_versions) { $affectedVersions = $vv.affected_versions }
+
+                    # Extract published date
+                    $publishedDate = ''
+                    if ($vv.published) { $publishedDate = $vv.published }
+                    elseif ($vv.published_at) { $publishedDate = $vv.published_at }
+
+                    # Extract advisory URL
+                    $advisoryUrl = ''
+                    if ($vv.advisory_url) { $advisoryUrl = $vv.advisory_url }
+
+                    # Fix available (pip-audit may not provide this directly)
+                    $fixAvailable = $false
+                    if ($vv.fix_versions -and $vv.fix_versions.Count -gt 0) { $fixAvailable = $true }
+
+                    $vulns += [PSCustomObject]@{
+                        Pkg              = $pn
+                        Sev              = 'MEDIUM'
+                        CVSS             = $cvss
+                        CVE              = $cve
+                        Desc             = $desc
+                        AdvisoryUrl      = $advisoryUrl
+                        AffectedVersions = $affectedVersions
+                        PublishedDate    = $publishedDate
+                        FixAvailable     = $fixAvailable
+                        Source           = 'pip'
+                    }
                 }
             }
         }
@@ -2084,19 +2271,61 @@ function Check-OsvVulns([array]$Apps) {
             $data = $r.Content | ConvertFrom-Json
             if (-not $data.vulns) { continue }
             foreach ($vuln in $data.vulns) {
+                # Extract severity/CVSS
+                $cvss = $null
                 $sev = 'MEDIUM'
                 if ($vuln.severity) {
                     foreach ($s in $vuln.severity) {
-                        if ($s.type -eq 'cvss_v3') { $sev = if ($s.score) { [string]$s.score } else { 'MEDIUM' }; break }
+                        if ($s.type -eq 'cvss_v3') {
+                            if ($s.score) {
+                                $cvss = [double]$s.score
+                                $sev = Convert-ScoreToSeverity $cvss
+                            }
+                            break
+                        }
                     }
                 } elseif ($vuln.database_severity) {
                     $sev = $vuln.database_severity
                 }
+
+                # Extract affected versions from ranges
+                $affectedVersions = ''
+                if ($vuln.affected -and $vuln.affected.Count -gt 0) {
+                    $ranges = @()
+                    foreach ($aff in $vuln.affected) {
+                        if ($aff.ranges) {
+                            foreach ($range in $aff.ranges) {
+                                if ($range.events) {
+                                    $eventStrs = @($range.events | ForEach-Object {
+                                        if ($_.introduced) { "introduced: $($_.introduced)" }
+                                        elseif ($_.fixed) { "fixed: $($_.fixed)" }
+                                        elseif ($_.last_affected) { "last_affected: $($_.last_affected)" }
+                                    })
+                                    if ($eventStrs) { $ranges += ($range.type + ': ' + ($eventStrs -join ', ')) }
+                                }
+                            }
+                        }
+                    }
+                    if ($ranges.Count -gt 0) { $affectedVersions = ($ranges -join '; ') }
+                }
+
+                # Extract published date
+                $publishedDate = if ($vuln.published) { $vuln.published } else { '' }
+
+                # Extract advisory URL (OSV IDs are not URLs but we can construct one)
+                $advisoryUrl = "https://osv.dev/$($vuln.id)"
+
                 $vulns += [PSCustomObject]@{
-                    Pkg = $app.name
-                    Sev = $sev.ToUpper()
-                    CVE = if ($vuln.id) { $vuln.id } else { 'N/A' }
-                    Desc = if ($vuln.summary) { $vuln.summary } else { 'Security vulnerability' }
+                    Pkg              = $app.name
+                    Sev              = $sev.ToUpper()
+                    CVSS             = $cvss
+                    CVE              = if ($vuln.id) { $vuln.id } else { 'N/A' }
+                    Desc             = if ($vuln.summary) { $vuln.summary } else { 'Security vulnerability' }
+                    AdvisoryUrl      = $advisoryUrl
+                    AffectedVersions = $affectedVersions
+                    PublishedDate    = $publishedDate
+                    FixAvailable     = $false  # OSV doesn't directly indicate fix availability
+                    Source           = 'osv'
                 }
             }
         }
@@ -2135,11 +2364,36 @@ function Check-PypiJsonVulns {
             foreach ($vuln in $data.info.vulnerabilities) {
                 $aliases = if ($vuln.aliases) { $vuln.aliases } else { @() }
                 $cve = if ($aliases.Count -gt 0) { $aliases[0] } elseif ($vuln.id) { $vuln.id } else { 'N/A' }
+
+                # PyPI vulnerabilities don't include CVSS directly (it's in OSV data but not exposed here)
+                $cvss = $null
+
+                # Extract affected versions
+                $affectedVersions = ''
+                if ($vuln.affected_versions) { $affectedVersions = $vuln.affected_versions }
+
+                # Extract published date
+                $publishedDate = ''
+                if ($vuln.published) { $publishedDate = $vuln.published }
+                elseif ($vuln.created) { $publishedDate = $vuln.created }
+
+                # Extract advisory URL (use PyPI vulnerability page)
+                $advisoryUrl = "https://pypi.org/project/$($app.name)/#history"
+
+                # Fix available info not directly provided
+                $fixAvailable = $false
+
                 $vulns += [PSCustomObject]@{
-                    Pkg = $app.name
-                    Sev = 'MEDIUM'
-                    CVE = $cve
-                    Desc = if ($vuln.summary) { $vuln.summary } elseif ($vuln.details) { $vuln.details } else { 'Security vulnerability' }
+                    Pkg              = $app.name
+                    Sev              = 'MEDIUM'
+                    CVSS             = $cvss
+                    CVE              = $cve
+                    Desc             = if ($vuln.summary) { $vuln.summary } elseif ($vuln.details) { $vuln.details } else { 'Security vulnerability' }
+                    AdvisoryUrl      = $advisoryUrl
+                    AffectedVersions = $affectedVersions
+                    PublishedDate    = $publishedDate
+                    FixAvailable     = $fixAvailable
+                    Source           = 'pypi'
                 }
             }
         }
@@ -2194,15 +2448,55 @@ function Check-GitHubAdvisoryVulns {
                 $affected = $advisory.affected | Where-Object { ($_.package.name -eq $app.name) }
                 if (-not $affected) { continue }
 
+                # Extract severity
                 $severity = if ($advisory.severity) { $advisory.severity.ToUpper() } else { 'MEDIUM' }
+
+                # Extract CVSS score
+                $cvss = $null
+                if ($advisory.cvss -and $advisory.cvss.score) {
+                    $cvss = [double]$advisory.cvss.score
+                } elseif ($advisory.cvssScores -and $advisory.cvssScores.Count -gt 0) {
+                    # cvssScores is an array, get first score
+                    $firstCvss = $advisory.cvssScores[0]
+                    if ($firstCvss.score) { $cvss = [double]$firstCvss.score }
+                }
+
+                # Extract CVE/GHSA IDs
                 $ghsaId = if ($advisory.ghsa_id) { $advisory.ghsa_id } else { 'N/A' }
                 $cve = if ($advisory.cve_id) { $advisory.cve_id } else { 'N/A' }
 
+                # Extract affected versions from vulnerable_version_range
+                $affectedVersions = ''
+                if ($affected -and $affected.Count -gt 0) {
+                    $ranges = @($affected | ForEach-Object {
+                        if ($_.vulnerable_version_range) { $_.vulnerable_version_range }
+                    })
+                    if ($ranges.Count -gt 0) { $affectedVersions = ($ranges -join '; ') }
+                }
+
+                # Extract published date
+                $publishedDate = if ($advisory.published_at) { $advisory.published_at } else { '' }
+
+                # Extract advisory URL
+                $advisoryUrl = if ($advisory.html_url) { $advisory.html_url } else { "https://github.com/advisories/$ghsaId" }
+
+                # Fix availability (not directly provided by GitHub API)
+                $fixAvailable = $false
+                if ($advisory.state -eq 'published' -and $advisory.attributes -and $advisory.attributes.fix_available) {
+                    $fixAvailable = $true
+                }
+
                 $vulns += [PSCustomObject]@{
-                    Pkg = $app.name
-                    Sev = $severity
-                    CVE = if ($cve -ne 'N/A') { $cve } else { $ghsaId }
-                    Desc = if ($advisory.description) { $advisory.description.Substring(0, [Math]::Min(200, $advisory.description.Length)) } else { 'Security vulnerability' }
+                    Pkg              = $app.name
+                    Sev              = $severity
+                    CVSS             = $cvss
+                    CVE              = if ($cve -ne 'N/A') { $cve } else { $ghsaId }
+                    Desc             = if ($advisory.description) { $advisory.description.Substring(0, [Math]::Min(200, $advisory.description.Length)) } else { 'Security vulnerability' }
+                    AdvisoryUrl      = $advisoryUrl
+                    AffectedVersions = $affectedVersions
+                    PublishedDate    = $publishedDate
+                    FixAvailable     = $fixAvailable
+                    Source           = 'github'
                 }
             }
         }
@@ -2262,14 +2556,33 @@ function Check-LocalAdvisoryVulns {
         if (-not $app) { continue }
 
         $severity = if ($adv.severity) { $adv.severity.ToUpper() } else { 'MEDIUM' }
+
+        # Extract CVSS
+        $cvss = $null
+        if ($adv.cvss) {
+            try { $cvss = [double]$adv.cvss } catch {}
+        }
+
         $cve = if ($adv.cve) { $adv.cve } else { 'N/A' }
         $desc = if ($adv.description) { $adv.description.Substring(0, [Math]::Min(200, $adv.description.Length)) } else { 'Security vulnerability' }
 
+        # Extract additional metadata
+        $advisoryUrl = if ($adv.url) { $adv.url } elseif ($adv.advisory_url) { $adv.advisory_url } else { '' }
+        $affectedVersions = if ($adv.affected_versions) { $adv.affected_versions } else { '' }
+        $publishedDate = if ($adv.published_date) { $adv.published_date } else { '' }
+        $fixAvailable = if ($adv.fix_available) { $true } else { $false }
+
         $vulns += [PSCustomObject]@{
-            Pkg = $adv.package
-            Sev = $severity
-            CVE = $cve
-            Desc = $desc
+            Pkg              = $adv.package
+            Sev              = $severity
+            CVSS             = $cvss
+            CVE              = $cve
+            Desc             = $desc
+            AdvisoryUrl      = $advisoryUrl
+            AffectedVersions = $affectedVersions
+            PublishedDate    = $publishedDate
+            FixAvailable     = $fixAvailable
+            Source           = 'local'
         }
     }
     return $vulns
@@ -2441,12 +2754,13 @@ function Wrap-Text([string]$Text, [int]$MaxWidth) {
 
 function Print-VulnTable([array]$Vulns) {
     if (-not $Vulns) { return }
-    $packageWidth = 12
+    $packageWidth = 25
     $severityWidth = 10
+    $cvssWidth = 8
     $cveWidth = 18
     $descWidth = 50
     $colGap = 2
-    $innerWidth = $packageWidth + $colGap + $severityWidth + $colGap + $cveWidth + $colGap + $descWidth + 2
+    $innerWidth = $packageWidth + $colGap + $severityWidth + $colGap + $cvssWidth + $colGap + $cveWidth + $colGap + $descWidth + 2
     $w = $innerWidth
 
     $borderColor = '31'
@@ -2457,11 +2771,11 @@ function Print-VulnTable([array]$Vulns) {
     Write-Host "$(c $borderColor '│')$(c '1;31' $title)$titlePad$(c $borderColor '│')"
     Write-Host (c $borderColor "├$('─'*$w)┤")
 
-    $header = ' ' + 'Package'.PadRight($packageWidth) + (' ' * $colGap) + 'Severity'.PadRight($severityWidth) + (' ' * $colGap) + 'CVE'.PadRight($cveWidth) + (' ' * $colGap) + 'Description'.PadRight($descWidth) + ' '
+    $header = ' ' + 'Package'.PadRight($packageWidth) + (' ' * $colGap) + 'Severity'.PadRight($severityWidth) + (' ' * $colGap) + 'CVSS'.PadRight($cvssWidth) + (' ' * $colGap) + 'CVE'.PadRight($cveWidth) + (' ' * $colGap) + 'Description'.PadRight($descWidth) + ' '
     Write-Host "$(c $borderColor '│')$(c '1;36' $header)$(c $borderColor '│')"
     Write-Host (c $borderColor "├$('─'*$w)┤")
 
-    $prefixWidth = $packageWidth + $colGap + $severityWidth + $colGap + $cveWidth + $colGap
+    $prefixWidth = $packageWidth + $colGap + $severityWidth + $colGap + $cvssWidth + $colGap + $cveWidth + $colGap
 
     for ($i = 0; $i -lt $Vulns.Count; $i++) {
         $v = $Vulns[$i]
@@ -2470,6 +2784,11 @@ function Print-VulnTable([array]$Vulns) {
 
         $pkg = (Truncate-Text $v.Pkg $packageWidth)
         $sev = $v.Sev.ToUpper().PadRight($severityWidth)
+
+        # Format CVSS score
+        $cvssText = if ($v.CVSS -ne $null) { ($v.CVSS).ToString('0.0') } else { '-' }
+        $cvssText = $cvssText.PadRight($cvssWidth)
+
         $cveId = (Truncate-Text $v.CVE $cveWidth)
 
         # Clean description and wrap into multiple lines
@@ -2478,7 +2797,7 @@ function Print-VulnTable([array]$Vulns) {
 
         # First line: show all columns
         $firstDesc = $descLines[0].PadRight($descWidth)
-        $firstRow = ' ' + (c '36' $pkg.PadRight($packageWidth)) + (' ' * $colGap) + (c $sevColor $sev.PadRight($severityWidth)) + (' ' * $colGap) + $cveId.PadRight($cveWidth) + (' ' * $colGap) + (c '2' $firstDesc) + ' '
+        $firstRow = ' ' + (c '36' $pkg.PadRight($packageWidth)) + (' ' * $colGap) + (c $sevColor $sev.PadRight($severityWidth)) + (' ' * $colGap) + (c '36' $cvssText.PadRight($cvssWidth)) + (' ' * $colGap) + $cveId.PadRight($cveWidth) + (' ' * $colGap) + (c '2' $firstDesc) + ' '
         Write-Host "$(c $borderColor '│')$firstRow$(c $borderColor '│')"
 
         # Continuation lines: empty prefix, only description text
@@ -2494,6 +2813,65 @@ function Print-VulnTable([array]$Vulns) {
         }
     }
     Write-Host (c $borderColor "└$('─'*$w)┘")
+}
+
+<#
+.SYNOPSIS
+    Computes security statistics from vulnerability findings.
+.DESCRIPTION
+    Aggregates counts by severity level and identifies unique affected packages.
+.PARAMETER Vulns
+    Array of vulnerability objects.
+.OUTPUTS
+    Hashtable with Total, SeverityBreakdown (hashtable), UniquePackages count.
+#>
+function Compute-SecurityStats([array]$Vulns) {
+    $stats = @{
+        Total = 0
+        Critical = 0
+        High = 0
+        Medium = 0
+        Low = 0
+        Packages = @{}
+    }
+    foreach ($v in $Vulns) {
+        $sev = $v.Sev.ToLower()
+        switch ($sev) {
+            'critical' { $stats.Critical++ }
+            'high' { $stats.High++ }
+            'medium' { $stats.Medium++ }
+            'low' { $stats.Low++ }
+            default {
+                # Unknown severity counts toward total only
+            }
+        }
+        $stats.Total++
+        if ($v.Pkg) { $stats.Packages[$v.Pkg.ToLower()] = $true }
+    }
+    $stats.UniquePackages = $stats.Packages.Keys.Count
+    return $stats
+}
+
+<#
+.SYNOPSIS
+    Prints a one-line security summary with colored severity counts.
+.DESCRIPTION
+    Displays vulnerability counts by severity level and unique package count.
+    Only shows non-zero severity levels.
+.PARAMETER Stats
+    Statistics object from Compute-SecurityStats.
+#>
+function Print-SecuritySummary([hashtable]$Stats) {
+    $breakdown = $Stats.SeverityBreakdown
+    $parts = @()
+    if ($breakdown.critical -gt 0) { $parts += (c '31;1' "$($breakdown.critical) critical") }
+    if ($breakdown.high -gt 0)     { $parts += (c '31' "$($breakdown.high) high") }
+    if ($breakdown.medium -gt 0)   { $parts += (c '33' "$($breakdown.medium) medium") }
+    if ($breakdown.low -gt 0)      { $parts += (c '32' "$($breakdown.low) low") }
+    if ($parts.Count -eq 0)        { $parts += (green '0') }
+
+    $summary = "  $(E 'shield') Vulnerabilities: $($parts -join ', ')  ($($Stats.UniquePackages) packages)"
+    Write-Host $summary
 }
 
 # ── Export Functions ───────────────────────────────────────────────────────────
@@ -2715,6 +3093,8 @@ Examples:
 #>
 function Main {
     $script:SecurityFindings = @()
+    # Determine user home directory
+    $HomeDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { [Environment]::GetFolderPath('UserProfile') }
     $sourceAliases = @{ choco = 'chocolatey' }
     $normalizedSource = if ($Source) { ($sourceAliases[$Source.ToLower()] ?? $Source.ToLower()) } else { $null }
     $normalizedUpdateSource = if ($UpdateSource) { ($sourceAliases[$UpdateSource.ToLower()] ?? $UpdateSource.ToLower()) } else { $null }
@@ -2724,6 +3104,9 @@ function Main {
     if (-not(Test-Path $DATA_DIR)) { New-Item -ItemType Directory $DATA_DIR -Force | Out-Null }
     # Handle cache clear request
     if ($ClearCache) { Clear-AppCache; Write-Host "$(E 'disk') $(green 'Cache cleared.')"; return }
+
+    # Load vulnerability history from disk
+    Load-VulnerabilityHistory
 
     # Display header with version and data directory
     Show-Header "$(E 'rocket') System Update PowerShell CLI v$VER" "$(E 'gear') Data dir: $DATA_DIR"
@@ -2874,18 +3257,26 @@ function Main {
                 }
                 $progSec.Done("$(green "$(E 'ok') security checks complete")")
                 $script:SecurityFindings = $vulns
-                $vulnCount = if ($vulns) { $vulns.Count } else { 0 }
-                if ($vulnCount -gt 0) {
-                    $vulns | ForEach-Object {
-                        $vPkg = $_.Pkg
-                        $a = $apps | Where-Object { $_.name.ToLower() -eq $vPkg.ToLower() } | Select-Object -First 1
-                        if ($a) { $a.Status = $S_VULN }
-                    }
-                    Write-Host "$(E 'fire') $(red (bold "Found $vulnCount security vulnerabilities."))`n"
+
+                # Mark vulnerable apps status
+                foreach ($v in $vulns) {
+                    $vPkg = $v.Pkg
+                    $a = $apps | Where-Object { $_.name.ToLower() -eq $vPkg.ToLower() } | Select-Object -First 1
+                    if ($a) { $a.Status = $S_VULN }
                 }
-                else { Write-Host "$(E 'shield') $(green 'No security vulnerabilities found.')`n" }
             }
-            else { Write-Host "$(E 'shield') $(green 'No security vulnerabilities found.')`n" }
+            else {
+                $script:SecurityFindings = @()
+            }
+
+            # Record vulnerabilities to history and display summary
+            $scanId = Get-ScanId
+            foreach ($v in $script:SecurityFindings) {
+                Record-Vulnerability -Vuln $v -ScanId $scanId
+            }
+            $secStats = Get-VulnerabilityStatistics
+            Print-SecuritySummary $secStats
+            Write-Host ''
         }
 
         # Save results to cache
