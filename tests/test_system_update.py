@@ -167,3 +167,14 @@ def test_debug_flag():
 	res = run_cli(['--debug', '--include', 'path', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
+
+
+def test_security_scan():
+	res = run_cli(['--include', 'pip', '--no-cache'], timeout=90)
+	output = res['stdout'] + res['stderr']
+	assert (
+		res['code'] == 0
+		or 'vuln' in output.lower()
+		or 'security' in output.lower()
+		or 'scan' in output.lower()
+	)

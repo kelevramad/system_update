@@ -2083,10 +2083,11 @@ async function checkSecurityVulnerabilities(apps, config) {
 
   const npmVulns = await checkNpmVulnerabilities(apps, timeoutMs);
   const pipVulns = await checkPipVulnerabilities(apps, timeoutMs);
+  const osvVulns = await checkOsvVulnerabilities(apps, timeoutMs);
 
-  await writeLog(`security check: npm_found=${npmVulns.length}, pip_found=${pipVulns.length}`);
+  await writeLog(`security check: npm_found=${npmVulns.length}, pip_found=${pipVulns.length}, osv_found=${osvVulns.length}`);
 
-  for (const vuln of [...npmVulns, ...pipVulns]) {
+  for (const vuln of [...npmVulns, ...pipVulns, ...osvVulns]) {
     const severityLevel = severityOrder[vuln.severity.toLowerCase()] || 1;
     if (severityLevel >= threshold) {
       vulnerabilities.push(vuln);
@@ -2186,6 +2187,82 @@ async function checkPipVulnerabilities(apps, timeoutMs) {
   } catch {
     return [];
   }
+}
+
+const OSV_ECOSYSTEM_MAP = {
+  npm: 'npm',
+  pip: 'PyPI',
+  pypi: 'PyPI',
+  cargo: 'crates.io',
+  rust: 'crates.io',
+  gem: 'RubyGems',
+  ruby: 'RubyGems',
+  go: 'Go',
+  cocoapods: 'CocoaPods',
+  hex: 'Hex',
+};
+
+/**
+ * Check for vulnerabilities using Google's OSV API
+ * @description Queries the OSV.dev vulnerability database for packages in supported ecosystems.
+ * @param {Array<Object>} apps - Array of scanned app objects
+ * @param {number} timeoutMs - Timeout in milliseconds
+ * @returns {Promise<Array<Object>>} Array of vulnerability objects from OSV
+ */
+async function checkOsvVulnerabilities(apps, timeoutMs) {
+  const vulnerabilities = [];
+  const uniqueApps = new Map();
+  for (const app of apps) {
+    if (!uniqueApps.has(app.name.toLowerCase())) {
+      uniqueApps.set(app.name.toLowerCase(), app);
+    }
+  }
+
+  for (const [, app] of uniqueApps) {
+    const ecosystem = OSV_ECOSYSTEM_MAP[app.source.toLowerCase()];
+    if (!ecosystem || !app.version) continue;
+
+    try {
+      const response = await fetch('https://api.osv.dev/v1/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          package: { name: app.name, ecosystem },
+          version: app.version,
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+
+      if (!response.ok) continue;
+      const data = await response.json();
+
+      for (const vuln of (data.vulns || [])) {
+        let severity = 'MEDIUM';
+        if (vuln.severity) {
+          for (const s of vuln.severity) {
+            if (s.type === 'cvss_v3') {
+              severity = String(s.score || 'MEDIUM');
+              break;
+            }
+          }
+        } else if (vuln.database_specific?.severity) {
+          severity = vuln.database_specific.severity;
+        }
+
+        vulnerabilities.push({
+          packageName: app.name,
+          severity: severity.toUpperCase(),
+          cve: vuln.id || 'N/A',
+          description: (vuln.summary || '').slice(0, 200),
+          appInfo: app,
+        });
+      }
+    } catch {
+      // Continue to next package on error
+    }
+  }
+
+  return vulnerabilities;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

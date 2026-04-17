@@ -3005,6 +3005,79 @@ class SystemUpdateApp:
 		except Exception as e:
 			console.print(f'[red]❌ Export failed: {e}[/red]')
 
+	OSV_ECOSYSTEM_MAP = {
+		'npm': 'npm',
+		'pip': 'PyPI',
+		'pypi': 'PyPI',
+		'cargo': 'crates.io',
+		'rust': 'crates.io',
+		'gem': 'RubyGems',
+		'ruby': 'RubyGems',
+		'go': 'Go',
+		'cocoapods': 'CocoaPods',
+		'hex': 'Hex',
+	}
+
+	def check_osv_vulnerabilities(self, apps: List[AppInfo]) -> List[Dict]:
+		"""
+		Check vulnerabilities using Google's OSV API.
+
+		Queries the OSV.dev vulnerability database for known vulnerabilities
+		in installed packages. Supports npm, PyPI, crates.io, RubyGems, Go, and more.
+
+		Args:
+		    apps: List of AppInfo objects to check.
+
+		Returns:
+		    List of vulnerability dictionaries.
+		"""
+		vulns: List[Dict] = []
+		unique_apps = {a.name.lower(): a for a in apps}
+
+		for name, app in unique_apps.items():
+			ecosystem = self.OSV_ECOSYSTEM_MAP.get(app.source.lower())
+			if not ecosystem or not app.version:
+				continue
+
+			payload = {
+				'package': {'name': app.name, 'ecosystem': ecosystem},
+				'version': app.version,
+			}
+
+			try:
+				req = urllib.request.Request(
+					'https://api.osv.dev/v1/query',
+					data=json.dumps(payload).encode('utf-8'),
+					headers={'Content-Type': 'application/json'},
+				)
+				with urllib.request.urlopen(req, timeout=10) as resp:
+					data = json.loads(resp.read().decode('utf-8'))
+
+				for vuln in data.get('vulns') or []:
+					severity = 'MEDIUM'
+					if vuln.get('severity'):
+						for s in vuln['severity']:
+							if s.get('type') == 'cvss_v3':
+								severity = s.get('score', 'MEDIUM')
+								break
+					elif vuln.get('database_specific', {}).get('severity'):
+						severity = vuln['database_specific']['severity']
+
+					item = {
+						'package': app.name,
+						'severity': severity.upper(),
+						'cve': vuln.get('id', 'N/A'),
+						'description': vuln.get('summary', '')[:200],
+						'source': 'OSV',
+					}
+					app.security_findings.append(item)
+					app.update_status = UpdateStatus.VULNERABLE
+					vulns.append(item)
+			except Exception:
+				pass
+
+		return vulns
+
 	def check_security_vulnerabilities(self, apps: List[AppInfo]) -> List[Dict]:
 		vulns: List[Dict] = []
 		npm_has = any(a.source.lower() == 'npm' for a in apps)
@@ -3105,6 +3178,8 @@ class SystemUpdateApp:
 			# --- PHASE 3: SECURITY CHECK ---
 			console.print(f'[bold magenta]🔒 Checking security vulnerabilities...[/bold magenta]')
 			security_vulns = self.check_security_vulnerabilities(apps)
+			if not security_vulns:
+				security_vulns = self.check_osv_vulnerabilities(apps)
 			if security_vulns:
 				console.print(
 					f'[bold red]🔥 Found {len(security_vulns)} security vulnerabilities.[/bold red]\n'
