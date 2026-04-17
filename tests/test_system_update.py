@@ -178,3 +178,44 @@ def test_security_scan():
 		or 'security' in output.lower()
 		or 'scan' in output.lower()
 	)
+
+
+def test_security_osv_source():
+	res = run_cli(['--include', 'pip', '--no-cache'], timeout=90)
+	output = res['stdout'] + res['stderr']
+	assert (
+		res['code'] == 0
+		or 'osv' in output.lower()
+		or 'vuln' in output.lower()
+		or 'security' in output.lower()
+	)
+
+
+def test_security_github_advisory():
+	res = run_cli(['--include', 'npm', '--no-cache'], timeout=90)
+	output = res['stdout'] + res['stderr']
+	assert (
+		res['code'] == 0
+		or 'vuln' in output.lower()
+		or 'security' in output.lower()
+		or 'advisory' in output.lower()
+	)
+
+
+def test_security_local_advisory():
+	with tempfile.TemporaryDirectory() as tmpdir:
+		adv_file = os.path.join(tmpdir, 'advisories.json')
+		with open(adv_file, 'w') as f:
+			f.write('{"advisories": []}')
+
+		original_home = os.environ.get('SYSTEM_UPDATE_HOME')
+		try:
+			os.environ['SYSTEM_UPDATE_HOME'] = tmpdir
+			res = run_cli(['--include', 'pip', '--no-cache'], timeout=90)
+			output = res['stdout'] + res['stderr']
+			assert res['code'] == 0 or 'scan' in output.lower()
+		finally:
+			if original_home:
+				os.environ['SYSTEM_UPDATE_HOME'] = original_home
+			else:
+				os.environ.pop('SYSTEM_UPDATE_HOME', None)

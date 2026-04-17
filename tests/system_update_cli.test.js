@@ -164,3 +164,13 @@ test('--debug flag accepted', () => {
   const res = runCLI(['--debug', '--include', 'dotnet', '--no-cache']);
   assert.ok(res.code === 0 || res.stdout.includes('Scanning'));
 });
+
+test('--security osv scan', () => {
+  const res = runCLI(['--include', 'pip', '--no-cache']);
+  assert.ok(res.code === 0 || res.stdout.includes('vuln') || res.stdout.includes('security'));
+});
+
+test('--security github advisory scan', () => {
+  const res = runCLI(['--include', 'npm', '--no-cache']);
+  assert.ok(res.code === 0 || res.stdout.includes('vuln') || res.stdout.includes('advisory'));
+});

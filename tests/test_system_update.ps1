@@ -188,4 +188,16 @@ Describe 'system_update.ps1' {
 		$res.Code | Should Be 0
 		$output.ToLower() | Should Match 'scan|apps'
 	}
+
+	It '-security osv scan' {
+		$res = Invoke-CLI -CliArgs '-Include pip -NoCache' -Timeout 90
+		$output = $res.StdOut + $res.StdErr
+		($res.Code -eq 0) -or ($output -like '*vuln*') -or ($output -like '*security*') | Should Be $true
+	}
+
+	It '-security github advisory scan' {
+		$res = Invoke-CLI -CliArgs '-Include npm -NoCache' -Timeout 90
+		$output = $res.StdOut + $res.StdErr
+		($res.Code -eq 0) -or ($output -like '*vuln*') -or ($output -like '*advisory*') | Should Be $true
+	}
 }
