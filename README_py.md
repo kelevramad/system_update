@@ -198,6 +198,8 @@ The script uses the following default settings stored in `~/.system_update/confi
 | Registry | ✅ | ✅ | ❌ |
 | Scoop | ✅ | ✅ | ❌ |
 | dotnet | ✅ | ✅ | ❌ |
+| AppX | ✅ | ❌ | ❌ |
+| MSIX | ✅ | ❌ | ❌ |
 
 ---
 
@@ -473,9 +475,17 @@ This project is provided as-is for system administration and package management 
 
 ---
 
-## 🆕 Latest Changes (v2.1.0)
-
+## 🆕 Latest Changes (v2.2.0)
 - **.NET Global Tools support**: Added .NET CLI tools scanning via `dotnet tool list -g`
 - **Scoop support**: Added Scoop package manager support
+- **AppX/Packaged Apps support**: Added Windows Store apps scanning via `Get-AppxPackage`
+- **MSIX support**: Added MSIX packages scanning
+- **New `--show-all` flag**: Show all packages including up-to-date ones (default shows only updates)
+
+---
+
+## 🆕 Latest Changes (v2.1.0)
+- **Cargo crates.io API**: Now queries crates.io API directly instead of requiring cargo-install-update
+- **Improved Rust scanning**: Better version comparison for Rust packages
 
 Contributions and enhancements are always welcome!

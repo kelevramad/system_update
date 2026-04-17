@@ -98,6 +98,18 @@ def test_include_dotnet():
 	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
 
 
+def test_include_appx():
+	res = run_cli(['--include', 'appx', '--no-cache'], timeout=90)
+	output = res['stdout'] + res['stderr']
+	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
+
+
+def test_include_msix():
+	res = run_cli(['--include', 'msix', '--no-cache'], timeout=90)
+	output = res['stdout'] + res['stderr']
+	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
+
+
 def test_dry_run_flag():
 	res = run_cli(['--dry-run', '--include', 'path'], timeout=90)
 	output = res['stdout'] + res['stderr']

@@ -33,7 +33,7 @@ const { stdin, stdout } = require('node:process');
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS AND CONFIGURATION
 // ─────────────────────────────────────────────────────────────────────────────
-const VERSION = '2.1.0';
+const VERSION = '2.2.0';
 const APP_NAME = 'system-update';
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -1228,6 +1228,92 @@ async function scanDotnet(timeoutMs) {
 }
 
 /**
+ * Scan Windows AppX/Packaged apps (Microsoft Store apps).
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<Array<Object>>} Array of app objects representing installed AppX packages
+ */
+async function scanAppx(timeoutMs) {
+  await writeLog('scanner: appx started');
+  const psScript = `
+    Get-AppxPackage -AllUsers |
+      Where-Object { $_.IsFramework -eq $false -and $_.SignatureKind -ne 'System' } |
+      Select-Object Name, Version, PackageFullName, InstallLocation |
+      ConvertTo-Json
+  `;
+  const result = await runCommand('powershell', ['-NoProfile', '-Command', psScript], { allowFailure: true, timeoutMs });
+  const apps = [];
+  if (!result.stdout) {
+    await writeLog('scanner: appx no output');
+    return apps;
+  }
+
+  try {
+    let data = JSON.parse(result.stdout);
+    if (!Array.isArray(data)) data = [data];
+    for (const item of data) {
+      apps.push({
+        name: item.Name,
+        source: 'appx',
+        version: item.Version || '',
+        latestVersion: '',
+        appId: item.PackageFullName || item.Name,
+        installPath: item.InstallLocation || '',
+        status: Status.UNKNOWN,
+        scanTime: new Date().toISOString(),
+      });
+    }
+  } catch (e) {
+    await writeLog(`scanner: appx parse error, ${e.message}`);
+  }
+
+  await writeLog(`scanner: appx finished, count=${apps.length}`);
+  return apps;
+}
+
+/**
+ * Scan Windows MSIX packaged applications.
+ * @param {number} timeoutMs - Timeout in milliseconds for the command execution
+ * @returns {Promise<Array<Object>>} Array of app objects representing installed MSIX packages
+ */
+async function scanMsix(timeoutMs) {
+  await writeLog('scanner: msix started');
+  const psScript = `
+    Get-AppxPackage -AllUsers |
+      Where-Object { $_.SignatureKind -eq 'AppxPackage' } |
+      Select-Object Name, Version, PackageFullName, InstallLocation |
+      ConvertTo-Json
+  `;
+  const result = await runCommand('powershell', ['-NoProfile', '-Command', psScript], { allowFailure: true, timeoutMs });
+  const apps = [];
+  if (!result.stdout) {
+    await writeLog('scanner: msix no output');
+    return apps;
+  }
+
+  try {
+    let data = JSON.parse(result.stdout);
+    if (!Array.isArray(data)) data = [data];
+    for (const item of data) {
+      apps.push({
+        name: item.Name,
+        source: 'msix',
+        version: item.Version || '',
+        latestVersion: '',
+        appId: item.PackageFullName || item.Name,
+        installPath: item.InstallLocation || '',
+        status: Status.UNKNOWN,
+        scanTime: new Date().toISOString(),
+      });
+    }
+  } catch (e) {
+    await writeLog(`scanner: msix parse error, ${e.message}`);
+  }
+
+  await writeLog(`scanner: msix finished, count=${apps.length}`);
+  return apps;
+}
+
+/**
  * Check for .NET Global Tool updates.
  * @param {Array<Object>} apps - Array of all scanned app objects
  * @param {number} timeoutMs - Timeout in milliseconds for the command execution
@@ -1893,6 +1979,8 @@ async function scanSystem(config, args) {
     ['rust', scanRust],
     ['scoop', scanScoop],
     ['dotnet', scanDotnet],
+    ['appx', scanAppx],
+    ['msix', scanMsix],
   ];
 
   // Filter sources based on configuration and user filters

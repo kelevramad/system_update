@@ -192,6 +192,26 @@ When updating version numbers, update ALL of these locations to match:
 7. **PRD.md**: Update document version in header AND "Latest Changes" sections
 8. **AGENTS.md**: Update version in Project Overview table if needed
 
+### Version History in READMEs
+
+When updating the "Latest Changes" section in README files, preserve the complete version history by:
+- Moving the previous version's content to a new section below (e.g., `## 🆕 Latest Changes (v2.1.0)`)
+- Adding the new version content to the top `## 🆕 Latest Changes (vX.X.X)` section
+- Include a brief description of what changed in each version
+
+Example format:
+```markdown
+## 🆕 Latest Changes (v2.2.0)
+- **Feature A**: Description of new feature
+- **Feature B**: Description of another new feature
+
+---
+
+## 🆕 Latest Changes (v2.1.0)
+- **Feature X**: Description of previous feature
+- **Bug Fix**: Description of fix
+```
+
 ---
 
 ## Release Automation Guidelines
