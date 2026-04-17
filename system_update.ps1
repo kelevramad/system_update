@@ -147,7 +147,7 @@ $ErrorActionPreference = 'Stop'
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 # Script version number
-$VER = '2.4.0'
+$VER = '2.5.0'
 
 # Data directory for cache and logs - uses environment variable if set, otherwise defaults to user profile
 $DATA_DIR = if ($env:SYSTEM_UPDATE_HOME) { $env:SYSTEM_UPDATE_HOME } else { Join-Path $env:USERPROFILE '.system_update' }
@@ -1960,10 +1960,41 @@ function Check-NpmVulns([array]$Apps) {
                 $a = $t | Where-Object { $_.name.ToLower() -eq $nm.ToLower() } | Select-Object -First 1
                 if (-not $a) { return }
                 $sev = if ($v.severity) { $v.severity } else { 'low' }
-                $cve = if ($v.cves -and $v.cves.Count -gt 0) { $v.cves[0] } else { 'N/A' }
-                $desc = if ($v.title) { $v.title } else { 'Vulnerability found' }
-                $vulns += [PSCustomObject]@{Pkg = $nm; Sev = $sev; CVE = $cve; Desc = $desc }
+                $cve = 'N/A'
+                $desc = 'Vulnerability found'
+                $advisoryUrl = ''
+                $fixAvailable = $false
+
+                if ($v.via -and $v.via.Count -gt 0) {
+                    $firstVia = $v.via[0]
+                    if ($firstVia -is [PSCustomObject] -or $firstVia -is [System.Collections.Hashtable]) {
+                        $cve = if ($firstVia.id) { $firstVia.id } elseif ($firstVia.cve) { $firstVia.cve } else { 'N/A' }
+                        $desc = if ($firstVia.title) { $firstVia.title } elseif ($firstVia.url) { $firstVia.url } else { 'Vulnerability found' }
+                        $advisoryUrl = if ($firstVia.url) { $firstVia.url } else { '' }
+                        if ($firstVia.severity) { $sev = $firstVia.severity }
+                    }
+                    elseif ($firstVia -is [string]) {
+                        $desc = "Via: $firstVia"
+                    }
+                }
+
+                $fixAvailable = if ($v.fixAvailable -eq $true) { $true } elseif ($v.fixAvailable -is [PSCustomObject]) { $true } else { $false }
+
+                $vulns += [PSCustomObject]@{
+                    Pkg = $nm
+                    Sev = $sev
+                    CVE = $cve
+                    Desc = $desc
+                    AdvisoryUrl = $advisoryUrl
+                    FixAvailable = $fixAvailable
+                    IsDirect = if ($v.isDirect) { $v.isDirect } else { $false }
+                    Effects = if ($v.effects) { $v.effects } else { @() }
+                }
             }
+        }
+        if ($j.metadata -and $j.metadata.vulnerabilities) {
+            $meta = $j.metadata.vulnerabilities
+            Write-Log "npm audit full: total=$($meta.total) critical=$($meta.critical) high=$($meta.high) moderate=$($meta.moderate) low=$($meta.low)"
         }
     }
     catch {}

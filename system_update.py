@@ -3,7 +3,7 @@
 ===============================================================================
                           SYSTEM UPDATE ENHANCED
 ===============================================================================
-Version: 2.4.0
+Version: 2.5.0
 Author: Gemini (Redesigned)
 
 A sophisticated system update tool with enhanced UI architecture and modular design.
@@ -3173,7 +3173,7 @@ class SystemUpdateApp:
 		return vulns
 
 	def _check_npm_vulns(self, apps: List[AppInfo]) -> List[Dict]:
-		"""Check NPM vulnerabilities using npm audit."""
+		"""Check NPM vulnerabilities using npm audit - full parse."""
 		vulns: List[Dict] = []
 		out = run_command(['npm', 'audit', '--json', '--silent'], allow_failure=True)
 		if out:
@@ -3183,15 +3183,52 @@ class SystemUpdateApp:
 					app = next((a for a in apps if a.name.lower() == name.lower()), None)
 					if not app:
 						continue
+
+					severity = (details.get('severity') or 'low').upper()
+					cve = 'N/A'
+					description = 'Vulnerability found'
+					advisory_url = ''
+					fix_available = False
+
+					via = details.get('via') or []
+					if via:
+						first_via = via[0]
+						if isinstance(first_via, dict):
+							cve = first_via.get('id') or first_via.get('cve') or 'N/A'
+							description = (
+								first_via.get('title')
+								or first_via.get('url')
+								or 'Vulnerability found'
+							)
+							advisory_url = first_via.get('url') or ''
+							if first_via.get('severity'):
+								severity = first_via.get('severity').upper()
+						elif isinstance(first_via, str):
+							description = f'Via: {first_via}'
+
+					fix_available = details.get('fixAvailable') is True or isinstance(
+						details.get('fixAvailable'), dict
+					)
+
 					item = {
 						'package': name,
-						'severity': (details.get('severity') or 'low').upper(),
-						'cve': (details.get('cves') or ['N/A'])[0],
-						'description': details.get('title') or 'Vulnerability found',
+						'severity': severity,
+						'cve': cve,
+						'description': description,
+						'advisory_url': advisory_url,
+						'fix_available': fix_available,
+						'is_direct': details.get('isDirect', False),
+						'effects': details.get('effects', []),
 					}
 					app.security_findings.append(item)
 					app.update_status = UpdateStatus.VULNERABLE
 					vulns.append(item)
+
+				metadata = data.get('metadata', {}).get('vulnerabilities', {})
+				if metadata:
+					logger.info(
+						f'npm audit full: total={metadata.get("total", 0)}, critical={metadata.get("critical", 0)}, high={metadata.get("high", 0)}, moderate={metadata.get("moderate", 0)}, low={metadata.get("low", 0)}'
+					)
 			except Exception:
 				pass
 		return vulns

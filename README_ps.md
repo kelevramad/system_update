@@ -2,7 +2,7 @@
 
 > 🚀 A powerful PowerShell-based system update tool (requires PowerShell 7+)
 
-**Version:** 2.1.0
+**Version:** 2.5.0
 **Runtime:** PowerShell 7+
 **Platform:** Windows
 
@@ -461,6 +461,11 @@ For issues or questions:
 ## 📄 License
 
 This project is provided as-is for system administration and package management tasks.
+
+---
+
+## 🆕 Latest Changes (v2.5.0)
+- **NPM Audit Full Parse**: Enhanced npm vulnerability scanning to extract detailed advisory info from npm audit JSON output including via array details, advisoryUrl, fixAvailable, isDirect, and effects
 
 ---
 
