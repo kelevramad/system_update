@@ -33,7 +33,7 @@ const { stdin, stdout } = require('node:process');
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS AND CONFIGURATION
 // ─────────────────────────────────────────────────────────────────────────────
-const VERSION = '2.3.1';
+const VERSION = '2.4.0';
 const APP_NAME = 'system-update';
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -2268,9 +2268,61 @@ async function checkOsvVulnerabilities(apps, timeoutMs) {
     }
   }
 
+return vulnerabilities;
+}
+
+/**
+ * Check for vulnerabilities using PyPI JSON API
+ * @description Queries the PyPI JSON API for known vulnerabilities in installed packages.
+ * @param {Array<Object>} apps - Array of scanned app objects
+ * @param {number} timeoutMs - Timeout in milliseconds
+ * @returns {Promise<Array<Object>>} Array of vulnerability objects from PyPI
+ */
+async function checkPypiJsonVulnerabilities(apps, timeoutMs) {
+  const vulnerabilities = [];
+  const uniqueApps = new Map();
+  for (const app of apps) {
+    if (app.source.toLowerCase() === 'pip' && !uniqueApps.has(app.name.toLowerCase())) {
+      uniqueApps.set(app.name.toLowerCase(), app);
+    }
+  }
+
+  for (const [, app] of uniqueApps) {
+    if (!app.version) continue;
+
+    try {
+      const response = await fetch(`https://pypi.org/pypi/${app.name}/${app.version}/json`, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+
+      if (!response.ok) continue;
+      const data = await response.json();
+
+      for (const vuln of (data.info?.vulnerabilities || [])) {
+        const severity = 'MEDIUM';
+        const aliases = vuln.aliases || [];
+        const cve = aliases[0] || vuln.id || 'N/A';
+
+        app.status = Status.VULNERABLE;
+        vulnerabilities.push({
+          packageName: app.name,
+          severity,
+          cve,
+          description: vuln.summary || vuln.details || '',
+          appInfo: app,
+        });
+      }
+    } catch {
+      // Continue to next package on error
+    }
+  }
+
   return vulnerabilities;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN FUNCTION
 // ─────────────────────────────────────────────────────────────────────────────
 // UI UTILITIES
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2790,7 +2842,7 @@ async function main() {
 
     if (config.security?.enabled && config.security.autoCheck) {
       const timeoutMs = Number(config.performance.timeoutSeconds || 45) * 1000;
-      const securitySources = ['npm', 'pip', 'osv'];
+      const securitySources = ['npm', 'pip', 'osv', 'pypi'];
       const uniqueAppsBySource = {};
       for (const app of apps) {
         const src = app.source.toLowerCase();
@@ -2798,6 +2850,11 @@ async function main() {
         uniqueAppsBySource[src].push(app);
       }
       const activeSecurity = securitySources.filter((s) => uniqueAppsBySource[s]);
+
+      // Add separate pypi source if pip apps exist
+      if (uniqueAppsBySource['pip'] && !activeSecurity.includes('pypi')) {
+        activeSecurity.push('pypi');
+      }
 
       if (activeSecurity.length > 0) {
         const progress = createProgress(activeSecurity.length, `${emoji('lock')} Checking vulnerabilities`);
@@ -2813,6 +2870,8 @@ async function main() {
             sourceVulns = await checkPipVulnerabilities(sourceApps, timeoutMs);
           } else if (sourceName === 'osv') {
             sourceVulns = await checkOsvVulnerabilities(sourceApps, timeoutMs);
+          } else if (sourceName === 'pypi') {
+            sourceVulns = await checkPypiJsonVulnerabilities(sourceApps, timeoutMs);
           }
           securityFindings.push(...sourceVulns);
           const extra = sourceVulns.length > 0

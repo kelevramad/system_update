@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
-## System Update Node CLI
+## System Update CLI
 
-**Document Version:** 2.1
-**Last Updated:** April 16, 2026
+**Document Version:** 2.4
+**Last Updated:** April 17, 2026
 **Author:** Qwen Code
-**Based On:** `system_update.js` v2.1.0
+**Based On:** `system_update.js` v2.4.0, `system_update.py` v2.4.0, `system_update.ps1` v2.4.0
 
 ---
 
@@ -65,12 +65,25 @@ A single CLI tool that:
 
 ### 2.3 Key Differentiators
 
-- **Multi-source support**: 12 different package sources including .NET
-- **Security-first**: Built-in vulnerability scanning for NPM and PIP
+- **Multi-source support**: 14+ different package sources including .NET and Windows Store apps
+- **Multi-implementation**: Available in Node.js, Python, and PowerShell (zero-dependency)
+- **Security-first**: Built-in vulnerability scanning for NPM, PIP, PyPI JSON, and OSV API
 - **Performance**: Parallel scanning with configurable timeouts
 - **Developer experience**: Rich terminal UI with colors, emojis, and progress bars
 - **Flexibility**: Extensive CLI options for targeted operations
 - **Observability**: Optional logging with `--log` and debug mode with `--debug`
+
+### 2.4 Implementations
+
+The tool is available in three implementations:
+
+| Implementation | File | Requirements | Dependencies |
+|--------------|------|-------------|--------------|
+| Node.js | `system_update.js` | Node.js 16+ | None (built-in modules) |
+| Python | `system_update.py` | Python 3.8+ | `rich` library |
+| PowerShell | `system_update.ps1` | PowerShell 7+ | None (zero dependencies) |
+
+All implementations share identical features and CLI options.
 
 ---
 
@@ -132,6 +145,9 @@ A single CLI tool that:
 | F-10 | Deduplicate results across sources | P0 | Implemented |
 | F-11 | Scan Rust packages (cargo install) | P1 | Implemented |
 | F-11a | Scan .NET Global Tools (dotnet tool list -g) | P1 | Implemented |
+| F-11b | Scan Scoop packages | P1 | Implemented |
+| F-11c | Scan AppX/Windows Store apps | P1 | Implemented |
+| F-11d | Scan MSIX packages | P1 | Implemented |
 
 ### 5.2 Update Detection
 
@@ -158,6 +174,8 @@ A single CLI tool that:
 | F-24 | Filter by severity threshold | P1 | Implemented |
 | F-25 | Display CVE identifiers | P1 | Implemented |
 | F-26 | Mark vulnerable packages in UI | P0 | Implemented |
+| F-26a | OSV API vulnerability scanning (npm, PyPI, crates.io, etc.) | P1 | Implemented |
+| F-26b | PyPI JSON API vulnerability data | P1 | Implemented |
 
 ### 5.4 Update Execution
 
@@ -231,7 +249,9 @@ A single CLI tool that:
 │  ┌─────────┬─────────┬─────────┬─────────┬─────────────┐   │
 │  │ Winget  │ Choco   │  NPM    │  PNPM   │  Bun/Yarn   │   │
 │  ├─────────┼─────────┼─────────┼─────────┼─────────────┤   │
-│  │  PIP    │  PATH   │Registry │  Rust   │   Security  │   │
+│  │  PIP    │  PATH   │Registry │  Rust   │   Scoop     │   │
+│  ├─────────┼─────────┼─────────┼─────────┼─────────────┤   │
+│  │  dotnet │ AppX   │ MSIX    │  OSV    │   Security  │   │
 │  └─────────┴─────────┴─────────┴─────────┴─────────────┘   │
 ├─────────────────────────────────────────────────────────────┤
 │                  Command Execution Layer                    │
@@ -464,7 +484,9 @@ Each source is displayed with a unique color badge:
 | Source | Method | Data Source |
 |--------|--------|-------------|
 | NPM | `npm audit --json` | NPM Registry |
-| PIP | `pip check --format=json` | PyPI Safety DB |
+| PIP | `pip-audit` | PyPI Advisory DB |
+| PyPI JSON | `https://pypi.org/pypi/{name}/{version}/json` | PyPI Vulnerability Field |
+| OSV | `https://api.osv.dev/v1/query` | Google OSV Database |
 
 ### 9.2 Security Thresholds
 
@@ -862,6 +884,9 @@ Errors are displayed with appropriate styling:
 | 1.0.0 | - | Initial release |
 | 1.0.1 | March 2026 | Added Rust source support, --log and --debug flags, enhanced PATH version detection, Registry updates via winget, updated source badge colors, **--show-all flag** (show all packages including up-to-date), improved output format with "💾 Showing" line after table and "🎯 Found" message |
 | 2.1.0 | April 2026 | Added .NET Global Tools support (dotnet tool list -g), dotnet update checking (dotnet tool list -g --outdated), 12 sources now supported |
+| 2.2.0 | April 2026 | Added Scoop package manager support, AppX scanning (Windows Store apps), MSIX scanning |
+| 2.3.0 | April 2026 | Added OSV API integration (Google's vulnerability database for npm, PyPI, crates.io, RubyGems, Go, CocoaPods, Hex) |
+| 2.4.0 | April 2026 | Added PyPI JSON API vulnerability checking, now 3 implementations (Node.js, Python, PowerShell) |
 
 ## Appendix B: Glossary
 

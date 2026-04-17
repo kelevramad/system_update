@@ -147,7 +147,7 @@ $ErrorActionPreference = 'Stop'
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 # Script version number
-$VER = '2.3.1'
+$VER = '2.4.0'
 
 # Data directory for cache and logs - uses environment variable if set, otherwise defaults to user profile
 $DATA_DIR = if ($env:SYSTEM_UPDATE_HOME) { $env:SYSTEM_UPDATE_HOME } else { Join-Path $env:USERPROFILE '.system_update' }
@@ -2074,6 +2074,49 @@ function Check-OsvVulns([array]$Apps) {
     return $vulns
 }
 
+<#
+.SYNOPSIS
+    Check vulnerabilities using PyPI JSON API.
+.DESCRIPTION
+    Queries the PyPI JSON API for known vulnerabilities in installed packages.
+    The API returns vulnerability data from the OSV database integrated into PyPI.
+.PARAMETER Apps
+    Array of application objects to check for vulnerabilities.
+.EXAMPLE
+    $vulns = Check-PypiJsonVulns $apps
+.OUTPUTS
+    Array of vulnerability objects from PyPI JSON API.
+#>
+function Check-PypiJsonVulns {
+    param([array]$Apps)
+    $vulns = @()
+    $seen = @{}
+    foreach ($app in $Apps) {
+        if ($app.source -ne 'pip') { continue }
+        if (-not $app.version) { continue }
+        if ($seen[$app.name]) { continue }
+        $seen[$app.name] = $true
+        try {
+            $url = "https://pypi.org/pypi/$($app.name)/$($app.version)/json"
+            $data = Invoke-RestMethod -Uri $url -Headers @{'Accept' = 'application/json'} -TimeoutSec 10 -ErrorAction SilentlyContinue
+            if (-not $data) { continue }
+            if (-not $data.info.vulnerabilities) { continue }
+            foreach ($vuln in $data.info.vulnerabilities) {
+                $aliases = if ($vuln.aliases) { $vuln.aliases } else { @() }
+                $cve = if ($aliases.Count -gt 0) { $aliases[0] } elseif ($vuln.id) { $vuln.id } else { 'N/A' }
+                $vulns += [PSCustomObject]@{
+                    Pkg = $app.name
+                    Sev = 'MEDIUM'
+                    CVE = $cve
+                    Desc = if ($vuln.summary) { $vuln.summary } elseif ($vuln.details) { $vuln.details } else { 'Security vulnerability' }
+                }
+            }
+        }
+        catch { }
+    }
+    return $vulns
+}
+
 # ── Output Formatting Functions ────────────────────────────────────────────────
 
 <#
@@ -2629,7 +2672,7 @@ function Main {
 
         # Security vulnerability scanning (if enabled)
         if ($CFG_SECURITY -and -not $CFG_SKIP_UPDATE_CHECKS -and $apps -and $apps.Count -gt 0) {
-            $securitySources = @('npm', 'pip', 'osv')
+            $securitySources = @('npm', 'pip', 'osv', 'pypi')
             $uniqueAppsBySource = @{}
             foreach ($a in $apps) {
                 $src = $a.Source.ToLower()
@@ -2637,6 +2680,10 @@ function Main {
                 $uniqueAppsBySource[$src] += $a
             }
             $activeSecurity = @($securitySources | Where-Object { $uniqueAppsBySource[$_] })
+            # Add separate pypi source if pip apps exist
+            if ($uniqueAppsBySource['pip'] -and 'pypi' -notin $activeSecurity) {
+                $activeSecurity += 'pypi'
+            }
             if ($activeSecurity.Count -gt 0) {
                 $progSec = New-Progress $activeSecurity.Count "$(E 'lock') Checking vulnerabilities"
                 $sevOrder = @{critical = 4; high = 3; medium = 2; low = 1 }
@@ -2648,6 +2695,7 @@ function Main {
                     if ($src -eq 'npm') { $srcVulns = @(Check-NpmVulns $srcApps) }
                     elseif ($src -eq 'pip') { $srcVulns = @(Check-PipVulns $srcApps) }
                     elseif ($src -eq 'osv') { $srcVulns = @(Check-OsvVulns $srcApps) }
+                    elseif ($src -eq 'pypi') { $srcVulns = @(Check-PypiJsonVulns $srcApps) }
                     $srcVulns = @($srcVulns | Where-Object { $sv = $sevOrder[$_.Sev.ToLower()]; if (-not $sv) { $sv = 1 }; $sv -ge $thresh })
                     $vulns += $srcVulns
                     $msg = if ($srcVulns.Count -gt 0) { "$(srcBadge $src) $(yellow "$($srcVulns.Count) vuln(s)")" } else { "$(srcBadge $src) $(gray 'none')" }
