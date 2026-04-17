@@ -147,7 +147,7 @@ $ErrorActionPreference = 'Stop'
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 # Script version number
-$VER = '2.5.0'
+$VER = '2.6.0'
 
 # Data directory for cache and logs - uses environment variable if set, otherwise defaults to user profile
 $DATA_DIR = if ($env:SYSTEM_UPDATE_HOME) { $env:SYSTEM_UPDATE_HOME } else { Join-Path $env:USERPROFILE '.system_update' }
@@ -2148,6 +2148,133 @@ function Check-PypiJsonVulns {
     return $vulns
 }
 
+<#
+.SYNOPSIS
+    Check vulnerabilities using GitHub Advisory Database API.
+.DESCRIPTION
+    Queries the GitHub Advisory Database for known vulnerabilities in packages.
+    Uses the GitHub REST API to query advisories.
+.PARAMETER Apps
+    Array of application objects to check for vulnerabilities.
+.EXAMPLE
+    $vulns = Check-GitHubAdvisoryVulns $apps
+.OUTPUTS
+    Array of vulnerability objects from GitHub Advisory Database.
+#>
+function Check-GitHubAdvisoryVulns {
+    param([array]$Apps)
+    $vulns = @()
+    $seen = @{}
+    $ecosystemMap = @{
+        npm = 'NPM'
+        pip = 'PIP'
+        cargo = 'CARGO'
+        rubygems = 'RUBYGEMS'
+        go = 'GO'
+        nuget = 'NUGET'
+    }
+    foreach ($app in $Apps) {
+        if (-not $app.name) { continue }
+        if ($seen[$app.name.ToLower()]) { continue }
+        $seen[$app.name.ToLower()] = $true
+
+        $ecosystem = $ecosystemMap[$app.source.ToLower()]
+        if (-not $ecosystem -or -not $app.version) { continue }
+
+        try {
+            $url = "https://api.github.com/advisories?ecosystem=$ecosystem&package=$($app.name)"
+            $headers = @{
+                'Accept' = 'application/vnd.github+json'
+                'X-GitHub-Api-Version' = '2022-11-28'
+            }
+            $data = Invoke-RestMethod -Uri $url -Headers $headers -TimeoutSec 10 -ErrorAction SilentlyContinue
+            if (-not $data) { continue }
+
+            foreach ($advisory in $data) {
+                $affected = $advisory.affected | Where-Object { ($_.package.name -eq $app.name) }
+                if (-not $affected) { continue }
+
+                $severity = if ($advisory.severity) { $advisory.severity.ToUpper() } else { 'MEDIUM' }
+                $ghsaId = if ($advisory.ghsa_id) { $advisory.ghsa_id } else { 'N/A' }
+                $cve = if ($advisory.cve_id) { $advisory.cve_id } else { 'N/A' }
+
+                $vulns += [PSCustomObject]@{
+                    Pkg = $app.name
+                    Sev = $severity
+                    CVE = if ($cve -ne 'N/A') { $cve } else { $ghsaId }
+                    Desc = if ($advisory.description) { $advisory.description.Substring(0, [Math]::Min(200, $advisory.description.Length)) } else { 'Security vulnerability' }
+                }
+            }
+        }
+        catch { }
+    }
+    return $vulns
+}
+
+<#
+.SYNOPSIS
+    Load local advisory data from a JSON file.
+.DESCRIPTION
+    Loads custom vulnerability data from user's advisories file at
+    ~/.system_update/advisories.json
+.PARAMETER HomeDir
+    User's home directory.
+.OUTPUTS
+    Dictionary with loaded advisories or empty hashtable.
+#>
+function Get-LocalAdvisories {
+    param([string]$HomeDir)
+    $filePath = Join-Path $HomeDir '.system_update/advisories.json'
+    if (-not (Test-Path $filePath)) { return @{} }
+    try {
+        $data = Get-Content $filePath -Raw | ConvertFrom-Json
+        return $data
+    }
+    catch { return @{} }
+}
+
+<#
+.SYNOPSIS
+    Check vulnerabilities against loaded local advisory data.
+.DESCRIPTION
+    Checks apps against local custom vulnerability definitions.
+.PARAMETER Apps
+    Array of application objects to check for vulnerabilities.
+.PARAMETER LocalData
+    Local advisory data with 'advisories' key.
+.OUTPUTS
+    Array of vulnerability objects from local data.
+#>
+function Check-LocalAdvisoryVulns {
+    param([array]$Apps, [hashtable]$LocalData)
+    $vulns = @()
+    $advisories = if ($LocalData.advisories) { $LocalData.advisories } else { @() }
+    $seen = @{}
+    foreach ($app in $Apps) {
+        if (-not $app.name) { continue }
+        if ($seen[$app.name.ToLower()]) { continue }
+        $seen[$app.name.ToLower()] = $true
+    }
+
+    foreach ($adv in $advisories) {
+        $pkgName = if ($adv.package) { $adv.package.ToLower() } else { '' }
+        $app = $Apps | Where-Object { $_.name.ToLower() -eq $pkgName } | Select-Object -First 1
+        if (-not $app) { continue }
+
+        $severity = if ($adv.severity) { $adv.severity.ToUpper() } else { 'MEDIUM' }
+        $cve = if ($adv.cve) { $adv.cve } else { 'N/A' }
+        $desc = if ($adv.description) { $adv.description.Substring(0, [Math]::Min(200, $adv.description.Length)) } else { 'Security vulnerability' }
+
+        $vulns += [PSCustomObject]@{
+            Pkg = $adv.package
+            Sev = $severity
+            CVE = $cve
+            Desc = $desc
+        }
+    }
+    return $vulns
+}
+
 # ── Output Formatting Functions ────────────────────────────────────────────────
 
 <#
@@ -2703,7 +2830,7 @@ function Main {
 
         # Security vulnerability scanning (if enabled)
         if ($CFG_SECURITY -and -not $CFG_SKIP_UPDATE_CHECKS -and $apps -and $apps.Count -gt 0) {
-            $securitySources = @('npm', 'pip', 'osv', 'pypi')
+            $securitySources = @('npm', 'pip', 'osv', 'pypi', 'github')
             $uniqueAppsBySource = @{}
             foreach ($a in $apps) {
                 $src = $a.Source.ToLower()
@@ -2715,6 +2842,17 @@ function Main {
             if ($uniqueAppsBySource['pip'] -and 'pypi' -notin $activeSecurity) {
                 $activeSecurity += 'pypi'
             }
+
+            # Check for local advisories file
+            $localAdvisories = @{}
+            $localAdvisoryPath = Join-Path $HomeDir '.system_update/advisories.json'
+            if (Test-Path $localAdvisoryPath) {
+                $localAdvisories = Get-LocalAdvisories -HomeDir $HomeDir
+                if ($localAdvisories.advisories -and $localAdvisories.advisories.Count -gt 0) {
+                    $activeSecurity += 'local'
+                }
+            }
+
             if ($activeSecurity.Count -gt 0) {
                 $progSec = New-Progress $activeSecurity.Count "$(E 'lock') Checking vulnerabilities"
                 $sevOrder = @{critical = 4; high = 3; medium = 2; low = 1 }
@@ -2727,6 +2865,8 @@ function Main {
                     elseif ($src -eq 'pip') { $srcVulns = @(Check-PipVulns $srcApps) }
                     elseif ($src -eq 'osv') { $srcVulns = @(Check-OsvVulns $srcApps) }
                     elseif ($src -eq 'pypi') { $srcVulns = @(Check-PypiJsonVulns $srcApps) }
+                    elseif ($src -eq 'github') { $srcVulns = @(Check-GitHubAdvisoryVulns $srcApps) }
+                    elseif ($src -eq 'local') { $srcVulns = @(Check-LocalAdvisoryVulns $srcApps $localAdvisories) }
                     $srcVulns = @($srcVulns | Where-Object { $sv = $sevOrder[$_.Sev.ToLower()]; if (-not $sv) { $sv = 1 }; $sv -ge $thresh })
                     $vulns += $srcVulns
                     $msg = if ($srcVulns.Count -gt 0) { "$(srcBadge $src) $(yellow "$($srcVulns.Count) vuln(s)")" } else { "$(srcBadge $src) $(gray 'none')" }

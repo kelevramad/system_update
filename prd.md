@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 2.5
+**Document Version:** 2.6
 **Last Updated:** April 17, 2026
 **Author:** Qwen Code
-**Based On:** `system_update.js` v2.5.0, `system_update.py` v2.5.0, `system_update.ps1` v2.5.0
+**Based On:** `system_update.js` v2.6.0, `system_update.py` v2.6.0, `system_update.ps1` v2.6.0
 
 ---
 

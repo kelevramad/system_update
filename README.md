@@ -109,6 +109,12 @@ These tools are provided as-is for system administration and package management.
 
 ---
 
+## 🆕 Latest Changes (v2.6.0)
+- **GitHub Advisory Database**: Added vulnerability scanning via GitHub Advisory API
+- **Local Advisory Import**: Added support for custom vulnerability data from local JSON file (~/.system_update/advisories.json)
+
+---
+
 ## 🆕 Latest Changes (v2.5.0)
 - **NPM Audit Full Parse**: Enhanced npm vulnerability scanning to extract detailed advisory info from npm audit JSON output including via array details, advisoryUrl, fixAvailable, isDirect, and effects
 
