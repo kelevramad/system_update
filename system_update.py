@@ -49,6 +49,7 @@ import shutil  # Shell utilities (which command lookup)
 import subprocess  # External command execution
 import sys  # System-specific parameters and I/O
 import time  # Timing and performance measurement
+import urllib.request  # OSV API HTTP requests
 
 # Force UTF-8 encoding for standard output to avoid UnicodeEncodeError on Windows
 # This ensures proper display of Unicode characters (emojis, special symbols)
@@ -3176,16 +3177,16 @@ class SystemUpdateApp:
 			)
 
 			# --- PHASE 3: SECURITY CHECK ---
-			console.print(f'[bold magenta]🔒 Checking security vulnerabilities...[/bold magenta]')
+			console.print('[bold magenta]🔒 Checking security vulnerabilities...[/bold magenta]')
 			security_vulns = self.check_security_vulnerabilities(apps)
-			if not security_vulns:
-				security_vulns = self.check_osv_vulnerabilities(apps)
+			osv_vulns = self.check_osv_vulnerabilities(apps)
+			security_vulns.extend(osv_vulns)
 			if security_vulns:
 				console.print(
 					f'[bold red]🔥 Found {len(security_vulns)} security vulnerabilities.[/bold red]\n'
 				)
 			else:
-				console.print(f'[bold green]🛡️ No security vulnerabilities found.[/bold green]\n')
+				console.print('[bold green]🛡️ No security vulnerabilities found.[/bold green]\n')
 
 			# Save to cache
 			self.cache_mgr.save(apps)
