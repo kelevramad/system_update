@@ -3,7 +3,7 @@
 ===============================================================================
                           SYSTEM UPDATE ENHANCED
 ===============================================================================
-Version: 2.5.0
+Version: 2.6.0
 Author: Gemini (Redesigned)
 
 A sophisticated system update tool with enhanced UI architecture and modular design.
@@ -3172,6 +3172,156 @@ class SystemUpdateApp:
 
 		return vulns
 
+	def check_github_advisory_vulnerabilities(self, apps: List[AppInfo]) -> List[Dict]:
+		"""
+		Check vulnerabilities using GitHub Advisory Database API.
+
+		Queries the GitHub Advisory Database for known vulnerabilities
+		in packages. Uses the GitHub REST API to query advisories.
+
+		Args:
+		    apps: List of AppInfo objects to check.
+
+		Returns:
+		    List of vulnerability dictionaries.
+		"""
+		vulns: List[Dict] = []
+		unique_apps = {a.name.lower(): a for a in apps}
+
+		ecosystem_map = {
+			'npm': 'NPM',
+			'pip': 'PIP',
+			'cargo': 'CARGO',
+			'rubygems': 'RUBYGEMS',
+			'go': 'GO',
+			'nuget': 'NUGET',
+		}
+
+		for name, app in unique_apps.items():
+			ecosystem = ecosystem_map.get(app.source.lower())
+			if not ecosystem or not app.version:
+				continue
+
+			try:
+				url = f'https://api.github.com/advisories?ecosystem={ecosystem}&package={app.name}'
+				req = urllib.request.Request(
+					url,
+					headers={
+						'Accept': 'application/vnd.github+json',
+						'X-GitHub-Api-Version': '2022-11-28',
+					},
+				)
+				with urllib.request.urlopen(req, timeout=10) as resp:
+					data = json.loads(resp.read().decode('utf-8'))
+
+				for advisory in data or []:
+					affected = advisory.get('affected', []) or []
+					is_affected = False
+					for aff in affected:
+						if aff.get('package', {}).get('name', '').lower() == app.name.lower():
+							versions = aff.get('vulnerable_version_range', '')
+							if versions:
+								is_affected = True
+								break
+
+					if not is_affected:
+						continue
+
+					severity = (advisory.get('severity') or 'MEDIUM').upper()
+					ghsa_id = advisory.get('ghsa_id', 'N/A')
+					cve = advisory.get('cve_id', 'N/A')
+
+					item = {
+						'package': app.name,
+						'severity': severity,
+						'cve': cve if cve != 'N/A' else ghsa_id,
+						'description': advisory.get('description', '')[:200],
+						'source': 'GitHub Advisory',
+						'ghsa_url': advisory.get('html_url', ''),
+					}
+					app.security_findings.append(item)
+					app.update_status = UpdateStatus.VULNERABLE
+					vulns.append(item)
+			except Exception:
+				pass
+
+		return vulns
+
+	def load_local_advisories(self, file_path: str) -> Dict:
+		"""
+		Load local advisory data from a JSON file.
+
+		Supports custom vulnerability data that users can provide.
+		Format:
+		{
+		    "advisories": [
+		        {
+		            "package": "pkg-name",
+		            "severity": "HIGH",
+		            "cve": "CVE-2024-1234",
+		            "description": "...",
+		            "source": "custom"
+		        }
+		    ]
+		}
+
+		Args:
+		    file_path: Path to the JSON file.
+
+		Returns:
+		    Dictionary with loaded advisories.
+		"""
+		if not os.path.isfile(file_path):
+			logger.warning(f'Local advisory file not found: {file_path}')
+			return {}
+
+		try:
+			with open(file_path, 'r', encoding='utf-8') as f:
+				data = json.load(f)
+			logger.info(
+				f'Loaded {len(data.get("advisories", []))} local advisories from {file_path}'
+			)
+			return data
+		except Exception as e:
+			logger.warning(f'Failed to load local advisories: {e}')
+			return {}
+
+	def check_local_advisory_vulnerabilities(
+		self, apps: List[AppInfo], local_data: Dict
+	) -> List[Dict]:
+		"""
+		Check vulnerabilities against loaded local advisory data.
+
+		Args:
+		    apps: List of AppInfo objects to check.
+		    local_data: Dictionary with 'advisories' key from load_local_advisories.
+
+		Returns:
+		    List of vulnerability dictionaries.
+		"""
+		vulns: List[Dict] = []
+		advisories = local_data.get('advisories', [])
+		unique_apps = {a.name.lower(): a for a in apps}
+
+		for adv in advisories:
+			pkg_name = adv.get('package', '').lower()
+			app = unique_apps.get(pkg_name)
+			if not app:
+				continue
+
+			item = {
+				'package': adv.get('package', ''),
+				'severity': (adv.get('severity') or 'MEDIUM').upper(),
+				'cve': adv.get('cve', 'N/A'),
+				'description': adv.get('description', '')[:200],
+				'source': adv.get('source', 'Local'),
+			}
+			app.security_findings.append(item)
+			app.update_status = UpdateStatus.VULNERABLE
+			vulns.append(item)
+
+		return vulns
+
 	def _check_npm_vulns(self, apps: List[AppInfo]) -> List[Dict]:
 		"""Check NPM vulnerabilities using npm audit - full parse."""
 		vulns: List[Dict] = []
@@ -3387,7 +3537,7 @@ class SystemUpdateApp:
 					unique_apps_by_source[src] = []
 				unique_apps_by_source[src].append(app)
 
-			security_sources = ['npm', 'pip', 'osv']
+			security_sources = ['npm', 'pip', 'osv', 'github']
 			active_security = [
 				(name, apps_list)
 				for name, apps_list in (
@@ -3395,6 +3545,19 @@ class SystemUpdateApp:
 				)
 				if apps_list
 			]
+
+			local_advisories = {}
+			local_advisory_file = os.path.join(
+				os.path.expanduser('~'), '.system_update', 'advisories.json'
+			)
+			if os.path.isfile(local_advisory_file):
+				local_advisories = self.load_local_advisories(local_advisory_file)
+			if local_advisories:
+				local_apps = [
+					app for apps_list in unique_apps_by_source.values() for app in apps_list
+				]
+				if local_apps:
+					active_security.append(('local', local_apps))
 
 			if 'pip' in unique_apps_by_source:
 				active_security.append(('pypi', unique_apps_by_source['pip']))
@@ -3440,6 +3603,12 @@ class SystemUpdateApp:
 							source_vulns = self.check_pypi_json_vulnerabilities(source_apps)
 						elif source_name == 'osv':
 							source_vulns = self.check_osv_vulnerabilities(source_apps)
+						elif source_name == 'github':
+							source_vulns = self.check_github_advisory_vulnerabilities(source_apps)
+						elif source_name == 'local':
+							source_vulns = self.check_local_advisory_vulnerabilities(
+								source_apps, local_advisories
+							)
 						logger.info(
 							f'Security check done for {source_name}: {len(source_vulns)} vulns'
 						)

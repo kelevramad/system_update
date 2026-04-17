@@ -2,7 +2,7 @@
 
 > 🚀 A powerful multi-source system update tool for Windows
 
-**Version:** 2.5.0
+**Version:** 2.6.0
 **Runtime:** Node.js
 **Platform:** Windows (primarily), cross-platform support
 
@@ -372,6 +372,12 @@ tests/
 ## 📝 License
 
 This project is provided as-is for system administration and package management tasks.
+
+---
+
+## 🆕 Latest Changes (v2.6.0)
+- **GitHub Advisory Database**: Added vulnerability scanning via GitHub Advisory API
+- **Local Advisory Import**: Added support for custom vulnerability data from local JSON file (~/.system_update/advisories.json)
 
 ---
 

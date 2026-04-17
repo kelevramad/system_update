@@ -33,7 +33,7 @@ const { stdin, stdout } = require('node:process');
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS AND CONFIGURATION
 // ─────────────────────────────────────────────────────────────────────────────
-const VERSION = '2.5.0';
+const VERSION = '2.6.0';
 const APP_NAME = 'system-update';
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -2356,6 +2356,135 @@ async function checkPypiJsonVulnerabilities(apps, timeoutMs) {
   return vulnerabilities;
 }
 
+/**
+ * Check for vulnerabilities using GitHub Advisory Database API
+ * @description Queries the GitHub Advisory Database for known vulnerabilities in packages.
+ * @param {Array<Object>} apps - Array of scanned app objects
+ * @param {number} timeoutMs - Timeout in milliseconds
+ * @returns {Promise<Array<Object>>} Array of vulnerability objects from GitHub
+ */
+async function checkGitHubAdvisoryVulnerabilities(apps, timeoutMs) {
+  const vulnerabilities = [];
+  const uniqueApps = new Map();
+  for (const app of apps) {
+    if (!uniqueApps.has(app.name.toLowerCase())) {
+      uniqueApps.set(app.name.toLowerCase(), app);
+    }
+  }
+
+  const ecosystemMap = {
+    npm: 'NPM',
+    pip: 'PIP',
+    cargo: 'CARGO',
+    rubygems: 'RUBYGEMS',
+    go: 'GO',
+    nuget: 'NUGET',
+  };
+
+  for (const [, app] of uniqueApps) {
+    const ecosystem = ecosystemMap[app.source.toLowerCase()];
+    if (!ecosystem || !app.version) continue;
+
+    try {
+      const response = await fetch(
+        `https://api.github.com/advisories?ecosystem=${ecosystem}&package=${app.name}`,
+        {
+          headers: {
+            Accept: 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+          },
+          signal: AbortSignal.timeout(timeoutMs),
+        }
+      );
+
+      if (!response.ok) continue;
+      const data = await response.json();
+
+      for (const advisory of data || []) {
+        const affected = (advisory.affected || []).filter(
+          (aff) => (aff.package?.name || '').toLowerCase() === app.name.toLowerCase()
+        );
+        if (affected.length === 0) continue;
+
+        const severity = (advisory.severity || 'MEDIUM').toUpperCase();
+        const ghsaId = advisory.ghsa_id || 'N/A';
+        const cve = advisory.cve_id || 'N/A';
+
+        app.status = Status.VULNERABLE;
+        vulnerabilities.push({
+          packageName: app.name,
+          severity,
+          cve: cve !== 'N/A' ? cve : ghsaId,
+          description: (advisory.description || '').slice(0, 200),
+          appInfo: app,
+        });
+      }
+    } catch {
+      // Continue to next package on error
+    }
+  }
+
+  return vulnerabilities;
+}
+
+/**
+ * Load local advisory data from a JSON file
+ * @description Loads custom vulnerability data from user's advisories file.
+ * @param {string} homeDir - User's home directory
+ * @returns {Promise<Object>} Loaded advisory data or empty object
+ */
+async function loadLocalAdvisories(homeDir) {
+  const filePath = path.join(homeDir, '.system_update', 'advisories.json');
+
+  try {
+    const stat = await fs.stat(filePath);
+    if (!stat.isFile()) return {};
+
+    const content = await fs.readFile(filePath, 'utf-8');
+    const data = JSON.parse(content);
+    await writeLog(`loaded ${(data.advisories || []).length} local advisories`);
+    return data;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Check for vulnerabilities against loaded local advisory data
+ * @description Checks apps against local custom vulnerability definitions.
+ * @param {Array<Object>} apps - Array of scanned app objects
+ * @param {Object} localData - Local advisory data with 'advisories' key
+ * @returns {Promise<Array<Object>>} Array of vulnerability objects from local data
+ */
+async function checkLocalAdvisoryVulnerabilities(apps, localData) {
+  const vulnerabilities = [];
+  const advisories = localData.advisories || [];
+  const uniqueApps = new Map();
+  for (const app of apps) {
+    if (!uniqueApps.has(app.name.toLowerCase())) {
+      uniqueApps.set(app.name.toLowerCase(), app);
+    }
+  }
+
+  for (const adv of advisories) {
+    const pkgName = (adv.package || '').toLowerCase();
+    const app = uniqueApps.get(pkgName);
+    if (!app) continue;
+
+    const severity = (adv.severity || 'MEDIUM').toUpperCase();
+    app.status = Status.VULNERABLE;
+    vulnerabilities.push({
+      packageName: adv.package || '',
+      severity,
+      cve: adv.cve || 'N/A',
+      description: (adv.description || '').slice(0, 200),
+      appInfo: app,
+    });
+  }
+
+  return vulnerabilities;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN FUNCTION
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2877,7 +3006,7 @@ async function main() {
 
     if (config.security?.enabled && config.security.autoCheck) {
       const timeoutMs = Number(config.performance.timeoutSeconds || 45) * 1000;
-      const securitySources = ['npm', 'pip', 'osv', 'pypi'];
+      const securitySources = ['npm', 'pip', 'osv', 'pypi', 'github'];
       const uniqueAppsBySource = {};
       for (const app of apps) {
         const src = app.source.toLowerCase();
@@ -2889,6 +3018,23 @@ async function main() {
       // Add separate pypi source if pip apps exist
       if (uniqueAppsBySource['pip'] && !activeSecurity.includes('pypi')) {
         activeSecurity.push('pypi');
+      }
+
+      // Check for local advisories file
+      let localAdvisories = {};
+      const homeDir = os.homedir();
+      const localAdvisoryPath = path.join(homeDir, '.system_update', 'advisories.json');
+      try {
+        const stat = await fs.stat(localAdvisoryPath);
+        if (stat.isFile()) {
+          const content = await fs.readFile(localAdvisoryPath, 'utf-8');
+          localAdvisories = JSON.parse(content);
+          if ((localAdvisories.advisories || []).length > 0) {
+            activeSecurity.push('local');
+          }
+        }
+      } catch {
+        // No local advisories file
       }
 
       if (activeSecurity.length > 0) {
@@ -2907,6 +3053,11 @@ async function main() {
             sourceVulns = await checkOsvVulnerabilities(sourceApps, timeoutMs);
           } else if (sourceName === 'pypi') {
             sourceVulns = await checkPypiJsonVulnerabilities(sourceApps, timeoutMs);
+          } else if (sourceName === 'github') {
+            sourceVulns = await checkGitHubAdvisoryVulnerabilities(sourceApps, timeoutMs);
+          } else if (sourceName === 'local') {
+            const allApps = Object.values(uniqueAppsBySource).flat();
+            sourceVulns = await checkLocalAdvisoryVulnerabilities(allApps, localAdvisories);
           }
           securityFindings.push(...sourceVulns);
           const extra = sourceVulns.length > 0

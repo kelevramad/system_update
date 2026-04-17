@@ -2,7 +2,7 @@
 
 > 🚀 A powerful PowerShell-based system update tool (requires PowerShell 7+)
 
-**Version:** 2.5.0
+**Version:** 2.6.0
 **Runtime:** PowerShell 7+
 **Platform:** Windows
 
@@ -461,6 +461,12 @@ For issues or questions:
 ## 📄 License
 
 This project is provided as-is for system administration and package management tasks.
+
+---
+
+## 🆕 Latest Changes (v2.6.0)
+- **GitHub Advisory Database**: Added vulnerability scanning via GitHub Advisory API
+- **Local Advisory Import**: Added support for custom vulnerability data from local JSON file (~/.system_update/advisories.json)
 
 ---
 
