@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 2.6
+**Document Version:** 2.7
 **Last Updated:** April 17, 2026
 **Author:** Qwen Code
-**Based On:** `system_update.js` v2.6.0, `system_update.py` v2.6.0, `system_update.ps1` v2.6.0
+**Based On:** `system_update.js` v2.7.0, `system_update.py` v2.7.0, `system_update.ps1` v2.7.0
 
 ---
 
@@ -887,6 +887,9 @@ Errors are displayed with appropriate styling:
 | 2.2.0 | April 2026 | Added Scoop package manager support, AppX scanning (Windows Store apps), MSIX scanning |
 | 2.3.0 | April 2026 | Added OSV API integration (Google's vulnerability database for npm, PyPI, crates.io, RubyGems, Go, CocoaPods, Hex) |
 | 2.4.0 | April 2026 | Added PyPI JSON API vulnerability checking, now 3 implementations (Node.js, Python, PowerShell) |
+| 2.5.0 | April 2026 | Enhanced npm vulnerability scanning (full audit JSON parse), added advisory URLs and fix availability info |
+| 2.6.0 | April 2026 | Added GitHub Advisory Database API integration, local advisory import support (~/.system_update/advisories.json) |
+| 2.7.0 | April 2026 | Implemented **Security Reporting Features**: CVSS Score Display, persistent Vulnerability History tracking, Security Summary Stats with severity counts, and enhanced CVE details |
 
 ## Appendix B: Glossary
 

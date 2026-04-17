@@ -33,7 +33,7 @@ const { stdin, stdout } = require('node:process');
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS AND CONFIGURATION
 // ─────────────────────────────────────────────────────────────────────────────
-const VERSION = '2.6.0';
+ const VERSION = '2.7.0';
 const APP_NAME = 'system-update';
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -51,6 +51,116 @@ const IS_TTY = Boolean(process.stdout.isTTY);
 const SUPPORTS_COLOR = IS_TTY && process.env.NO_COLOR !== '1';
 let LOGGING_ENABLED = false;
 let DEBUG_ENABLED = false;
+
+// Vulnerability history file path
+const HISTORY_FILE = path.join(ACTIVE_DATA_DIR, 'vulnerability_history.json');
+
+// Vulnerability History Manager
+const vulnHistory = {
+  history: [],
+
+  load() {
+    try {
+      if (fs.existsSync(HISTORY_FILE)) {
+        const data = fs.readFileSync(HISTORY_FILE, 'utf8');
+        this.history = JSON.parse(data);
+      }
+    } catch (e) {
+      writeLog(`vuln history load error: ${e.message}`);
+      this.history = [];
+    }
+  },
+
+  save() {
+    try {
+      fs.mkdirSync(ACTIVE_DATA_DIR, { recursive: true });
+      fs.writeFileSync(HISTORY_FILE, JSON.stringify(this.history, null, 2), 'utf8');
+    } catch (e) {
+      writeLog(`vuln history save error: ${e.message}`);
+    }
+  },
+
+  record(app, vuln, scanId) {
+    const record = {
+      id: `vuln-${(this.history.length + 1).toString().padStart(6, '0')}`,
+      timestamp: new Date().toISOString(),
+      scan_id: scanId,
+      package_name: app.name,
+      package_source: app.source,
+      package_version: app.version,
+      cve: vuln.cve || 'N/A',
+      severity: vuln.severity || 'UNKNOWN',
+      cvss_score: vuln.cvssScore ?? null,
+      description: vuln.description || '',
+      affected_versions: vuln.affectedVersions || [],
+      published_date: vuln.publishedDate || null,
+      advisory_url: vuln.advisoryUrl || '',
+      status: 'open',
+      first_seen: new Date().toISOString(),
+      last_seen: new Date().toISOString(),
+      resolved_date: null,
+    };
+    this.history.push(record);
+    this.save();
+  },
+
+  getStatistics() {
+    if (!this.history.length) {
+      return {
+        total_vulnerabilities: 0,
+        open_vulnerabilities: 0,
+        resolved_vulnerabilities: 0,
+        severity_breakdown: { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 },
+        critical_count: 0,
+        high_count: 0,
+        medium_count: 0,
+        low_count: 0,
+        packages_affected: 0,
+        persistent_vulnerabilities: 0,
+      };
+    }
+
+    const openVulns = this.history.filter(r => r.status === 'open');
+    const resolvedVulns = this.history.filter(r => r.status === 'resolved');
+
+    const severityCounts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+    for (const v of openVulns) {
+      const sev = (v.severity || 'UNKNOWN').toUpperCase();
+      if (severityCounts[sev] !== undefined) severityCounts[sev]++; else severityCounts.MEDIUM++;
+    }
+
+    const openPackages = new Set(openVulns.map(v => v.package_name));
+
+    // Count persistent: same (package,cve) seen in >=3 distinct scans
+    const vulnMap = new Map();
+    for (const v of this.history) {
+      if (v.status === 'open') {
+        const key = `${v.package_name}|${v.cve}`;
+        const scans = vulnMap.get(key) || new Set();
+        scans.add(v.scan_id);
+        vulnMap.set(key, scans);
+      }
+    }
+    let persistent = 0;
+    for (const scans of vulnMap.values()) {
+      if (scans.size >= 3) persistent++;
+    }
+
+    return {
+      total_vulnerabilities: this.history.length,
+      open_vulnerabilities: openVulns.length,
+      resolved_vulnerabilities: resolvedVulns.length,
+      severity_breakdown: severityCounts,
+      critical_count: severityCounts.CRITICAL,
+      high_count: severityCounts.HIGH,
+      medium_count: severityCounts.MEDIUM,
+      low_count: severityCounts.LOW,
+      packages_affected: openPackages.size,
+      persistent_vulnerabilities: persistent,
+    };
+  }
+};
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // STATUS ENUMERATION
@@ -2149,6 +2259,8 @@ async function checkNpmVulnerabilities(apps, timeoutMs) {
           if (firstVia.severity) {
             severity = firstVia.severity;
           }
+          // Extract CVSS score from via object (npm audit may include cvss or score)
+          cvssScore = firstVia.cvss || firstVia.score || null;
         } else if (typeof firstVia === 'string') {
           description = `Via: ${firstVia}`;
         }
@@ -2162,13 +2274,16 @@ async function checkNpmVulnerabilities(apps, timeoutMs) {
       vulnerabilities.push({
         packageName: pkgName,
         severity,
+        cvssScore,
         cve,
         description,
         advisoryUrl,
         fixAvailable,
         isDirect,
         effects: vuln.effects || [],
-        appInfo: app,
+        affectedVersions: [], // npm audit does not provide explicit affected version ranges
+        publishedDate: null,
+        source: 'npm',
       });
     }
 
@@ -2214,12 +2329,23 @@ async function checkPipVulnerabilities(apps, timeoutMs) {
       app.status = Status.VULNERABLE;
       for (const vuln of dep.vulns) {
         const cve = vuln.id || (vuln.aliases && vuln.aliases[0]) || 'N/A';
+        const severity = vuln.severity || 'medium';
+        // pip-audit may include CVSS score in vuln.cvss or vuln.score
+        const cvssScore = vuln.cvss?.score || vuln.score || null;
+        const affectedVersions = vuln.affected_versions || vuln.affectedVersions || [];
+        const publishedDate = vuln.published || vuln.published_date || null;
+
         vulnerabilities.push({
           packageName: pkgName,
-          severity: 'medium',
+          severity,
+          cvssScore,
           cve,
           description: vuln.description || 'Security vulnerability',
-          appInfo: app,
+          affectedVersions,
+          publishedDate,
+          source: 'pip',
+          advisoryUrl: '',
+          fixAvailable: vuln.fix_available || false,
         });
       }
     }
@@ -2278,9 +2404,11 @@ async function checkOsvVulnerabilities(apps, timeoutMs) {
 
       for (const vuln of (data.vulns || [])) {
         let severity = 'MEDIUM';
+        let cvssScore = null;
         if (vuln.severity) {
           for (const s of vuln.severity) {
             if (s.type === 'cvss_v3') {
+              cvssScore = s.score;
               severity = String(s.score || 'MEDIUM');
               break;
             }
@@ -2289,13 +2417,33 @@ async function checkOsvVulnerabilities(apps, timeoutMs) {
           severity = vuln.database_specific.severity;
         }
 
+        // Extract affected versions from OSV ranges
+        const affectedVersions = [];
+        for (const affected of (vuln.affected || [])) {
+          for (const range of (affected.ranges || [])) {
+            for (const event of (range.events || [])) {
+              if (event.introduced) {
+                if (event.fixed) {
+                  affectedVersions.push(`${event.introduced} - ${event.fixed}`);
+                } else {
+                  affectedVersions.push(`< ${event.introduced}`);
+                }
+              }
+            }
+          }
+        }
+
         app.status = Status.VULNERABLE;
         vulnerabilities.push({
           packageName: app.name,
           severity: severity.toUpperCase(),
+          cvssScore,
           cve: vuln.id || 'N/A',
           description: vuln.summary || '',
-          appInfo: app,
+          affectedVersions,
+          publishedDate: vuln.published || null,
+          advisoryUrl: `https://osv.dev/${vuln.id || ''}`,
+          source: 'osv',
         });
       }
     } catch {
@@ -2343,9 +2491,13 @@ async function checkPypiJsonVulnerabilities(apps, timeoutMs) {
         vulnerabilities.push({
           packageName: app.name,
           severity,
+          cvssScore: null, // PyPI endpoint doesn't provide CVSS directly
           cve,
           description: vuln.summary || vuln.details || '',
-          appInfo: app,
+          affectedVersions: vuln.affected_versions || [],
+          publishedDate: vuln.published || null,
+          advisoryUrl: `https://pypi.org/project/${app.name}/${app.version}/`,
+          source: 'pypi',
         });
       }
     } catch {
@@ -2410,13 +2562,40 @@ async function checkGitHubAdvisoryVulnerabilities(apps, timeoutMs) {
         const ghsaId = advisory.ghsa_id || 'N/A';
         const cve = advisory.cve_id || 'N/A';
 
+        // Extract CVSS score from advisory
+        let cvssScore = null;
+        if (advisory.cvss) {
+          cvssScore = advisory.cvss.score || null;
+        }
+        if (!cvssScore && advisory.cvssScores) {
+          // cvssScores is an array of versioned scores
+          for (const cs of advisory.cvssScores) {
+            if (cs.score) {
+              cvssScore = cs.score;
+              break;
+            }
+          }
+        }
+
+        // Extract affected version ranges
+        const affectedVersions = [];
+        for (const aff of affected) {
+          if (aff.vulnerable_version_range) {
+            affectedVersions.push(aff.vulnerable_version_range);
+          }
+        }
+
         app.status = Status.VULNERABLE;
         vulnerabilities.push({
           packageName: app.name,
           severity,
+          cvssScore,
           cve: cve !== 'N/A' ? cve : ghsaId,
           description: (advisory.description || '').slice(0, 200),
-          appInfo: app,
+          affectedVersions,
+          publishedDate: advisory.published_at || null,
+          advisoryUrl: advisory.html_url || '',
+          source: 'github',
         });
       }
     } catch {
@@ -2466,21 +2645,25 @@ async function checkLocalAdvisoryVulnerabilities(apps, localData) {
     }
   }
 
-  for (const adv of advisories) {
-    const pkgName = (adv.package || '').toLowerCase();
-    const app = uniqueApps.get(pkgName);
-    if (!app) continue;
+   for (const adv of advisories) {
+     const pkgName = (adv.package || '').toLowerCase();
+     const app = uniqueApps.get(pkgName);
+     if (!app) continue;
 
-    const severity = (adv.severity || 'MEDIUM').toUpperCase();
-    app.status = Status.VULNERABLE;
-    vulnerabilities.push({
-      packageName: adv.package || '',
-      severity,
-      cve: adv.cve || 'N/A',
-      description: (adv.description || '').slice(0, 200),
-      appInfo: app,
-    });
-  }
+     const severity = (adv.severity || 'MEDIUM').toUpperCase();
+     app.status = Status.VULNERABLE;
+     vulnerabilities.push({
+       packageName: adv.package,
+       severity,
+       cvssScore: adv.cvss_score || null,
+       cve: adv.cve || 'N/A',
+       description: (adv.description || '').slice(0, 200),
+       affectedVersions: adv.affected_versions || [],
+       publishedDate: adv.published_date || null,
+       advisoryUrl: adv.advisory_url || '',
+       source: adv.source || 'local',
+     });
+   }
 
   return vulnerabilities;
 }
@@ -2634,9 +2817,9 @@ function printSecurityTable(vulnerabilities) {
   if (!vulnerabilities.length) return;
   writeLog(`printing security table: count=${vulnerabilities.length}`);
 
-  const colWidths = { package: 12, severity: 10, cve: 18, description: 50 };
+  const colWidths = { package: 12, severity: 10, cvss: 8, cve: 18, description: 50 };
   const colGap = 2;
-  const innerWidth = colWidths.package + colGap + colWidths.severity + colGap + colWidths.cve + colGap + colWidths.description;
+  const innerWidth = colWidths.package + colGap + colWidths.severity + colGap + colWidths.cvss + colGap + colWidths.cve + colGap + colWidths.description;
   const tableWidth = innerWidth + 4; // 2 for border chars + 2 for inner padding
 
   const borderTop = paint('┌' + '─'.repeat(tableWidth - 2) + '┐', ANSI.red);
@@ -2654,20 +2837,22 @@ function printSecurityTable(vulnerabilities) {
   const headerText = ' ' +
     paint('Package'.padEnd(colWidths.package), ANSI.bold, ANSI.cyan) + ' '.repeat(colGap) +
     paint('Severity'.padEnd(colWidths.severity), ANSI.bold, ANSI.cyan) + ' '.repeat(colGap) +
+    paint('CVSS'.padEnd(colWidths.cvss), ANSI.bold, ANSI.cyan) + ' '.repeat(colGap) +
     paint('CVE'.padEnd(colWidths.cve), ANSI.bold, ANSI.cyan) + ' '.repeat(colGap) +
     paint('Description'.padEnd(colWidths.description), ANSI.bold, ANSI.cyan) + ' ';
   console.log(`${borderL}${headerText}${borderR}`);
   console.log(borderMid);
 
-  const prefixWidth = colWidths.package + colGap + colWidths.severity + colGap + colWidths.cve + colGap;
+  const prefixWidth = colWidths.package + colGap + colWidths.severity + colGap + colWidths.cvss + colGap + colWidths.cve + colGap;
 
   for (let i = 0; i < vulnerabilities.length; i++) {
     const v = vulnerabilities[i];
-    const sevColor = { critical: ANSI.red, high: ANSI.red, medium: ANSI.yellow, low: ANSI.green }[v.severity.toLowerCase()] || ANSI.white;
+    const sevColor = { CRITICAL: ANSI.red, HIGH: ANSI.red, MEDIUM: ANSI.yellow, LOW: ANSI.green }[v.severity?.toUpperCase() || ''] || ANSI.white;
 
     const pkg = paint(truncateText(v.packageName, colWidths.package), ANSI.cyan);
-    const sev = paint(v.severity.toUpperCase().padEnd(colWidths.severity), sevColor);
-    const cveId = truncateText(v.cve, colWidths.cve);
+    const sev = paint(v.severity?.toUpperCase().padEnd(colWidths.severity) || '-'.padEnd(colWidths.severity), sevColor);
+    const cvss = v.cvssScore !== null && v.cvssScore !== undefined ? v.cvssScore.toFixed(1) : '-';
+    const cveId = truncateText(v.cve || 'N/A', colWidths.cve);
 
     // Clean description and wrap into multiple lines
     const cleanDesc = (v.description || '').replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
@@ -2678,6 +2863,7 @@ function printSecurityTable(vulnerabilities) {
     const firstRow = ' ' +
       padAnsi(pkg, colWidths.package) + ' '.repeat(colGap) +
       padAnsi(sev, colWidths.severity) + ' '.repeat(colGap) +
+      cvss.padEnd(colWidths.cvss) + ' '.repeat(colGap) +
       cveId.padEnd(colWidths.cve) + ' '.repeat(colGap) +
       paint(firstDescLine, ANSI.dim) + ' ';
     console.log(`${borderL}${firstRow}${borderR}`);
@@ -2696,6 +2882,68 @@ function printSecurityTable(vulnerabilities) {
   }
 
   console.log(borderBot);
+}
+
+/**
+ * Compute security statistics from a list of vulnerability objects.
+ * @param {Array<Object>} vulns - Vulnerability objects with severity and packageName
+ * @returns {Object} Stats dictionary with counts
+ */
+function computeSecurityStats(vulns) {
+  if (!vulns.length) {
+    return {
+      total_vulnerabilities: 0,
+      open_vulnerabilities: 0,
+      severity_breakdown: { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 },
+      critical_count: 0,
+      high_count: 0,
+      medium_count: 0,
+      low_count: 0,
+      packages_affected: 0,
+      persistent_vulnerabilities: 0,
+    };
+  }
+
+  const counts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+  const packages = new Set();
+  for (const v of vulns) {
+    const sev = (v.severity || '').toUpperCase();
+    if (counts[sev] !== undefined) counts[sev]++; else counts.MEDIUM++;
+    packages.add(v.packageName);
+  }
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  return {
+    total_vulnerabilities: total,
+    open_vulnerabilities: total,
+    severity_breakdown: counts,
+    critical_count: counts.CRITICAL,
+    high_count: counts.HIGH,
+    medium_count: counts.MEDIUM,
+    low_count: counts.LOW,
+    packages_affected: packages.size,
+    persistent_vulnerabilities: 0,
+  };
+}
+
+/**
+ * Display security summary statistics.
+ * @param {Object} stats - Stats object from computeSecurityStats
+ */
+function printSecuritySummary(stats) {
+  if (!stats || stats.total_vulnerabilities === 0) return;
+  console.log();
+  console.log(paint('📈 Security Summary', ANSI.magenta));
+
+  const colors = { CRITICAL: ANSI.red, HIGH: ANSI.red, MEDIUM: ANSI.yellow, LOW: ANSI.green };
+  const parts = [];
+  for (const sev of ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']) {
+    const count = stats.severity_breakdown[sev] || 0;
+    if (count > 0) {
+      parts.push(paint(`${sev}: ${count}`, colors[sev]));
+    }
+  }
+  if (parts.length) console.log('  ' + parts.join(' | '));
+  console.log(`  📦 Packages affected: ${paint(String(stats.packages_affected), ANSI.bold)}`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2967,6 +3215,8 @@ async function main() {
 
   const config = await loadConfig();
   await ensureConfigDir();
+  // Load vulnerability history for tracking over time
+  vulnHistory.load();
   LOGGING_ENABLED = args.log;
   DEBUG_ENABLED = args.debug;
   await writeLog(`session start: v${VERSION}, platform=${process.platform}, node=${process.version}`);
@@ -3112,19 +3362,30 @@ async function main() {
     console.log(`\n${emoji('disk')} Showing: updates only`);
   }
 
-  // Display found updates message before security table
-  if (!args.packageName && !args.updateSource && !args.updateAll) {
-    if (!appsWithUpdates.length) {
-      console.log(`\n${emoji('sparkle')} ${paint('System is up to date!', ANSI.green)}`);
-    } else {
-      console.log(`\n${emoji('target')} ${paint(`Found ${appsWithUpdates.length} available updates`, ANSI.yellow, ANSI.bold)}`);
-    }
-  }
+   // Display found updates message before security table
+   if (!args.packageName && !args.updateSource && !args.updateAll) {
+     if (!appsWithUpdates.length) {
+       console.log(`\n${emoji('sparkle')} ${paint('System is up to date!', ANSI.green)}`);
+     } else {
+       console.log(`\n${emoji('target')} ${paint(`Found ${appsWithUpdates.length} available updates`, ANSI.yellow, ANSI.bold)}`);
+     }
+   }
 
-  // Display security table at the end (matching Python behavior)
-  if (securityFindings.length && config.security?.enabled) {
-    printSecurityTable(securityFindings);
-  }
+   // Record vulnerabilities to history and display summary before table
+   if (securityFindings.length > 0 && config.security?.enabled) {
+     const scanId = new Date().toISOString().replace(/[:.]/g, '');
+     for (const finding of securityFindings) {
+       const app = apps.find(a => a.name.toLowerCase() === finding.packageName.toLowerCase());
+       if (app) vulnHistory.record(app, finding, scanId);
+     }
+     const currentStats = computeSecurityStats(securityFindings);
+     printSecuritySummary(currentStats);
+   }
+
+   // Display security table at the end (matching Python behavior)
+   if (securityFindings.length && config.security?.enabled) {
+     printSecurityTable(securityFindings);
+   }
 
   if (args.packageName) {
     const matches = selectPackage(apps, args.packageName, args.source);
