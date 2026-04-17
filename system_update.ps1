@@ -2220,7 +2220,11 @@ function Wrap-Text([string]$Text, [int]$MaxWidth) {
     $lines = @()
     $words = $Text.Split(' ')
     $current = ''
-    foreach ($word in $words) {
+    foreach ($w in $words) {
+        $word = $w
+        if ($word.Length -gt $MaxWidth -and $MaxWidth -gt 3) {
+            $word = $word.Substring(0, $MaxWidth - 3) + '...'
+        }
         $test = if ($current) { "$current $word" } else { $word }
         if ($test.Length -le $MaxWidth) {
             $current = $test
