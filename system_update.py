@@ -3,7 +3,7 @@
 ===============================================================================
                           SYSTEM UPDATE ENHANCED
 ===============================================================================
-Version: 2.1.0
+Version: 2.2.0
 Author: Gemini (Redesigned)
 
 A sophisticated system update tool with enhanced UI architecture and modular design.
@@ -1605,6 +1605,104 @@ class PackageScanner:
 
 		return apps
 
+	@staticmethod
+	def scan_appx() -> List[AppInfo]:
+		"""
+		Scan Windows AppX/Packaged apps (Microsoft Store apps).
+
+		Executes Get-AppxPackage to discover installed AppX packages including
+		Microsoft Store apps and other packaged applications.
+
+		Returns:
+		    List[AppInfo]: List of discovered AppX applications.
+
+		Note:
+		    - Windows-only functionality (returns empty list on other platforms)
+		    - Filters out framework packages and system components
+		    - Requires PowerShell on Windows
+		"""
+		if platform.system() != 'Windows':
+			return []
+
+		apps = []
+		ps_script = """
+        Get-AppxPackage -AllUsers |
+            Where-Object { $_.IsFramework -eq $false -and $_.SignatureKind -ne 'System' } |
+            Select-Object Name, Version, PackageFullName, InstallLocation |
+            ConvertTo-Json
+        """
+
+		output = run_command(
+			['powershell', '-NoProfile', '-Command', ps_script], allow_failure=True
+		)
+		if output:
+			try:
+				data = json.loads(output)
+				data = [data] if isinstance(data, dict) else data
+				for item in data:
+					apps.append(
+						AppInfo(
+							name=item['Name'],
+							source='AppX',
+							version=item.get('Version'),
+							install_path=item.get('InstallLocation'),
+							app_id=item.get('PackageFullName'),
+						)
+					)
+			except Exception:
+				pass
+
+		return apps
+
+	@staticmethod
+	def scan_msix() -> List[AppInfo]:
+		"""
+		Scan Windows MSIX packaged applications.
+
+		Executes Get-AppxPackage to discover installed MSIX packages, which are
+		a modern packaging format for Windows applications.
+
+		Returns:
+		    List[AppInfo]: List of discovered MSIX applications.
+
+		Note:
+		    - Windows-only functionality (returns empty list on other platforms)
+		    - MSIX packages have SignatureKind='AppxPackage'
+		    - Requires PowerShell on Windows
+		"""
+		if platform.system() != 'Windows':
+			return []
+
+		apps = []
+		ps_script = """
+        Get-AppxPackage -AllUsers |
+            Where-Object { $_.SignatureKind -eq 'AppxPackage' } |
+            Select-Object Name, Version, PackageFullName, InstallLocation |
+            ConvertTo-Json
+        """
+
+		output = run_command(
+			['powershell', '-NoProfile', '-Command', ps_script], allow_failure=True
+		)
+		if output:
+			try:
+				data = json.loads(output)
+				data = [data] if isinstance(data, dict) else data
+				for item in data:
+					apps.append(
+						AppInfo(
+							name=item['Name'],
+							source='MSIX',
+							version=item.get('Version'),
+							install_path=item.get('InstallLocation'),
+							app_id=item.get('PackageFullName'),
+						)
+					)
+			except Exception:
+				pass
+
+		return apps
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # UPDATE CHECKERS
@@ -2783,6 +2881,8 @@ class SystemUpdateApp:
 			'rust': self.scanner.scan_rust,
 			'scoop': self.scanner.scan_scoop,
 			'dotnet': self.scanner.scan_dotnet,
+			'appx': self.scanner.scan_appx,
+			'msix': self.scanner.scan_msix,
 		}
 
 		aliases = {'choco': 'chocolatey'}

@@ -127,6 +127,20 @@ Describe 'system_update.ps1' {
 		$output.ToLower() | Should Match 'scan|apps'
 	}
 
+	It '-include appx scans appx source' {
+		$res = Invoke-CLI -CliArgs '-Include appx -NoCache'
+		$output = $res.StdOut + $res.StdErr
+		$res.Code | Should Be 0
+		$output.ToLower() | Should Match 'scan|apps'
+	}
+
+	It '-include msix scans msix source' {
+		$res = Invoke-CLI -CliArgs '-Include msix -NoCache'
+		$output = $res.StdOut + $res.StdErr
+		$res.Code | Should Be 0
+		$output.ToLower() | Should Match 'scan|apps'
+	}
+
 	It '-dry-run flag accepted' {
 		$res = Invoke-CLI -CliArgs '-DryRun -Include path'
 		$output = $res.StdOut + $res.StdErr

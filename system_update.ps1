@@ -147,7 +147,7 @@ $ErrorActionPreference = 'Stop'
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 # Script version number
-$VER = '2.1.0'
+$VER = '2.2.0'
 
 # Data directory for cache and logs - uses environment variable if set, otherwise defaults to user profile
 $DATA_DIR = if ($env:SYSTEM_UPDATE_HOME) { $env:SYSTEM_UPDATE_HOME } else { Join-Path $env:USERPROFILE '.system_update' }
@@ -1220,6 +1220,92 @@ function Scan-Registry {
 
 <#
 .SYNOPSIS
+    Scan Windows AppX/Packaged apps (Microsoft Store apps).
+.DESCRIPTION
+    Uses Get-AppxPackage to discover installed AppX packages including
+    Microsoft Store apps and other packaged applications.
+.EXAMPLE
+    $appx = Scan-Appx
+#>
+function Scan-Appx {
+    $tempScript = [System.IO.Path]::GetTempFileName() + '.ps1'
+    @"
+try {
+    Get-AppxPackage | Where-Object { `$_.IsFramework -eq `$false -and `$_.SignatureKind -ne 'System' } | Select-Object Name, Version, PackageFullName, InstallLocation | ConvertTo-Json
+} catch { Write-Output '' }
+"@ | Out-File -FilePath $tempScript -Encoding UTF8
+    $json = powershell -NoProfile -File $tempScript
+    Remove-Item $tempScript -Force -ErrorAction SilentlyContinue
+    if (-not $json -or $json -eq '') { return @() }
+    try {
+        $data = $json | ConvertFrom-Json -ErrorAction SilentlyContinue
+        if (-not $data) { return @() }
+        if ($data -isnot [array]) { $data = @($data) }
+        $result = @()
+        foreach ($item in $data) {
+            if ($item.Name) {
+                $result += [PSCustomObject]@{
+                    name = $item.Name
+                    source = 'appx'
+                    version = $item.Version
+                    latestVersion = ''
+                    appId = $item.PackageFullName
+                    installPath = $item.InstallLocation
+                    status = $S_UNK
+                    scanTime = [datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+                }
+            }
+        }
+        return [array]@($result | Sort-Object Name)
+    }
+    catch { return @() }
+}
+
+<#
+.SYNOPSIS
+    Scan Windows MSIX packaged applications.
+.DESCRIPTION
+    Uses Get-AppxPackage to discover installed MSIX packages, which are
+    a modern packaging format for Windows applications.
+.EXAMPLE
+    $msix = Scan-MSIX
+#>
+function Scan-MSIX {
+    $tempScript = [System.IO.Path]::GetTempFileName() + '.ps1'
+    @"
+try {
+    Get-AppxPackage | Where-Object { `$_.SignatureKind -eq 'AppxPackage' } | Select-Object Name, Version, PackageFullName, InstallLocation | ConvertTo-Json
+} catch { Write-Output '' }
+"@ | Out-File -FilePath $tempScript -Encoding UTF8
+    $json = powershell -NoProfile -File $tempScript
+    Remove-Item $tempScript -Force -ErrorAction SilentlyContinue
+    if (-not $json -or $json -eq '') { return @() }
+    try {
+        $data = $json | ConvertFrom-Json -ErrorAction SilentlyContinue
+        if (-not $data) { return @() }
+        if ($data -isnot [array]) { $data = @($data) }
+        $result = @()
+        foreach ($item in $data) {
+            if ($item.Name) {
+                $result += [PSCustomObject]@{
+                    name = $item.Name
+                    source = 'msix'
+                    version = $item.Version
+                    latestVersion = ''
+                    appId = $item.PackageFullName
+                    installPath = $item.InstallLocation
+                    status = $S_UNK
+                    scanTime = [datetime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+                }
+            }
+        }
+        return [array]@($result | Sort-Object Name)
+    }
+    catch { return @() }
+}
+
+<#
+.SYNOPSIS
     Deduplicates application list by source, name, and version.
 .DESCRIPTION
     Creates a unique list of applications by combining source, name, and version
@@ -1232,6 +1318,7 @@ function Scan-Registry {
     Array of unique PSCustomObject applications.
 #>
 function Get-Unique([array]$Apps) {
+    if (-not $Apps) { return @() }
     $map = @{}
     foreach ($a in $Apps) { $k = "$($a.source)|$($a.name)|$($a.version)".ToLower(); $map[$k] = $a }
     return [array]@($map.Values | Sort-Object { $_.source + $_.name })
@@ -1293,6 +1380,7 @@ function Load-Cache {
     Uses UTF8 encoding for proper character support.
 #>
 function Save-Cache([array]$Apps) {
+    if (-not $Apps -or $Apps.Count -eq 0) { return }
     # Create data directory if it doesn't exist
     if (-not(Test-Path $DATA_DIR)) { New-Item -ItemType Directory $DATA_DIR -Force | Out-Null }
     # Write cache with metadata (timestamp, version, totalApps, apps)
@@ -2000,6 +2088,7 @@ function padAnsi([string]$Text, [int]$Width) {
     Writes formatted table to host output.
 #>
 function Print-Table([array]$Apps, [switch]$ShowAll) {
+    if (-not $Apps -or $Apps.Count -eq 0) { return }
     # Filter apps: by default show only updates/vulnerable, unless ShowAll is true
     $displayApps = if ($ShowAll) { $Apps } else { @($Apps | Where-Object { $_.status -eq $S_UPD -or $_.status -eq $S_VULN }) }
 
@@ -2324,7 +2413,10 @@ function Main {
     $apps = $null
     if (-not $NoCache) {
         $apps = Load-Cache
-        if ($apps) { Write-Host "$(E 'disk') $(green "Loaded $($apps.Count) apps from cache.")`n" }
+        if ($apps) {
+            $cacheCount = if ($apps) { $apps.Count } else { 0 }
+            Write-Host "$(E 'disk') $(green "Loaded $cacheCount apps from cache.")`n"
+        }
     }
 
     # If cache miss or disabled, perform full scan
@@ -2343,7 +2435,9 @@ function Main {
             registry   = { Scan-Registry }
             rust       = { Scan-Rust }
             scoop      = { Scan-Scoop }
-            dotnet    = { Scan-Dotnet }
+            dotnet     = { Scan-Dotnet }
+            appx       = { Scan-Appx }
+            msix       = { Scan-MSIX }
         }
         # Filter scanners based on source selection
         $sel = @($scanners.Keys | Where-Object { $sf.Count -eq 0 -or $sf.ContainsKey($_) })
@@ -2352,13 +2446,15 @@ function Main {
         # Run each scanner and collect results
         foreach ($src in $sel) {
             $chunk = @(& $scanners[$src])
-            $prog.Tick("$(srcBadge $src) $($chunk.Count) apps")
+            $c = if ($chunk) { $chunk.Count } else { 0 }
+            $prog.Tick("$(srcBadge $src) $c apps")
             $all += $chunk
         }
         $prog.Done((green "$(E 'ok') scan complete"))
         $apps = Get-Unique $all
 
-        Write-Host "`n$(E 'package') $(bold "Discovered $($apps.Count) unique apps.")"
+        $appsCount = if ($apps) { $apps.Count } else { 0 }
+        Write-Host "`n$(E 'package') $(bold "Discovered $appsCount unique apps.")"
         if ($CFG_SKIP_UPDATE_CHECKS) {
             Finalize $apps
             Write-Host "$(E 'update') $(yellow 'Skipping update checks (SYSTEM_UPDATE_SKIP_UPDATE_CHECKS).')`n"
@@ -2378,13 +2474,18 @@ function Main {
                 registry   = { Check-Registry $apps }
                 rust       = { Check-Rust $apps }
                 scoop      = { Check-Scoop $apps }
-                dotnet    = { Check-Dotnet $apps }
+                dotnet     = { Check-Dotnet $apps }
+                appx       = { 0 }
+                msix       = { 0 }
             }
             $prog2 = New-Progress $checkers.Count "$(E 'update') Checking updates"
             $total = 0
             # Run each checker and count updates
             foreach ($src in $checkers.Keys) {
-                $cnt = & $checkers[$src]
+                $cnt = 0
+                if ($apps -and $apps.Count -gt 0) {
+                    $cnt = & $checkers[$src]
+                }
                 $msg = if ($cnt -gt 0) { "$(srcBadge $src) $(yellow "$cnt update(s)")" } else { "$(srcBadge $src) $(gray 'none')" }
                 $prog2.Tick($msg); $total += $cnt
             }
@@ -2395,7 +2496,7 @@ function Main {
         }
 
         # Security vulnerability scanning (if enabled)
-        if ($CFG_SECURITY -and -not $CFG_SKIP_UPDATE_CHECKS) {
+        if ($CFG_SECURITY -and -not $CFG_SKIP_UPDATE_CHECKS -and $apps -and $apps.Count -gt 0) {
             Write-Host "$(E 'lock') $(bold (magenta 'Checking security vulnerabilities...'))"
             $sevOrder = @{critical = 4; high = 3; medium = 2; low = 1 }
             $thresh = $sevOrder[$CFG_SEVERITY]; if (-not $thresh) { $thresh = 2 }
@@ -2403,19 +2504,22 @@ function Main {
             # Filter vulnerabilities by severity threshold
             $vulns = @($vulns | Where-Object { $sv = $sevOrder[$_.Sev.ToLower()]; if (-not $sv) { $sv = 1 }; $sv -ge $thresh })
             $script:SecurityFindings = $vulns
-            if ($vulns.Count -gt 0) {
+            $vulnCount = if ($vulns) { $vulns.Count } else { 0 }
+            if ($vulnCount -gt 0) {
                 $vulns | ForEach-Object {
                     $vPkg = $_.Pkg
                     $a = $apps | Where-Object { $_.name.ToLower() -eq $vPkg.ToLower() } | Select-Object -First 1
                     if ($a) { $a.Status = $S_VULN }
                 }
-                Write-Host "$(E 'fire') $(red (bold "Found $($vulns.Count) security vulnerabilities."))`n"
+                Write-Host "$(E 'fire') $(red (bold "Found $vulnCount security vulnerabilities."))`n"
             }
             else { Write-Host "$(E 'shield') $(green 'No security vulnerabilities found.')`n" }
         }
 
         # Save results to cache
-        Save-Cache $apps
+        if ($apps -and $apps.Count -gt 0) {
+            Save-Cache $apps
+        }
     }
 
     # Apply source filters if specified
@@ -2429,17 +2533,26 @@ function Main {
     }
 
     # Calculate summary statistics
-    $updApps = @($apps | Where-Object { $_.Status -eq $S_UPD })
-    $vulnApps = @($apps | Where-Object { $_.Status -eq $S_VULN })
+    $updApps = @()
+    $vulnApps = @()
+    if ($apps -and $apps.Count -gt 0) {
+        $updApps = @($apps | Where-Object { $_.Status -eq $S_UPD })
+        $vulnApps = @($apps | Where-Object { $_.Status -eq $S_VULN })
+    }
     $el = ([datetime]::Now - $start).TotalSeconds
 
     # Display summary section
     Write-Host (bold (magenta "`n$(E 'chart') Summary"))
-    Write-Host "$(E 'package') total apps      $(bold $apps.Count)"
-    $us = if ($updApps.Count -gt 0) { yellow(bold "$($updApps.Count)") } else { green(bold "$($updApps.Count)") }
+    $appsCount = if ($apps) { $apps.Count } else { 0 }
+    Write-Host "$(E 'package') total apps      $(bold $appsCount)"
+    $updCount = if ($updApps) { $updApps.Count } else { 0 }
+    $us = if ($updCount -gt 0) { yellow(bold "$updCount") } else { green(bold "$updCount") }
     Write-Host "$(E 'update') updates         $us"
     Write-Host "$(E 'hourglass') scan duration   $(bold "$($el.ToString('0.00'))s")"
-    $coloredSrc = @($apps | Group-Object Source | ForEach-Object { "$(srcBadge $_.Name):$(bold $_.Count)" })
+    $coloredSrc = @()
+    if ($apps -and $apps.Count -gt 0) {
+        $coloredSrc = @($apps | Group-Object Source | ForEach-Object { "$(srcBadge $_.Name):$(bold $_.Count)" })
+    }
     Write-Host "$(E 'gear') sources         $($coloredSrc -join ', ')"
     Write-Host ''
 
@@ -2455,8 +2568,10 @@ function Main {
 
     # Display vulnerability table if vulnerabilities found
     $va = @($apps | Where-Object { $_.Status -eq $S_VULN })
-    if ($va -and $CFG_SECURITY) {
-        if ($script:SecurityFindings -and $script:SecurityFindings.Count -gt 0) {
+    $vaCount = if ($va) { $va.Count } else { 0 }
+    if ($vaCount -gt 0 -and $CFG_SECURITY) {
+        $sfCount = if ($script:SecurityFindings) { $script:SecurityFindings.Count } else { 0 }
+        if ($sfCount -gt 0) {
             Print-VulnTable $script:SecurityFindings
         } else {
             Print-VulnTable ($va | ForEach-Object { [PSCustomObject]@{Pkg = $_.Name; Sev = 'high'; CVE = 'N/A'; Desc = 'Security update recommended' } })
@@ -2465,8 +2580,9 @@ function Main {
 
     # Display status message if no specific action requested
     if (-not $Package -and -not $UpdateAll -and -not $UpdateSource) {
-        if ($updApps.Count -eq 0) { Write-Host "`n$(E 'sparkle') $(green 'System is up to date!')" }
-        else { Write-Host "`n$(E 'target') $(yellow (bold "Found $($updApps.Count) available updates"))" }
+        $updCount = if ($updApps) { $updApps.Count } else { 0 }
+        if ($updCount -eq 0) { Write-Host "`n$(E 'sparkle') $(green 'System is up to date!')" }
+        else { Write-Host "`n$(E 'target') $(yellow (bold "Found $updCount available updates"))" }
     }
 
     # Handle -Package: update specific package
@@ -2474,7 +2590,8 @@ function Main {
         $wanted = $Package.ToLower()
         $m = @($apps | Where-Object { $_.name.ToLower() -eq $wanted -and (-not $normalizedSource -or $_.Source.ToLower() -eq $normalizedSource) })
         if (-not $m) { Write-Host "`n$(E 'fail') $(red (bold "Package not found: $Package"))"; exit 2 }
-        if ($m.Count -gt 1 -and -not $Source) {
+        $mCount = if ($m) { $m.Count } else { 0 }
+        if ($mCount -gt 1 -and -not $Source) {
             Write-Host "`n$(E 'warn') $(yellow 'Multiple matches. Re-run with -Source.')"
             $m | ForEach-Object { Write-Host "  $($_.Name) ($($_.Source)) $($_.Version)" }; exit 2
         }
@@ -2488,12 +2605,18 @@ function Main {
     elseif ($UpdateSource) {
         $cand = @($updApps | Where-Object { $_.Source.ToLower() -eq $normalizedUpdateSource })
         if (-not $cand) { Write-Host "`n$(E 'ok') $(green "No updates for: $normalizedUpdateSource")" }
-        elseif (Ask "Proceed with $($cand.Count) update(s) from $normalizedUpdateSource?" -Auto:$Yes) { Exec-Updates $cand -Dry:$DryRun }
+        else {
+            $candCount = if ($cand) { $cand.Count } else { 0 }
+            if (Ask "Proceed with $candCount update(s) from $normalizedUpdateSource?" -Auto:$Yes) { Exec-Updates $cand -Dry:$DryRun }
+        }
     }
     # Handle -UpdateAll: update everything
     elseif ($UpdateAll) {
         if (-not $updApps) { Write-Host "`n$(E 'ok') $(green 'No updates available.')" }
-        elseif (Ask "Proceed with all $($updApps.Count) updates?" -Auto:$Yes) { Exec-Updates $updApps -Dry:$DryRun }
+        else {
+            $updCount = if ($updApps) { $updApps.Count } else { 0 }
+            if (Ask "Proceed with all $updCount updates?" -Auto:$Yes) { Exec-Updates $updApps -Dry:$DryRun }
+        }
     }
 
     # Handle -Export: export results to file

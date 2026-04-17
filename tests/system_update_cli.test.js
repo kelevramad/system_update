@@ -95,6 +95,16 @@ test('--include dotnet scans dotnet source', () => {
   assert.ok(res.code === 0 || res.stdout.includes('total apps') || res.stdout.includes('Scanning'));
 });
 
+test('--include appx scans appx source', () => {
+  const res = runCLI(['--include', 'appx', '--no-cache'], { timeout: 90000 });
+  assert.ok(res.code === 0 || res.stdout.includes('total apps') || res.stdout.includes('Scanning'));
+});
+
+test('--include msix scans msix source', () => {
+  const res = runCLI(['--include', 'msix', '--no-cache'], { timeout: 90000 });
+  assert.ok(res.code === 0 || res.stdout.includes('total apps') || res.stdout.includes('Scanning'));
+});
+
 test('--dry-run flag accepted', () => {
   const res = runCLI(['--dry-run', '--include', 'dotnet', '--no-cache']);
   assert.ok(res.code === 0 || res.stdout.includes('total apps') || res.stdout.includes('Scanning'));
