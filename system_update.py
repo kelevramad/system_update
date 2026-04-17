@@ -2374,57 +2374,50 @@ class UpdateChecker:
 	@staticmethod
 	def _check_rust_updates(apps: List[AppInfo]) -> int:
 		"""
-		Check Rust package updates via cargo install-update.
+		Check Rust package updates via crates.io API.
 
-		Executes 'cargo install-update -l' to list Rust packages with available
-		updates. Requires the cargo-edit or cargo-update crate to be installed.
+		Queries the crates.io API to get the latest version for each installed crate.
+		Falls back to cargo install-update if API is unavailable.
 
 		Args:
 		    apps: List of Rust AppInfo objects to check. Modified in-place.
 
 		Returns:
 		    int: Number of Rust packages with available updates.
-
-		Note:
-		    - Output format: Package | Installed | Latest | Needs update
-		    - Only counts packages where "Needs update" is "yes"
 		"""
+		import urllib.request
+
 		updates = 0
-		output = run_command(['cargo', 'install-update', '-l'], allow_failure=True)
-		if not output:
-			return updates
+		lookup_errors = 0
 
-		lines = output.splitlines()
-		# Find header: Package | Installed | Latest | Needs update
-		header_idx = -1
-		for i, line in enumerate(lines):
-			if 'Package' in line and 'Latest' in line:
-				header_idx = i
-				break
+		def fetch_crate(name: str):
+			"""Fetch crate info from crates.io API."""
+			url = f'https://crates.io/api/v1/crates/{name}'
+			req = urllib.request.Request(url, headers={'User-Agent': 'SystemUpdateCLI'})
+			try:
+				with urllib.request.urlopen(req, timeout=10) as response:
+					data = json.loads(response.read().decode())
+					vers = data.get('versions', [])
+					if vers:
+						return vers[0].get('num', '')
+			except Exception:
+				pass
+			return None
 
-		if header_idx == -1:
-			return updates
+		for app in apps:
+			latest = fetch_crate(app.name)
+			if latest:
+				app.latest_version = latest
+				app.update_status = UpdateStatus.UPDATE_AVAILABLE
+				updates += 1
+			else:
+				lookup_errors += 1
 
-		for line in lines[header_idx + 1 :]:
-			l = line.strip()
-			if not l:
-				continue
-			parts = l.split()
-			if len(parts) < 4:
-				continue
-
-			name, installed, latest, needs_update = (
-				parts[0],
-				parts[1],
-				parts[2],
-				parts[3],
+		if lookup_errors > 0:
+			console.print(
+				f'[dim]⚠️ {lookup_errors} Rust crate(s) could not be checked via API[/dim]'
 			)
-			if needs_update.lower() == 'yes':
-				for app in apps:
-					if app.name == name:
-						app.latest_version = latest[1:] if latest.startswith('v') else latest
-						app.update_status = UpdateStatus.UPDATE_AVAILABLE
-						updates += 1
+
 		return updates
 
 	@staticmethod

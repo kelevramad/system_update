@@ -1510,32 +1510,29 @@ function Check-Yarn([array]$Apps) {
 #>
 function Check-Rust([array]$Apps) {
     $t = @($Apps | Where-Object { $_.source -eq 'rust' }); if (-not $t) { return 0 }
-    $r = Invoke-Cmd 'cargo' @('install-update', '-l') -AllowFail
-    if (-not $r.Stdout) { return 0 }
-    $lines = $r.Stdout -split "`r?`n"
-    $hi = -1
-    # Find header row to determine column positions
-    for ($i = 0; $i -lt $lines.Count; $i++) {
-        if ($lines[$i] -match 'Package' -and $lines[$i] -match 'Latest') { $hi = $i; break }
-    }
-    if ($hi -lt 0) { return 0 }
     $n = 0
-    # Parse data rows after header
-    foreach ($line in $lines[($hi + 1)..($lines.Count - 1)]) {
-        $l = $line.Trim()
-        if (-not $l) { continue }
-        $p = $l -split '\s+' | Where-Object { $_ }
-        if ($p.Count -lt 4) { continue }
-        $name = $p[0]; $latest = $p[2]; $needs = $p[3]
-        # Only count packages marked as needing update
-        if ($needs.ToLower() -eq 'yes') {
-            $a = $t | Where-Object { $_.name -eq $name } | Select-Object -First 1
-            if ($a) {
-                $a.latestVersion = if ($latest.StartsWith('v')) { $latest.Substring(1) } else { $latest }
-                $a.status = $S_UPD; $n++
+    $err = 0
+
+    foreach ($a in $t) {
+        try {
+            $url = "https://crates.io/api/v1/crates/$($a.name)"
+            $r = Invoke-WebRequest -Uri $url -UserAgent 'SystemUpdateCLI' -TimeoutSec 10 -ErrorAction Stop
+            if ($r.StatusCode -eq 200) {
+                $data = $r.Content | ConvertFrom-Json
+                $versions = $data.versions
+                if ($versions.Count -gt 0) {
+                    $latest = $versions[0].num
+                    $a.latestVersion = $latest
+                    $a.status = $S_UPD
+                    $n++
+                }
             }
+        } catch {
+            $err++
         }
     }
+
+    if ($err -gt 0) { Write-Host "[dim]⚠️ $err Rust crate(s) could not be checked via API[/dim]" }
     return $n
 }
 

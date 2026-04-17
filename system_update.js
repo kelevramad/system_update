@@ -1321,32 +1321,34 @@ async function checkScoopUpdates(apps, timeoutMs) {
 async function checkRustUpdates(apps, timeoutMs) {
   const target = apps.filter((a) => a.source === 'rust');
   if (!target.length) return 0;
-  await writeLog('checking rust updates (via cargo install-update)');
-
-  const result = await runCommand('cargo', ['install-update', '-l'], { allowFailure: true, timeoutMs });
-  if (!result.stdout) return 0;
+  await writeLog('checking rust updates (via crates.io API)');
 
   let count = 0;
-  const lines = result.stdout.split(/\r?\n/);
-  // Find header: Package | Installed | Latest | Needs update
-  const headerIdx = lines.findIndex((l) => l.includes('Package') && l.includes('Latest'));
-  if (headerIdx === -1) return 0;
+  let errors = 0;
 
-  for (let i = headerIdx + 1; i < lines.length; i += 1) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    const parts = line.split(/\s+/).filter(Boolean);
-    if (parts.length < 4) continue;
-
-    const [name, installed, latest, needsUpdate] = parts;
-    if (needsUpdate.toLowerCase() === 'yes') {
-      const app = target.find((a) => a.name === name);
-      if (app) {
-        app.latestVersion = latest.startsWith('v') ? latest.slice(1) : latest;
+  for (const app of target) {
+    try {
+      const url = `https://crates.io/api/v1/crates/${app.name}`;
+      const res = await fetch(url, { headers: { 'User-Agent': 'SystemUpdateCLI' } });
+      if (!res.ok) {
+        errors += 1;
+        continue;
+      }
+      const data = await res.json();
+      const versions = data.versions || [];
+      if (versions.length > 0 && versions[0].num) {
+        app.latestVersion = versions[0].num;
         app.status = Status.UPDATE_AVAILABLE;
         count += 1;
       }
+    } catch (err) {
+      errors += 1;
+      await writeLog(`rust update check error: ${app.name}, ${err.message}`);
     }
+  }
+
+  if (errors > 0) {
+    console.log(`[dim]⚠️ ${errors} Rust crate(s) could not be checked via API[/dim]`);
   }
 
   await writeLog(`update check: rust finished, updates=${count}`);
