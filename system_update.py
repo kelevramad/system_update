@@ -993,7 +993,7 @@ class UISystem:
 		table.add_column('Package', style='cyan')
 		table.add_column('Severity', justify='center')
 		table.add_column('CVE', justify='center')
-		table.add_column('Description', style='dim')
+		table.add_column('Description', style='dim', width=50)
 
 		for result in security_results:
 			severity_color = {
@@ -1003,13 +1003,13 @@ class UISystem:
 				'LOW': 'green',
 			}.get(result.highest_severity, 'white')
 
+			desc = result.vulnerabilities[0].description if result.vulnerabilities else 'Unknown'
+
 			table.add_row(
 				result.app_info.name,
 				f'[{severity_color}]{result.highest_severity}[/{severity_color}]',
 				str(result.total_vulnerabilities),
-				(result.vulnerabilities[0].description[:40] + '...')
-				if result.vulnerabilities
-				else 'Unknown',
+				desc,
 			)
 
 		return table
@@ -3079,6 +3079,74 @@ class SystemUpdateApp:
 
 		return vulns
 
+	def _check_npm_vulns(self, apps: List[AppInfo]) -> List[Dict]:
+		"""Check NPM vulnerabilities using npm audit."""
+		vulns: List[Dict] = []
+		out = run_command(['npm', 'audit', '--json', '--silent'], allow_failure=True)
+		if out:
+			try:
+				data = json.loads(out)
+				for name, details in (data.get('vulnerabilities') or {}).items():
+					app = next((a for a in apps if a.name.lower() == name.lower()), None)
+					if not app:
+						continue
+					item = {
+						'package': name,
+						'severity': (details.get('severity') or 'low').upper(),
+						'cve': (details.get('cves') or ['N/A'])[0],
+						'description': details.get('title') or 'Vulnerability found',
+					}
+					app.security_findings.append(item)
+					app.update_status = UpdateStatus.VULNERABLE
+					vulns.append(item)
+			except Exception:
+				pass
+		return vulns
+
+	def _check_pip_vulns(self, apps: List[AppInfo]) -> List[Dict]:
+		"""Check PIP vulnerabilities using pip check."""
+		vulns: List[Dict] = []
+		pip_apps = [a for a in apps if a.source.lower() == 'pip']
+		if not pip_apps:
+			return vulns
+
+		for cmd in (
+			[sys.executable, '-m', 'pip', 'check', '--format=json'],
+			['pip', 'check', '--format=json'],
+		):
+			out = run_command(cmd, allow_failure=True)
+			if out:
+				break
+
+		if not out:
+			return vulns
+
+		try:
+			data = json.loads(out)
+			for item in data:
+				if not item.get('vulnerabilities'):
+					continue
+				app = next(
+					(a for a in pip_apps if a.name.lower() == item.get('name', '').lower()), None
+				)
+				if not app:
+					continue
+
+				for vuln in item['vulnerabilities']:
+					vuln_item = {
+						'package': app.name,
+						'severity': (vuln.get('severity') or 'medium').upper(),
+						'cve': vuln.get('cve_id') or 'N/A',
+						'description': vuln.get('description') or 'Security vulnerability',
+					}
+					app.security_findings.append(vuln_item)
+					app.update_status = UpdateStatus.VULNERABLE
+					vulns.append(vuln_item)
+		except Exception:
+			pass
+
+		return vulns
+
 	def check_security_vulnerabilities(self, apps: List[AppInfo]) -> List[Dict]:
 		vulns: List[Dict] = []
 		npm_has = any(a.source.lower() == 'npm' for a in apps)
@@ -3176,11 +3244,64 @@ class SystemUpdateApp:
 				f'[bold magenta]📊 Detected {total_updates} update candidates.[/bold magenta]\n'
 			)
 
-			# --- PHASE 3: SECURITY CHECK ---
+			# --- PHASE 3: SECURITY CHECK with progress bar ---
 			console.print('[bold magenta]🔒 Checking security vulnerabilities...[/bold magenta]')
-			security_vulns = self.check_security_vulnerabilities(apps)
-			osv_vulns = self.check_osv_vulnerabilities(apps)
-			security_vulns.extend(osv_vulns)
+
+			# Group apps by security check source (only sources with apps)
+			unique_apps_by_source = {}
+			for app in apps:
+				src = app.source.lower()
+				if src not in unique_apps_by_source:
+					unique_apps_by_source[src] = []
+				unique_apps_by_source[src].append(app)
+
+			security_sources = ['npm', 'pip', 'osv']
+			active_security = [
+				(name, unique_apps_by_source.get(name, []))
+				for name in security_sources
+				if unique_apps_by_source.get(name)
+			]
+
+			with Progress(
+				TextColumn('{task.description}'),
+				BarColumn(
+					bar_width=26,
+					complete_style='white',
+					style='dim white',
+					finished_style='white',
+				),
+				TextColumn('[progress.percentage]{task.percentage:>3.0f}%'),
+				MofNCompleteColumn(),
+				TimeElapsedColumn(),
+				TextColumn('{task.fields[extra]}'),
+				console=console,
+			) as progress:
+				task = progress.add_task(
+					'🔒 Checking vulnerabilities', total=len(active_security), extra=''
+				)
+				security_vulns = []
+
+				for source_name, source_apps in active_security:
+					source_vulns = []
+
+					if source_name == 'npm':
+						source_vulns = self._check_npm_vulns(source_apps)
+					elif source_name == 'pip':
+						source_vulns = self._check_pip_vulns(source_apps)
+					elif source_name == 'osv':
+						source_vulns = self.check_osv_vulnerabilities(source_apps)
+
+					security_vulns.extend(source_vulns)
+
+					extra = (
+						f'{source_badge(source_name)} {len(source_vulns)} vuln(s)'
+						if source_vulns
+						else f'{source_badge(source_name)} none'
+					)
+					progress.update(task, advance=1, extra=extra)
+
+				progress.update(task, completed=True)
+
 			if security_vulns:
 				console.print(
 					f'[bold red]🔥 Found {len(security_vulns)} security vulnerabilities.[/bold red]\n'
@@ -3234,7 +3355,7 @@ class SystemUpdateApp:
 					app.name,
 					entry.get('severity', 'HIGH'),
 					entry.get('cve', 'N/A'),
-					entry.get('description', 'Update recommended')[:40],
+					entry.get('description', 'Update recommended'),
 				)
 			console.print(security_table)
 
