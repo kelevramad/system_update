@@ -2374,7 +2374,7 @@ function printSecurityTable(vulnerabilities) {
   console.log(paint('├'.padEnd(74, '─') + '┤', ANSI.cyan));
 
   const header = ['Package', 'Severity', 'CVE', 'Description'].map((h, i) => {
-    const widths = [20, 10, 18, 20];
+    const widths = [20, 10, 18, 22];
     return paint(h.padEnd(widths[i]), ANSI.bold, ANSI.red);
   }).join('  ');
   console.log(paint(`│ ${header} │`, ANSI.cyan));
@@ -2383,10 +2383,10 @@ function printSecurityTable(vulnerabilities) {
   for (const v of vulnerabilities) {
     const sevColor = { critical: ANSI.red, high: ANSI.red, medium: ANSI.yellow, low: ANSI.green }[v.severity.toLowerCase()] || ANSI.white;
     const row = [
-      paint(truncate(v.packageName, 20).padEnd(20), ANSI.bold),
+      paint(v.packageName.padEnd(20), ANSI.bold),
       paint(v.severity.toUpperCase().padEnd(10), sevColor, ANSI.bold),
-      paint(truncate(v.cve, 18).padEnd(18), ANSI.cyan),
-      paint(truncate(v.description, 20).padEnd(20), ANSI.dim),
+      paint(v.cve.padEnd(18), ANSI.cyan),
+      paint(v.description.padEnd(22), ANSI.dim),
     ].join('  ');
     console.log(paint(`│ ${row} │`, ANSI.cyan));
   }
@@ -2701,8 +2701,41 @@ async function main() {
     console.log(`${emoji('chart')} ${paint(`Detected ${updates} update candidates.`, ANSI.bold, updates > 0 ? ANSI.yellow : ANSI.green)}\n`);
 
     if (config.security?.enabled && config.security.autoCheck) {
-      console.log(`${emoji('lock')} ${paint('Checking security vulnerabilities...', ANSI.bold, ANSI.magenta)}`);
-      securityFindings = await checkSecurityVulnerabilities(apps, config);
+      const timeoutMs = Number(config.performance.timeoutSeconds || 45) * 1000;
+      const securitySources = ['npm', 'pip', 'osv'];
+      const uniqueAppsBySource = {};
+      for (const app of apps) {
+        const src = app.source.toLowerCase();
+        if (!uniqueAppsBySource[src]) uniqueAppsBySource[src] = [];
+        uniqueAppsBySource[src].push(app);
+      }
+      const activeSecurity = securitySources.filter((s) => uniqueAppsBySource[s]);
+
+      if (activeSecurity.length > 0) {
+        const progress = createProgress(activeSecurity.length, `${emoji('lock')} Checking vulnerabilities`);
+        await writeLog('security check: started');
+        securityFindings = [];
+        for (let i = 0; i < activeSecurity.length; i++) {
+          const sourceName = activeSecurity[i];
+          const sourceApps = uniqueAppsBySource[sourceName] || [];
+          let sourceVulns = [];
+          if (sourceName === 'npm') {
+            sourceVulns = await checkNpmVulnerabilities(sourceApps, timeoutMs);
+          } else if (sourceName === 'pip') {
+            sourceVulns = await checkPipVulnerabilities(sourceApps, timeoutMs);
+          } else if (sourceName === 'osv') {
+            sourceVulns = await checkOsvVulnerabilities(sourceApps, timeoutMs);
+          }
+          securityFindings.push(...sourceVulns);
+          const extra = sourceVulns.length > 0
+            ? `${sourceBadge(sourceName)} ${sourceVulns.length} vuln(s)`
+            : `${sourceBadge(sourceName)} none`;
+          progress.tick(extra);
+        }
+        progress.done(paint(`${emoji('ok')} security checks complete`, ANSI.green));
+      } else {
+        securityFindings = await checkSecurityVulnerabilities(apps, config);
+      }
       if (securityFindings.length) {
         console.log(`${emoji('fire')} ${paint(`Found ${securityFindings.length} security vulnerabilities.`, ANSI.bold, ANSI.red)}\n`);
       } else {

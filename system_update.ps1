@@ -2218,12 +2218,12 @@ function Print-VulnTable([array]$Vulns) {
     Write-Host ''; Write-Host (cyan "┌$('─'*$w)┐")
     Write-Host (c '1;31' "│ $(E 'fire') Security Vulnerabilities Detected$(' '*($w - 34))│")
     Write-Host (cyan "├$('─'*$w)┤")
-    Write-Host (cyan "│ $(c '1;31' 'Package'.PadRight(20))  $(c '1;31' 'Severity'.PadRight(10))  $(c '1;31' 'CVE'.PadRight(18))  $(c '1;31' 'Description'.PadRight(20)) │")
-    Write-Host (cyan "├$('─'*73)┤")
+    Write-Host (cyan "│ $(c '1;31' 'Package'.PadRight(20))  $(c '1;31' 'Severity'.PadRight(10))  $(c '1;31' 'CVE'.PadRight(18))  $(c '1;31' 'Description'.PadRight(22)) │")
+    Write-Host (cyan "├$('─'*74)┤")
     # Display each vulnerability with severity-based coloring
     foreach ($v in $Vulns) {
         $sc = switch ($v.Sev.ToLower()) { 'critical' { '31' } 'high' { '31' } 'medium' { '33' } default { '32' } }
-        $row = "$(bold (trunc $v.Pkg 20).PadRight(20))  $(c "$sc;1" $v.Sev.ToUpper().PadRight(10))  $(cyan (trunc $v.CVE 18).PadRight(18))  $(dim (trunc $v.Desc 20).PadRight(20))"
+        $row = "$(bold $v.Pkg.PadRight(20))  $(c "$sc;1" $v.Sev.ToUpper().PadRight(10))  $(cyan $v.CVE.PadRight(18))  $($v.Desc.PadRight(22))"
         Write-Host (cyan "│ $row │")
     }
     Write-Host (cyan "└$('─'*$w)┘")
@@ -2563,21 +2563,42 @@ function Main {
 
         # Security vulnerability scanning (if enabled)
         if ($CFG_SECURITY -and -not $CFG_SKIP_UPDATE_CHECKS -and $apps -and $apps.Count -gt 0) {
-            Write-Host "$(E 'lock') $(bold (magenta 'Checking security vulnerabilities...'))"
-            $sevOrder = @{critical = 4; high = 3; medium = 2; low = 1 }
-            $thresh = $sevOrder[$CFG_SEVERITY]; if (-not $thresh) { $thresh = 2 }
-            $vulns = @(Check-NpmVulns $apps) + @(Check-PipVulns $apps) + @(Check-OsvVulns $apps)
-            # Filter vulnerabilities by severity threshold
-            $vulns = @($vulns | Where-Object { $sv = $sevOrder[$_.Sev.ToLower()]; if (-not $sv) { $sv = 1 }; $sv -ge $thresh })
-            $script:SecurityFindings = $vulns
-            $vulnCount = if ($vulns) { $vulns.Count } else { 0 }
-            if ($vulnCount -gt 0) {
-                $vulns | ForEach-Object {
-                    $vPkg = $_.Pkg
-                    $a = $apps | Where-Object { $_.name.ToLower() -eq $vPkg.ToLower() } | Select-Object -First 1
-                    if ($a) { $a.Status = $S_VULN }
+            $securitySources = @('npm', 'pip', 'osv')
+            $uniqueAppsBySource = @{}
+            foreach ($a in $apps) {
+                $src = $a.Source.ToLower()
+                if (-not $uniqueAppsBySource[$src]) { $uniqueAppsBySource[$src] = @() }
+                $uniqueAppsBySource[$src] += $a
+            }
+            $activeSecurity = @($securitySources | Where-Object { $uniqueAppsBySource[$_] })
+            if ($activeSecurity.Count -gt 0) {
+                $progSec = New-Progress $activeSecurity.Count "$(E 'lock') Checking vulnerabilities"
+                $sevOrder = @{critical = 4; high = 3; medium = 2; low = 1 }
+                $thresh = $sevOrder[$CFG_SEVERITY]; if (-not $thresh) { $thresh = 2 }
+                $vulns = @()
+                foreach ($src in $activeSecurity) {
+                    $srcApps = $uniqueAppsBySource[$src]
+                    $srcVulns = @()
+                    if ($src -eq 'npm') { $srcVulns = @(Check-NpmVulns $srcApps) }
+                    elseif ($src -eq 'pip') { $srcVulns = @(Check-PipVulns $srcApps) }
+                    elseif ($src -eq 'osv') { $srcVulns = @(Check-OsvVulns $srcApps) }
+                    $srcVulns = @($srcVulns | Where-Object { $sv = $sevOrder[$_.Sev.ToLower()]; if (-not $sv) { $sv = 1 }; $sv -ge $thresh })
+                    $vulns += $srcVulns
+                    $msg = if ($srcVulns.Count -gt 0) { "$(srcBadge $src) $(yellow "$($srcVulns.Count) vuln(s)")" } else { "$(srcBadge $src) $(gray 'none')" }
+                    $progSec.Tick($msg)
                 }
-                Write-Host "$(E 'fire') $(red (bold "Found $vulnCount security vulnerabilities."))`n"
+                $progSec.Done("$(green "$(E 'ok') security checks complete")")
+                $script:SecurityFindings = $vulns
+                $vulnCount = if ($vulns) { $vulns.Count } else { 0 }
+                if ($vulnCount -gt 0) {
+                    $vulns | ForEach-Object {
+                        $vPkg = $_.Pkg
+                        $a = $apps | Where-Object { $_.name.ToLower() -eq $vPkg.ToLower() } | Select-Object -First 1
+                        if ($a) { $a.Status = $S_VULN }
+                    }
+                    Write-Host "$(E 'fire') $(red (bold "Found $vulnCount security vulnerabilities."))`n"
+                }
+                else { Write-Host "$(E 'shield') $(green 'No security vulnerabilities found.')`n" }
             }
             else { Write-Host "$(E 'shield') $(green 'No security vulnerabilities found.')`n" }
         }
