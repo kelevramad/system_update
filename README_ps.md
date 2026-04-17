@@ -2,7 +2,7 @@
 
 > 🚀 A powerful PowerShell-based system update tool (requires PowerShell 7+)
 
-**Version:** 2.6.0
+**Version:** 2.7.0
 **Runtime:** PowerShell 7+
 **Platform:** Windows
 
@@ -461,6 +461,14 @@ For issues or questions:
 ## 📄 License
 
 This project is provided as-is for system administration and package management tasks.
+
+---
+
+## 🆕 Latest Changes (v2.7.0)
+- **CVSS Score Display**: Show CVSS scores for vulnerabilities in security tables
+- **Security Summary Stats**: Added detailed security summary with colored severity counts and affected package counts
+- **Vulnerability History**: Implemented persistent vulnerability tracking over time in `vulnerability_history.json`
+- **Enhanced CVE Details**: Added detailed vulnerability metadata including affected versions and published dates
 
 ---
 

@@ -3,7 +3,7 @@
 ===============================================================================
                           SYSTEM UPDATE ENHANCED
 ===============================================================================
-Version: 2.6.0
+ Version: 2.7.0
 Author: Gemini (Redesigned)
 
 A sophisticated system update tool with enhanced UI architecture and modular design.
@@ -233,6 +233,16 @@ class AppInfo:
 		    bool: True if latest_version is set and differs from current version.
 		"""
 		return bool(self.latest_version and self.latest_version != self.version)
+
+	@property
+	def is_vulnerable(self) -> bool:
+		"""
+		Check if this package has known security vulnerabilities.
+
+		Returns:
+		    bool: True if security_findings list is non-empty.
+		"""
+		return len(self.security_findings) > 0
 
 	@property
 	def status_display(self) -> str:
@@ -646,6 +656,242 @@ class CacheManager:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# VULNERABILITY HISTORY TRACKING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class VulnerabilityHistory:
+	"""
+	Manages vulnerability history tracking across scans.
+
+	This class stores a record of all discovered vulnerabilities over time,
+	enabling trend analysis, historical reporting, and detection of new or
+	persistent security issues. Data is persisted to a JSON file in the
+	configuration directory.
+
+	Attributes:
+	    history_file: Path to the vulnerability history JSON file.
+	    history: List of vulnerability record dictionaries.
+
+	Example:
+	    >>> history = VulnerabilityHistory()
+	    >>> history.record_vulnerability(app, vuln)
+	    >>> stats = history.get_statistics()
+	    >>> print(f'Total vulnerabilities: {stats["total"]}')
+	"""
+
+	def __init__(self, history_file: Path = None):
+		"""
+		Initialize VulnerabilityHistory and load existing data.
+
+		Args:
+		    history_file: Optional custom path for the history file.
+		        Defaults to ~/.system_update/vulnerability_history.json.
+		"""
+		self.history_file = history_file or (
+			Path.home() / '.system_update' / 'vulnerability_history.json'
+		)
+		self.history: List[Dict] = []
+		self._load()
+
+	def _load(self):
+		"""Load vulnerability history from disk with error handling."""
+		if not self.history_file.exists():
+			return
+		try:
+			with open(self.history_file, 'r', encoding='utf-8') as f:
+				data = json.load(f)
+				self.history = data if isinstance(data, list) else []
+		except Exception as e:
+			logger.warning(f'Failed to load vulnerability history: {e}')
+			self.history = []
+
+	def _save(self):
+		"""Save vulnerability history to disk with error handling."""
+		try:
+			self.history_file.parent.mkdir(exist_ok=True)
+			with open(self.history_file, 'w', encoding='utf-8') as f:
+				json.dump(self.history, f, indent=2, default=str)
+		except Exception as e:
+			logger.error(f'Failed to save vulnerability history: {e}')
+
+	def record_vulnerability(self, app: AppInfo, vuln: Dict, scan_id: str):
+		"""
+		Record a newly discovered vulnerability.
+
+		Creates a history entry with timestamp, package info, and vulnerability
+		details. Each vulnerability is assigned a unique record ID and marked
+		as 'open' initially.
+
+		Args:
+		    app: AppInfo object of the vulnerable package.
+		    vuln: Vulnerability dictionary containing cve, severity, cvss_score, etc.
+		    scan_id: Unique identifier for the scan session.
+		"""
+		record = {
+			'id': f'vuln-{len(self.history) + 1:06d}',
+			'timestamp': datetime.now().isoformat(),
+			'scan_id': scan_id,
+			'package_name': app.name,
+			'package_source': app.source,
+			'package_version': app.version,
+			'cve': vuln.get('cve', 'N/A'),
+			'severity': vuln.get('severity', 'UNKNOWN'),
+			'cvss_score': vuln.get('cvss_score'),
+			'description': vuln.get('description', ''),
+			'affected_versions': vuln.get('affected_versions', []),
+			'published_date': vuln.get('published_date'),
+			'advisory_url': vuln.get('advisory_url', ''),
+			'fix_available': vuln.get('fix_available', False),
+			'status': 'open',
+			'first_seen': datetime.now().isoformat(),
+			'last_seen': datetime.now().isoformat(),
+			'resolved_date': None,
+		}
+		self.history.append(record)
+		self._save()
+
+	def mark_resolved(self, app_name: str, cve: str = None) -> int:
+		"""
+		Mark vulnerabilities as resolved.
+
+		Updates the status of matching vulnerability records to 'resolved'.
+		If CVE is not specified, all open vulnerabilities for the package are marked resolved.
+
+		Args:
+		    app_name: Name of the package whose vulnerabilities to mark resolved.
+		    cve: Optional specific CVE to mark resolved. If None, marks all open.
+
+		Returns:
+		    int: Number of records updated.
+
+		Example:
+		    >>> history.mark_resolved('openssl', 'CVE-2023-1234')
+		    1
+		"""
+		updated = 0
+		for record in self.history:
+			if (
+				record.get('package_name', '').lower() == app_name.lower()
+				and record.get('status') == 'open'
+			):
+				if cve is None or record.get('cve') == cve:
+					record['status'] = 'resolved'
+					record['resolved_date'] = datetime.now().isoformat()
+					updated += 1
+		if updated:
+			self._save()
+		return updated
+
+	def get_statistics(self) -> Dict:
+		"""
+		Compute security statistics from vulnerability history.
+
+		Aggregates counts by severity, lists currently open vulnerabilities,
+		and identifies persistent issues (seen in multiple scans).
+
+		Returns:
+		    Dict: Statistics dictionary containing:
+		        - total_vulnerabilities: Total historical count
+		        - open_vulnerabilities: Currently unfixed count
+		        - resolved_vulnerabilities: Fixed count
+		        - severity_breakdown: Dict with counts per severity level
+		        - critical_count: Number of critical vulnerabilities (open)
+		        - high_count: Number of high severity (open)
+		        - medium_count: Number of medium severity (open)
+		        - low_count: Number of low severity (open)
+		        - packages_affected: Number of unique packages with open vulnerabilities
+		        - persistent_vulnerabilities: Count of vulnerabilities seen in 3+ scans
+		"""
+		if not self.history:
+			return {
+				'total_vulnerabilities': 0,
+				'open_vulnerabilities': 0,
+				'resolved_vulnerabilities': 0,
+				'severity_breakdown': {},
+				'critical_count': 0,
+				'high_count': 0,
+				'medium_count': 0,
+				'low_count': 0,
+				'packages_affected': 0,
+				'persistent_vulnerabilities': 0,
+			}
+
+		open_vulns = [r for r in self.history if r.get('status') == 'open']
+		resolved_vulns = [r for r in self.history if r.get('status') == 'resolved']
+
+		# Severity breakdown for open vulnerabilities
+		severity_counts = {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0, 'UNKNOWN': 0}
+		for v in open_vulns:
+			sev = v.get('severity', 'UNKNOWN').upper()
+			if sev in severity_counts:
+				severity_counts[sev] += 1
+			else:
+				severity_counts['UNKNOWN'] += 1
+
+		# Count unique packages with open vulnerabilities
+		open_packages = set(v.get('package_name', '') for v in open_vulns)
+
+		# Count persistent vulnerabilities (seen in multiple scans)
+		# A vulnerability is considered persistent if it appears in history with multiple scan_ids
+		persistent = 0
+		vuln_keys = {}
+		for v in self.history:
+			if v.get('status') == 'open':
+				key = (v.get('package_name', ''), v.get('cve', ''))
+				scan_ids = vuln_keys.setdefault(key, set())
+				scan_ids.add(v.get('scan_id', ''))
+		for key, scans in vuln_keys.items():
+			if len(scans) >= 3:  # Seen in 3 or more scans
+				persistent += 1
+
+		return {
+			'total_vulnerabilities': len(self.history),
+			'open_vulnerabilities': len(open_vulns),
+			'resolved_vulnerabilities': len(resolved_vulns),
+			'severity_breakdown': severity_counts,
+			'critical_count': severity_counts['CRITICAL'],
+			'high_count': severity_counts['HIGH'],
+			'medium_count': severity_counts['MEDIUM'],
+			'low_count': severity_counts['LOW'],
+			'packages_affected': len(open_packages),
+			'persistent_vulnerabilities': persistent,
+		}
+
+	def get_vulnerability_trends(self, days: int = 30) -> Dict:
+		"""
+		Get vulnerability trends over time.
+
+		Aggregates vulnerability counts by day for the specified period.
+
+		Args:
+		    days: Number of days to look back (default 30).
+
+		Returns:
+		    Dict: Mapping of date strings (YYYY-MM-DD) to counts of new vulnerabilities.
+		"""
+		from datetime import datetime, timedelta
+
+		cutoff = datetime.now() - timedelta(days=days)
+		trends = {}
+		for record in self.history:
+			try:
+				ts = datetime.fromisoformat(record.get('timestamp', '').replace('Z', '+00:00'))
+				if ts < cutoff:
+					continue
+				date_str = ts.strftime('%Y-%m-%d')
+				trends[date_str] = trends.get(date_str, 0) + 1
+			except Exception:
+				continue
+		return trends
+
+	def clear(self):
+		"""Clear all vulnerability history."""
+		self.history = []
+		self._save()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # UTILITY FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -965,12 +1211,105 @@ class UISystem:
 		return table
 
 	@staticmethod
+	def compute_security_stats(vulns: List[Dict]) -> Dict:
+		"""
+		Compute security statistics from a list of vulnerability dictionaries.
+
+		Aggregates counts by severity level and calculates derived metrics.
+
+		Args:
+		    vulns: List of vulnerability dictionaries with 'severity' and 'package' keys.
+
+		Returns:
+		    Dict: Statistics dictionary with severity counts and package count.
+		"""
+		if not vulns:
+			return {
+				'total_vulnerabilities': 0,
+				'open_vulnerabilities': 0,
+				'severity_breakdown': {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0},
+				'critical_count': 0,
+				'high_count': 0,
+				'medium_count': 0,
+				'low_count': 0,
+				'packages_affected': 0,
+				'persistent_vulnerabilities': 0,
+			}
+
+		severity_counts = {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0}
+		packages = set()
+		for v in vulns:
+			sev = v.get('severity', '').upper()
+			if sev in severity_counts:
+				severity_counts[sev] += 1
+			else:
+				# Treat unknown severity as MEDIUM for display
+				severity_counts['MEDIUM'] += 1
+			packages.add(v.get('package', ''))
+
+		total = sum(severity_counts.values())
+		return {
+			'total_vulnerabilities': total,
+			'open_vulnerabilities': total,
+			'severity_breakdown': severity_counts,
+			'critical_count': severity_counts['CRITICAL'],
+			'high_count': severity_counts['HIGH'],
+			'medium_count': severity_counts['MEDIUM'],
+			'low_count': severity_counts['LOW'],
+			'packages_affected': len(packages),
+			'persistent_vulnerabilities': 0,  # Not computed for current scan
+		}
+
+	@staticmethod
+	def display_security_summary(stats: Dict):
+		"""
+		Display security vulnerability summary statistics.
+
+		Shows a box with counts of vulnerabilities by severity level,
+		total affected packages, and persistent issues.
+
+		Args:
+		    stats: Dictionary from VulnerabilityHistory.get_statistics().
+		"""
+		if not stats or stats.get('total_vulnerabilities', 0) == 0:
+			return
+
+		console.print()
+		console.print('[bold magenta]📈 Security Summary[/bold magenta]')
+
+		# Severity colors
+		colors = {
+			'CRITICAL': 'bold red',
+			'HIGH': 'red',
+			'MEDIUM': 'yellow',
+			'LOW': 'green',
+		}
+
+		parts = []
+		severity_breakdown = stats.get('severity_breakdown', {})
+		for sev in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']:
+			count = severity_breakdown.get(sev, 0)
+			if count > 0:
+				parts.append(f'[{colors[sev]}]{sev}[/{colors[sev]}]: {count}')
+
+		if parts:
+			console.print('  ' + ' | '.join(parts))
+
+		console.print(
+			f'  📦 Packages affected: [bold white]{stats.get("packages_affected", 0)}[/bold white]'
+		)
+		console.print(
+			f'  🔁 Persistent (3+ scans): [bold yellow]{stats.get("persistent_vulnerabilities", 0)}[/bold yellow]'
+		)
+		console.print()
+
+	@staticmethod
 	def create_security_table(security_results: List) -> Table:
 		"""
 		Create security vulnerabilities table.
 
 		Generates a Rich Table displaying security vulnerability information with
-		columns for package name, severity level, CVE count, and description.
+		columns for package name, severity level, CVSS score, CVE count, and description.
 		Uses color coding for severity levels (red for critical, yellow for medium, etc.).
 
 		Args:
@@ -983,6 +1322,7 @@ class UISystem:
 		Note:
 		    - Severity colors: CRITICAL/HIGH=red, MEDIUM=yellow, LOW=green
 		    - Description is truncated to 40 characters with ellipsis
+		    - CVSS score shown as numeric value (0.0-10.0) or '-' if unknown
 		"""
 		table = Table(
 			title='[bold red]🔥 Security Vulnerabilities Detected[/bold red]',
@@ -993,6 +1333,7 @@ class UISystem:
 
 		table.add_column('Package', style='cyan')
 		table.add_column('Severity', justify='center')
+		table.add_column('CVSS', justify='center')
 		table.add_column('CVE', justify='center')
 		table.add_column('Description', style='dim', width=50)
 
@@ -1005,10 +1346,13 @@ class UISystem:
 			}.get(result.highest_severity, 'white')
 
 			desc = result.vulnerabilities[0].description if result.vulnerabilities else 'Unknown'
+			cvss = result.vulnerabilities[0].get('cvss_score') if result.vulnerabilities else None
+			cvss_display = f'{cvss:.1f}' if isinstance(cvss, (int, float)) else '-'
 
 			table.add_row(
 				result.app_info.name,
 				f'[{severity_color}]{result.highest_severity}[/{severity_color}]',
+				cvss_display,
 				str(result.total_vulnerabilities),
 				desc,
 			)
@@ -2842,6 +3186,10 @@ class SystemUpdateApp:
 		self.executor = UpdateExecutor()
 		self.cache_mgr = CacheManager(config.cache_file, config.settings['cache']['duration_hours'])
 
+		self.vuln_history = VulnerabilityHistory(
+			Path(config.config_dir) / 'vulnerability_history.json'
+		)
+
 	def scan_system(self, source_filter: Optional[str] = None) -> List[AppInfo]:
 		"""
 		Perform comprehensive system scan matching JS scanSystem.
@@ -3020,6 +3368,36 @@ class SystemUpdateApp:
 		'hex': 'Hex',
 	}
 
+	@staticmethod
+	def _score_to_severity(cvss_score: Optional[float]) -> str:
+		"""
+		Convert CVSS score to severity string.
+
+		Uses standard CVSS v3.1 scoring ranges:
+		    - Critical: 9.0 - 10.0
+		    - High: 7.0 - 8.9
+		    - Medium: 4.0 - 6.9
+		    - Low: 0.1 - 3.9
+		    - None: 0.0 or None
+
+		Args:
+		    cvss_score: Numeric CVSS score (0.0-10.0) or None.
+
+		Returns:
+		    str: Severity level as uppercase string.
+		"""
+		if cvss_score is None:
+			return 'MEDIUM'
+		if cvss_score >= 9.0:
+			return 'CRITICAL'
+		if cvss_score >= 7.0:
+			return 'HIGH'
+		if cvss_score >= 4.0:
+			return 'MEDIUM'
+		if cvss_score > 0:
+			return 'LOW'
+		return 'NONE'
+
 	def _check_pip_vulns(self, apps: List[AppInfo]) -> List[Dict]:
 		"""Check PIP vulnerabilities using pip-audit."""
 		vulns: List[Dict] = []
@@ -3075,7 +3453,7 @@ class SystemUpdateApp:
 		    apps: List of AppInfo objects to check.
 
 		Returns:
-		    List of vulnerability dictionaries.
+		    List of vulnerability dictionaries with cvss_score field.
 		"""
 		vulns: List[Dict] = []
 		unique_apps = {a.name.lower(): a for a in apps if a.source.lower() == 'pip'}
@@ -3092,17 +3470,26 @@ class SystemUpdateApp:
 
 				for vuln in data.get('vulnerabilities') or []:
 					severity = 'MEDIUM'
+					# Try to get severity from vuln if present
+					if vuln.get('severity'):
+						severity = vuln['severity'].upper()
 					aliases = vuln.get('aliases') or []
 					cve = aliases[0] if aliases else vuln.get('id', 'N/A')
 
+					# PyPI typically doesn't provide CVSS in this endpoint; set to None
+					# OSV checker will provide CVSS if needed
 					item = {
 						'package': app.name,
 						'severity': severity,
+						'cvss_score': None,
 						'cve': cve,
 						'description': vuln.get('summary', '')[:200]
 						or vuln.get('details', '')[:200],
 						'source': 'PyPI',
 						'fixed_in': vuln.get('fixed_in', []),
+						'affected_versions': [],  # Not directly available
+						'published_date': vuln.get('published', ''),
+						'advisory_url': f'https://pypi.org/project/{app.name}/{app.version}/',
 					}
 					app.security_findings.append(item)
 					app.update_status = UpdateStatus.VULNERABLE
@@ -3119,11 +3506,13 @@ class SystemUpdateApp:
 		Queries the OSV.dev vulnerability database for known vulnerabilities
 		in installed packages. Supports npm, PyPI, crates.io, RubyGems, Go, and more.
 
+		Extracts CVSS scores when available.
+
 		Args:
 		    apps: List of AppInfo objects to check.
 
 		Returns:
-		    List of vulnerability dictionaries.
+		    List of vulnerability dictionaries with cvss_score field.
 		"""
 		vulns: List[Dict] = []
 		unique_apps = {a.name.lower(): a for a in apps}
@@ -3149,20 +3538,47 @@ class SystemUpdateApp:
 
 				for vuln in data.get('vulns') or []:
 					severity = 'MEDIUM'
+					cvss_score = None
+
+					# Extract CVSS score from severity list
 					if vuln.get('severity'):
 						for s in vuln['severity']:
 							if s.get('type') == 'cvss_v3':
-								severity = s.get('score', 'MEDIUM')
+								cvss_score = s.get('score')
+								severity = self._score_to_severity(cvss_score)
 								break
 					elif vuln.get('database_specific', {}).get('severity'):
 						severity = vuln['database_specific']['severity']
 
+					# Extract affected versions
+					affected_versions = []
+					for affected in vuln.get('affected', []):
+						ranges = affected.get('ranges', [])
+						for r in ranges:
+							events = r.get('events', [])
+							# Find introduced and fixed versions
+							introduced = None
+							fixed = None
+							for event in events:
+								if event.get('introduced'):
+									introduced = event['introduced']
+								if event.get('fixed'):
+									fixed = event['fixed']
+							if introduced and fixed:
+								affected_versions.append(f'{introduced} - {fixed}')
+							elif introduced:
+								affected_versions.append(f'< {introduced}')
+
 					item = {
 						'package': app.name,
 						'severity': severity.upper(),
+						'cvss_score': cvss_score,
 						'cve': vuln.get('id', 'N/A'),
 						'description': vuln.get('summary', '')[:200],
 						'source': 'OSV',
+						'affected_versions': affected_versions,
+						'published_date': vuln.get('published', ''),
+						'advisory_url': f'https://osv.dev/{vuln.get("id", "")}',
 					}
 					app.security_findings.append(item)
 					app.update_status = UpdateStatus.VULNERABLE
@@ -3217,11 +3633,13 @@ class SystemUpdateApp:
 				for advisory in data or []:
 					affected = advisory.get('affected', []) or []
 					is_affected = False
+					affected_versions = []
 					for aff in affected:
 						if aff.get('package', {}).get('name', '').lower() == app.name.lower():
 							versions = aff.get('vulnerable_version_range', '')
 							if versions:
 								is_affected = True
+								affected_versions.append(versions)
 								break
 
 					if not is_affected:
@@ -3231,13 +3649,30 @@ class SystemUpdateApp:
 					ghsa_id = advisory.get('ghsa_id', 'N/A')
 					cve = advisory.get('cve_id', 'N/A')
 
+					# Extract CVSS score if available
+					cvss_score = None
+					cvss = advisory.get('cvss')
+					if cvss and isinstance(cvss, dict):
+						# GitHub may provide cvss as object with score
+						cvss_score = cvss.get('score') or cvss.get('cvss_v3', {}).get('score')
+					# Also check cvssScores array (newer format)
+					if not cvss_score and advisory.get('cvssScores'):
+						for score_entry in advisory['cvssScores']:
+							if score_entry.get('score'):
+								cvss_score = score_entry['score']
+								break
+
 					item = {
 						'package': app.name,
 						'severity': severity,
+						'cvss_score': cvss_score,
 						'cve': cve if cve != 'N/A' else ghsa_id,
 						'description': advisory.get('description', '')[:200],
 						'source': 'GitHub Advisory',
 						'ghsa_url': advisory.get('html_url', ''),
+						'affected_versions': affected_versions,
+						'published_date': advisory.get('published_at', ''),
+						'advisory_url': advisory.get('html_url', ''),
 					}
 					app.security_findings.append(item)
 					app.update_status = UpdateStatus.VULNERABLE
@@ -3297,7 +3732,7 @@ class SystemUpdateApp:
 		    local_data: Dictionary with 'advisories' key from load_local_advisories.
 
 		Returns:
-		    List of vulnerability dictionaries.
+		    List of vulnerability dictionaries with full fields.
 		"""
 		vulns: List[Dict] = []
 		advisories = local_data.get('advisories', [])
@@ -3312,9 +3747,14 @@ class SystemUpdateApp:
 			item = {
 				'package': adv.get('package', ''),
 				'severity': (adv.get('severity') or 'MEDIUM').upper(),
+				'cvss_score': adv.get('cvss_score'),  # Optional from local config
 				'cve': adv.get('cve', 'N/A'),
 				'description': adv.get('description', '')[:200],
 				'source': adv.get('source', 'Local'),
+				'affected_versions': adv.get('affected_versions', []),
+				'published_date': adv.get('published_date', ''),
+				'advisory_url': adv.get('advisory_url', ''),
+				'fix_available': adv.get('fix_available', False),
 			}
 			app.security_findings.append(item)
 			app.update_status = UpdateStatus.VULNERABLE
@@ -3339,8 +3779,9 @@ class SystemUpdateApp:
 					description = 'Vulnerability found'
 					advisory_url = ''
 					fix_available = False
-
+					cvss_score = None
 					via = details.get('via') or []
+
 					if via:
 						first_via = via[0]
 						if isinstance(first_via, dict):
@@ -3353,6 +3794,8 @@ class SystemUpdateApp:
 							advisory_url = first_via.get('url') or ''
 							if first_via.get('severity'):
 								severity = first_via.get('severity').upper()
+							# Try to extract CVSS score from via object
+							cvss_score = first_via.get('cvss') or first_via.get('score')
 						elif isinstance(first_via, str):
 							description = f'Via: {first_via}'
 
@@ -3363,12 +3806,15 @@ class SystemUpdateApp:
 					item = {
 						'package': name,
 						'severity': severity,
+						'cvss_score': cvss_score,
 						'cve': cve,
 						'description': description,
 						'advisory_url': advisory_url,
 						'fix_available': fix_available,
 						'is_direct': details.get('isDirect', False),
 						'effects': details.get('effects', []),
+						'affected_versions': [],  # npm audit doesn't provide this directly
+						'published_date': None,
 					}
 					app.security_findings.append(item)
 					app.update_status = UpdateStatus.VULNERABLE
@@ -3412,12 +3858,18 @@ class SystemUpdateApp:
 						cve = aliases[0]
 					severity = 'MEDIUM'
 					description = vuln.get('description', 'Security vulnerability')
+					cvss_score = vuln.get('cvss_score') or vuln.get('score')
 
 					vuln_item = {
 						'package': app.name,
 						'severity': severity,
+						'cvss_score': cvss_score,
 						'cve': cve,
 						'description': description,
+						'affected_versions': vuln.get('affected_versions', []),
+						'published_date': vuln.get('published_date', ''),
+						'advisory_url': vuln.get('advisory_url', ''),
+						'fix_available': vuln.get('fix_available', False),
 					}
 					app.security_findings.append(vuln_item)
 					app.update_status = UpdateStatus.VULNERABLE
@@ -3428,6 +3880,7 @@ class SystemUpdateApp:
 		return vulns
 
 	def check_security_vulnerabilities(self, apps: List[AppInfo]) -> List[Dict]:
+		"""Legacy security check - only NPM. Used for compatibility."""
 		vulns: List[Dict] = []
 		npm_has = any(a.source.lower() == 'npm' for a in apps)
 		if npm_has:
@@ -3439,11 +3892,23 @@ class SystemUpdateApp:
 						app = next((a for a in apps if a.name.lower() == name.lower()), None)
 						if not app:
 							continue
+						# Extract CVSS from via if present
+						cvss_score = None
+						via = details.get('via') or []
+						if via and isinstance(via[0], dict):
+							cvss_score = via[0].get('cvss') or via[0].get('score')
 						item = {
 							'package': name,
 							'severity': (details.get('severity') or 'low').upper(),
+							'cvss_score': cvss_score,
 							'cve': (details.get('cves') or ['N/A'])[0],
 							'description': details.get('title') or 'Vulnerability found',
+							'advisory_url': via[0].get('url', '')
+							if via and isinstance(via[0], dict)
+							else '',
+							'fix_available': details.get('fixAvailable', False),
+							'affected_versions': [],
+							'published_date': None,
 						}
 						app.security_findings.append(item)
 						app.update_status = UpdateStatus.VULNERABLE
@@ -3634,6 +4099,17 @@ class SystemUpdateApp:
 			else:
 				console.print('[bold green]🛡️ No security vulnerabilities found.[/bold green]\n')
 
+			# Record vulnerabilities to history for tracking over time
+			scan_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+			for app in apps:
+				if app.security_findings:
+					for finding in app.security_findings:
+						self.vuln_history.record_vulnerability(app, finding, scan_id)
+
+			# Display security statistics for current scan
+			current_stats = self.ui.compute_security_stats(security_vulns)
+			self.ui.display_security_summary(current_stats)
+
 			# Save to cache
 			self.cache_mgr.save(apps)
 
@@ -3695,13 +4171,17 @@ class SystemUpdateApp:
 					if app.security_findings
 					else {
 						'severity': 'HIGH',
+						'cvss_score': None,
 						'cve': 'N/A',
 						'description': 'Update recommended',
 					}
 				)
+				cvss_val = entry.get('cvss_score')
+				cvss_display = f'{cvss_val:.1f}' if isinstance(cvss_val, (int, float)) else '-'
 				security_table.add_row(
 					app.name,
 					entry.get('severity', 'HIGH'),
+					cvss_display,
 					entry.get('cve', 'N/A'),
 					entry.get('description', 'Update recommended'),
 				)
