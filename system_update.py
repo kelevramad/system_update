@@ -3,7 +3,7 @@
 ===============================================================================
                           SYSTEM UPDATE ENHANCED
 ===============================================================================
-Version: 2.3.1
+Version: 2.4.0
 Author: Gemini (Redesigned)
 
 A sophisticated system update tool with enhanced UI architecture and modular design.
@@ -3064,6 +3064,54 @@ class SystemUpdateApp:
 
 		return vulns
 
+	def check_pypi_json_vulnerabilities(self, apps: List[AppInfo]) -> List[Dict]:
+		"""
+		Check vulnerabilities using PyPI JSON API.
+
+		Queries the PyPI JSON API for known vulnerabilities in installed packages.
+		The API returns vulnerability data from the OSV database integrated into PyPI.
+
+		Args:
+		    apps: List of AppInfo objects to check.
+
+		Returns:
+		    List of vulnerability dictionaries.
+		"""
+		vulns: List[Dict] = []
+		unique_apps = {a.name.lower(): a for a in apps if a.source.lower() == 'pip'}
+
+		for name, app in unique_apps.items():
+			if not app.version:
+				continue
+
+			try:
+				url = f'https://pypi.org/pypi/{app.name}/{app.version}/json'
+				req = urllib.request.Request(url, headers={'Accept': 'application/json'})
+				with urllib.request.urlopen(req, timeout=10) as resp:
+					data = json.loads(resp.read().decode('utf-8'))
+
+				for vuln in data.get('vulnerabilities') or []:
+					severity = 'MEDIUM'
+					aliases = vuln.get('aliases') or []
+					cve = aliases[0] if aliases else vuln.get('id', 'N/A')
+
+					item = {
+						'package': app.name,
+						'severity': severity,
+						'cve': cve,
+						'description': vuln.get('summary', '')[:200]
+						or vuln.get('details', '')[:200],
+						'source': 'PyPI',
+						'fixed_in': vuln.get('fixed_in', []),
+					}
+					app.security_findings.append(item)
+					app.update_status = UpdateStatus.VULNERABLE
+					vulns.append(item)
+			except Exception:
+				pass
+
+		return vulns
+
 	def check_osv_vulnerabilities(self, apps: List[AppInfo]) -> List[Dict]:
 		"""
 		Check vulnerabilities using Google's OSV API.
@@ -3311,6 +3359,9 @@ class SystemUpdateApp:
 				if apps_list
 			]
 
+			if 'pip' in unique_apps_by_source:
+				active_security.append(('pypi', unique_apps_by_source['pip']))
+
 			logger.info(f'Security check sources: {[s[0] for s in active_security]}')
 
 			if not active_security:
@@ -3348,6 +3399,8 @@ class SystemUpdateApp:
 							source_vulns = self._check_npm_vulns(source_apps)
 						elif source_name == 'pip':
 							source_vulns = self._check_pip_vulns(source_apps)
+						elif source_name == 'pypi':
+							source_vulns = self.check_pypi_json_vulnerabilities(source_apps)
 						elif source_name == 'osv':
 							source_vulns = self.check_osv_vulnerabilities(source_apps)
 						logger.info(

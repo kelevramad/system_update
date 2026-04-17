@@ -109,6 +109,11 @@ These tools are provided as-is for system administration and package management.
 
 ---
 
+## 🆕 Latest Changes (v2.4.0)
+- **PyPI Security JSON**: Added vulnerability checking via PyPI JSON API for direct vulnerability data
+
+---
+
 ## 🆕 Latest Changes (v2.3.0)
 - **OSV API Integration**: Added Google's OSV vulnerability database support for all supported ecosystems
 - **Extended vulnerability scanning**: Now checks npm, PyPI, crates.io, RubyGems, Go, CocoaPods, and Hex packages
