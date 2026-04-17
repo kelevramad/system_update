@@ -33,7 +33,7 @@ const { stdin, stdout } = require('node:process');
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS AND CONFIGURATION
 // ─────────────────────────────────────────────────────────────────────────────
-const VERSION = '2.4.0';
+const VERSION = '2.5.0';
 const APP_NAME = 'system-update';
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -2118,7 +2118,7 @@ async function checkSecurityVulnerabilities(apps, config) {
 async function checkNpmVulnerabilities(apps, timeoutMs) {
   const npmApps = apps.filter((a) => a.source === 'npm');
   if (!npmApps.length) return [];
-  await writeLog('checking npm vulnerabilities');
+  await writeLog('checking npm vulnerabilities (full parse)');
 
   const result = await runCommand('npm', ['audit', '--json', '--silent'], { allowFailure: true, timeoutMs });
   if (!result.stdout) return [];
@@ -2133,15 +2133,50 @@ async function checkNpmVulnerabilities(apps, timeoutMs) {
       const app = npmApps.find((a) => a.name.toLowerCase() === pkgName.toLowerCase());
       if (!app) continue;
 
+      let cve = 'N/A';
+      let description = 'Vulnerability found';
+      let advisoryUrl = '';
+      let fixAvailable = false;
+      let isDirect = vuln.isDirect || false;
+      let via = vuln.via || [];
+
+      if (via.length > 0) {
+        const firstVia = via[0];
+        if (typeof firstVia === 'object' && firstVia !== null) {
+          cve = firstVia.id || firstVia.cve || 'N/A';
+          description = firstVia.title || firstVia.url || 'Vulnerability found';
+          advisoryUrl = firstVia.url || '';
+          if (firstVia.severity) {
+            severity = firstVia.severity;
+          }
+        } else if (typeof firstVia === 'string') {
+          description = `Via: ${firstVia}`;
+        }
+      }
+
+      if (vuln.fixAvailable === true || (typeof vuln.fixAvailable === 'object' && vuln.fixAvailable !== null)) {
+        fixAvailable = true;
+      }
+
       app.status = Status.VULNERABLE;
       vulnerabilities.push({
         packageName: pkgName,
         severity,
-        cve: vuln.cves?.[0] || 'N/A',
-        description: vuln.title || 'Vulnerability found',
+        cve,
+        description,
+        advisoryUrl,
+        fixAvailable,
+        isDirect,
+        effects: vuln.effects || [],
         appInfo: app,
       });
     }
+
+    const metadata = parsed.metadata?.vulnerabilities;
+    if (metadata) {
+      await writeLog(`npm audit full: total=${metadata.total || 0}, critical=${metadata.critical || 0}, high=${metadata.high || 0}, moderate=${metadata.moderate || 0}, low=${metadata.low || 0}`);
+    }
+
     return vulnerabilities;
   } catch {
     return [];

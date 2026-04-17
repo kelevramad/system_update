@@ -109,6 +109,11 @@ These tools are provided as-is for system administration and package management.
 
 ---
 
+## 🆕 Latest Changes (v2.5.0)
+- **NPM Audit Full Parse**: Enhanced npm vulnerability scanning to extract detailed advisory info from npm audit JSON output including via array details, advisoryUrl, fixAvailable, isDirect, and effects
+
+---
+
 ## 🆕 Latest Changes (v2.4.0)
 - **PyPI Security JSON**: Added vulnerability checking via PyPI JSON API for direct vulnerability data
 

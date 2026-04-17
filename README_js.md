@@ -2,7 +2,7 @@
 
 > 🚀 A powerful multi-source system update tool for Windows
 
-**Version:** 2.1.0
+**Version:** 2.5.0
 **Runtime:** Node.js
 **Platform:** Windows (primarily), cross-platform support
 
@@ -372,6 +372,11 @@ tests/
 ## 📝 License
 
 This project is provided as-is for system administration and package management tasks.
+
+---
+
+## 🆕 Latest Changes (v2.5.0)
+- **NPM Audit Full Parse**: Enhanced npm vulnerability scanning to extract detailed advisory info from npm audit JSON output including via array details, advisoryUrl, fixAvailable, isDirect, and effects
 
 ---
 
