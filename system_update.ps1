@@ -2013,6 +2013,72 @@ function Check-PipVulns([array]$Apps) {
     return $vulns
 }
 
+<#
+.SYNOPSIS
+    Check vulnerabilities using Google's OSV API.
+.DESCRIPTION
+    Queries the OSV.dev vulnerability database for packages in supported
+    ecosystems (npm, PyPI, crates.io, RubyGems, Go, etc.).
+.PARAMETER Apps
+    Array of application objects to check.
+.EXAMPLE
+    $vulns = Check-OsvVulns $apps
+.OUTPUTS
+    Array of PSCustomObject with properties: Pkg, Sev, CVE, Desc
+#>
+$script:OSV_ECOSYSTEM_MAP = @{
+    npm = 'npm'
+    pip = 'PyPI'
+    pypi = 'PyPI'
+    cargo = 'crates.io'
+    rust = 'crates.io'
+    gem = 'RubyGems'
+    ruby = 'RubyGems'
+    go = 'Go'
+    cocoapods = 'CocoaPods'
+    hex = 'Hex'
+}
+function Check-OsvVulns([array]$Apps) {
+    if (-not $Apps -or $Apps.Count -eq 0) { return @() }
+    $vulns = @()
+    $seen = @{}
+    foreach ($app in $Apps) {
+        $ecosystem = $script:OSV_ECOSYSTEM_MAP[$app.source]
+        if (-not $ecosystem -or -not $app.version) { continue }
+        $key = "$($app.name)|$($app.version)"
+        if ($seen.ContainsKey($key)) { continue }
+        $seen[$key] = $true
+        try {
+            $body = @{
+                package = @{ name = $app.name; ecosystem = $ecosystem }
+                version = $app.version
+            } | ConvertTo-Json
+            $r = Invoke-WebRequest -Uri 'https://api.osv.dev/v1/query' -Method POST -Body $body -ContentType 'application/json' -TimeoutSec 10 -ErrorAction SilentlyContinue
+            if (-not $r -or $r.StatusCode -ne 200) { continue }
+            $data = $r.Content | ConvertFrom-Json
+            if (-not $data.vulns) { continue }
+            foreach ($vuln in $data.vulns) {
+                $sev = 'MEDIUM'
+                if ($vuln.severity) {
+                    foreach ($s in $vuln.severity) {
+                        if ($s.type -eq 'cvss_v3') { $sev = if ($s.score) { [string]$s.score } else { 'MEDIUM' }; break }
+                    }
+                } elseif ($vuln.database_severity) {
+                    $sev = $vuln.database_severity
+                }
+                $vulns += [PSCustomObject]@{
+                    Pkg = $app.name
+                    Sev = $sev.ToUpper()
+                    CVE = if ($vuln.id) { $vuln.id } else { 'N/A' }
+                    Desc = if ($vuln.summary) { $vuln.summary.Substring(0, [Math]::Min(200, $vuln.summary.Length)) } else { 'Security vulnerability' }
+                }
+            }
+        }
+        catch { }
+    }
+    return $vulns
+}
+
 # ── Output Formatting Functions ────────────────────────────────────────────────
 
 <#
@@ -2500,7 +2566,7 @@ function Main {
             Write-Host "$(E 'lock') $(bold (magenta 'Checking security vulnerabilities...'))"
             $sevOrder = @{critical = 4; high = 3; medium = 2; low = 1 }
             $thresh = $sevOrder[$CFG_SEVERITY]; if (-not $thresh) { $thresh = 2 }
-            $vulns = @(Check-NpmVulns $apps) + @(Check-PipVulns $apps)
+            $vulns = @(Check-NpmVulns $apps) + @(Check-PipVulns $apps) + @(Check-OsvVulns $apps)
             # Filter vulnerabilities by severity threshold
             $vulns = @($vulns | Where-Object { $sv = $sevOrder[$_.Sev.ToLower()]; if (-not $sv) { $sv = 1 }; $sv -ge $thresh })
             $script:SecurityFindings = $vulns

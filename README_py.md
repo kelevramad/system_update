@@ -475,6 +475,12 @@ This project is provided as-is for system administration and package management 
 
 ---
 
+## 🆕 Latest Changes (v2.3.0)
+- **OSV API Integration**: Added Google's OSV vulnerability database support for all supported ecosystems
+- **Extended vulnerability scanning**: Now checks npm, PyPI, crates.io, RubyGems, Go, CocoaPods, and Hex packages
+
+---
+
 ## 🆕 Latest Changes (v2.2.0)
 - **.NET Global Tools support**: Added .NET CLI tools scanning via `dotnet tool list -g`
 - **Scoop support**: Added Scoop package manager support
