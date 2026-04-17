@@ -4,11 +4,11 @@
 
 Three implementations of the same tool (cross-platform package manager scanner/updater):
 
-| File | Language | Requirements |
-|------|----------|---------------|
-| `system_update.js` | Node.js | Node 16+ |
-| `system_update.py` | Python | Python 3.8+, `rich` library |
-| `system_update.ps1` | PowerShell | PowerShell 7+ (zero dep) |
+| File | Language | Version | Requirements |
+|------|----------|---------|---------------|
+| `system_update.js` | Node.js | v2.7.0 | Node 16+ |
+| `system_update.py` | Python | v2.7.0 | Python 3.8+, `rich` library |
+| `system_update.ps1` | PowerShell | v2.7.0 | PowerShell 7+ (zero dep) |
 
 ## Project Structure
 
@@ -57,7 +57,7 @@ All implementations share similar flags:
 
 - **Default cache duration**: 2 hours
 - **Data directory**: `~/.system_update/` (configurable via `SYSTEM_UPDATE_HOME`)
-- **Security scanning**: Runs `npm audit` and `pip check` automatically
+- **Security scanning**: Runs `npm audit`, `pip-audit`, OSV, GitHub Advisory, PyPI, and Local advisories automatically. Displays CVSS scores and tracks history in `vulnerability_history.json`.
 - **Supported sources**: Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Rust, PATH, Registry, Scoop
 
 ---
@@ -176,6 +176,8 @@ Pull requests should explain:
 - The user-facing change
 - Test commands you ran
 - Any format or compatibility impact
+
+Note: If the user says "pull", they usually mean to create a Pull Request, not execute `git pull`. 
 
 ---
 
