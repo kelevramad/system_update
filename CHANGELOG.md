@@ -15,6 +15,15 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v3.4.0 (April 2026)
+- **Notification System**: New notification features for updates
+  - System Notifications: Native Windows toast/balloon tip notifications
+  - Email Alerts: SMTP integration for email notifications
+  - Webhook Notifications: HTTP POST to custom URLs
+  - Custom Script Hooks: Execute user-defined scripts on events
+  - New `--notify` CLI flag to force notifications
+  - Config options: email_enabled, email_to, smtp_server, smtp_port, smtp_username, smtp_password
+
 ### v3.3.0 (April 2026)
 - **Better Error Handling**: Enhanced error classification with recovery suggestions
   - ErrorCategory enum for error types: NOT_FOUND, TIMEOUT, PERMISSION_DENIED, NETWORK_ERROR, PARSE_ERROR, COMMAND_FAILED, UNKNOWN

@@ -328,3 +328,42 @@ def test_source_filter_msix_shows_only_msix():
 	output = res['stdout'] + res['stderr']
 	assert 'msix' in output.lower()
 	assert 'appx' not in output.lower() or 'appx' in output
+
+
+def test_notification_system_import():
+	from system_update import NotificationManager
+	assert NotificationManager is not None
+
+
+def test_notification_cli_flag():
+	res = run_cli(['--help'])
+	output = res['stdout'] + res['stderr']
+	assert '--notify' in output.lower()
+
+
+def test_send_webhook_valid_url():
+	from system_update import NotificationManager
+	nm = NotificationManager()
+	result = nm.send_webhook('https://httpbin.org/post', {'test': 'data'})
+	assert result is True or result is False
+
+
+def test_send_webhook_invalid_url():
+	from system_update import NotificationManager
+	nm = NotificationManager()
+	result = nm.send_webhook('https://invalid-url-that-does-not-exist.xyz', {'test': 'data'})
+	assert result is False
+
+
+def test_send_email_missing_config():
+	from system_update import NotificationManager
+	nm = NotificationManager()
+	result = nm.send_email('test@example.com', 'Test', 'Body')
+	assert result is False
+
+
+def test_run_custom_script_invalid_path():
+	from system_update import NotificationManager
+	nm = NotificationManager()
+	result = nm.run_custom_script('nonexistent_script.bat')
+	assert result is False

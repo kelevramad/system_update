@@ -3,7 +3,7 @@
 ================================================================================
                           SYSTEM UPDATE ENHANCED
 ================================================================================
-  Version: 3.3.0
+  Version: 3.4.0
  Author: Gemini (Redesigned)
 
 A sophisticated system update tool with enhanced UI architecture and modular design.
@@ -142,6 +142,264 @@ class CommandError:
                 message=f"{error_type}: {str(exception)}",
                 command=command,
                 suggestion="Check logs for details or run with --debug"
+            )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NOTIFICATION SYSTEM
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class NotificationManager:
+    """Manages system notifications, emails, webhooks, and custom script hooks."""
+
+    def __init__(self, config: 'SystemConfig' = None):
+        self.config = config or SystemConfig()
+        self.settings = self.config.settings.get('notifications', {})
+
+    def send_system_notification(self, title: str, message: str) -> bool:
+        """
+        Send Windows toast notification.
+
+        Args:
+            title: Notification title
+            message: Notification message
+
+        Returns:
+            bool: True if notification sent successfully
+        """
+        if platform.system() != 'Windows':
+            logger.debug('System notifications only available on Windows')
+            return False
+
+        try:
+            logger.debug(f'Sending Windows notification: {title} - {message}')
+
+            escaped_title = title.replace('"', "'").replace("'", "''")
+            escaped_message = message.replace('"', "'").replace("'", "''").replace('\n', ' ')
+
+            ps_script = f'''
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Windows.Forms
+
+$icon = New-Object System.Windows.Forms.NotifyIcon
+$icon.Icon = [System.Drawing.SystemIcons]::Information
+$icon.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Info
+$icon.BalloonTipTitle = "{escaped_title}"
+$icon.BalloonTipText = "{escaped_message}"
+$icon.Visible = $true
+$icon.ShowBalloonTip(15000)
+Start-Sleep -Seconds 3
+$icon.Dispose()
+'''
+            run_command(['powershell', '-NoProfile', '-Command', ps_script], allow_failure=True)
+            logger.debug(f'System notification sent: {title}')
+            return True
+        except Exception as e:
+            logger.debug(f'Failed to send system notification: {e}')
+            return False
+
+    def send_email(
+        self,
+        to_address: str,
+        subject: str,
+        body: str,
+        smtp_server: str = None,
+        smtp_port: int = 587,
+        username: str = None,
+        password: str = None,
+        use_tls: bool = True,
+    ) -> bool:
+        """
+        Send email notification via SMTP or API.
+
+        Args:
+            to_address: Recipient email address
+            subject: Email subject
+            body: Email body
+            smtp_server: SMTP server hostname or API URL
+            smtp_port: SMTP port (default: 587)
+            username: SMTP username or API token
+            password: SMTP password
+            use_tls: Use TLS (default: True)
+
+        Returns:
+            bool: True if email sent successfully
+        """
+        smtp_server = smtp_server or self.settings.get('smtp_server')
+        smtp_port = smtp_port or self.settings.get('smtp_port', 587)
+        username = username or self.settings.get('smtp_username')
+        password = password or self.settings.get('smtp_password')
+
+        if not smtp_server or not username:
+            logger.debug('SMTP/API configuration not available')
+            return False
+
+        try:
+            logger.debug(f'Attempting to send email to {to_address}')
+            if 'api' in smtp_server.lower() or '/api/' in smtp_server:
+                import subprocess
+
+                payload = json.dumps({
+                    'from': {'email': 'hello@demomailtrap.co', 'name': 'System Update'},
+                    'to': [{'email': to_address}],
+                    'subject': subject,
+                    'text': body,
+                }).replace('"', '\\"')
+
+                curl_cmd = [
+                    'curl', '-s', '-X', 'POST', smtp_server,
+                    '-H', f'Authorization: Bearer {username}',
+                    '-H', 'Content-Type: application/json',
+                    '-d', payload
+                ]
+
+                result = subprocess.run(
+                    curl_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+
+                if result.returncode == 0 and 'success' in result.stdout:
+                    logger.debug(f'Email API sent to {to_address}')
+                    return True
+                else:
+                    logger.debug(f'Email API failed: {result.stderr or result.stdout}')
+                    return False
+            else:
+                import smtplib
+                from email.mime.text import MIMEText
+                from email.mime.multipart import MIMEMultipart
+
+                msg = MIMEMultipart()
+                msg['From'] = username
+                msg['To'] = to_address
+                msg['Subject'] = subject
+                msg.attach(MIMEText(body, 'plain'))
+
+                server = smtplib.SMTP(smtp_server, smtp_port)
+                if use_tls:
+                    server.starttls()
+                server.login(username, password)
+                server.send_message(msg)
+                server.quit()
+
+                logger.debug(f'Email SMTP sent to {to_address}: {subject}')
+                return True
+        except Exception as e:
+            logger.debug(f'Failed to send email: {type(e).__name__}: {e}')
+            return False
+
+    def send_webhook(self, url: str, payload: dict, method: str = 'POST', headers: dict = None) -> bool:
+        """
+        Send webhook notification via HTTP POST.
+
+        Args:
+            url: Webhook URL
+            payload: JSON payload to send
+            method: HTTP method (default: POST)
+            headers: Additional HTTP headers
+
+        Returns:
+            bool: True if webhook sent successfully
+        """
+        headers = headers or self.settings.get('webhook_headers', {})
+        headers.setdefault('Content-Type', 'application/json')
+
+        try:
+            import urllib.request
+            import urllib.parse
+
+            data = json.dumps(payload).encode('utf-8')
+            req = urllib.request.Request(url, data=data, method=method, headers=headers)
+
+            with urllib.request.urlopen(req, timeout=10) as response:
+                logger.debug(f'Webhook sent to {url}: {response.status}')
+                return True
+        except Exception as e:
+            logger.debug(f'Failed to send webhook: {e}')
+            return False
+
+    def run_custom_script(self, script_path: str, env_vars: dict = None) -> bool:
+        """
+        Execute custom script hook.
+
+        Args:
+            script_path: Path to script file
+            env_vars: Environment variables to pass to script
+
+        Returns:
+            bool: True if script executed successfully
+        """
+        if not os.path.exists(script_path):
+            logger.debug(f'Custom script not found: {script_path}')
+            return False
+
+        env = os.environ.copy()
+        if env_vars:
+            env.update(env_vars)
+
+        try:
+            result = subprocess.run(
+                [script_path],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                shell=True,
+            )
+            logger.debug(f'Custom script executed: {script_path}, exit code: {result.returncode}')
+            return result.returncode == 0
+        except Exception as e:
+            logger.debug(f'Failed to run custom script: {e}')
+            return False
+
+    def notify_updates_available(self, updates_count: int, vulnerable_count: int = 0, force: bool = False):
+        """Send notifications for available updates."""
+        if updates_count == 0:
+            return
+
+        title = '🚀 System Update'
+        if vulnerable_count > 0:
+            message = f'🔔 {updates_count} updates\n🔥 {vulnerable_count} security vulnerabilities!'
+        else:
+            message = f'✅ {updates_count} updates available'
+
+        # Force overrides all config checks
+        if force:
+            self.send_system_notification(title, message)
+            if self.settings.get('email_enabled'):
+                self.send_email(self.settings.get('email_to'), title, message)
+            if self.settings.get('webhook_enabled'):
+                self.send_webhook(self.settings.get('webhook_url'), {'title': title, 'message': message})
+            if self.settings.get('custom_script_enabled'):
+                self.run_custom_script(self.settings.get('custom_script_path'), {'UPDATES': str(updates_count)})
+        elif self.settings.get('notify_on_updates', True):
+            if self.settings.get('system_notifications'):
+                self.send_system_notification(title, message)
+            if self.settings.get('email_enabled'):
+                self.send_email(self.settings.get('email_to'), title, message)
+            if self.settings.get('webhook_enabled'):
+                self.send_webhook(self.settings.get('webhook_url'), {'title': title, 'message': message})
+            if self.settings.get('custom_script_enabled'):
+                self.run_custom_script(self.settings.get('custom_script_path'), {'UPDATES': str(updates_count)})
+
+    def notify_scan_complete(self, total_apps: int, scan_time: float, force: bool = False):
+        """Send notifications when scan completes."""
+        title = '🚀 System Update'
+        message = f'📦 Scanned {total_apps} apps in {scan_time:.1f}s'
+
+        if force or (self.settings.get('notify_on_scan_complete', False) and self.settings.get('system_notifications', False)):
+            self.send_system_notification(title, message)
+
+        if force or (self.settings.get('notify_on_scan_complete', False) and self.settings.get('email_enabled', False)):
+            self.send_email(self.settings.get('email_to'), title, message)
+
+        if force or (self.settings.get('notify_on_scan_complete', False) and self.settings.get('webhook_enabled', False)):
+            self.send_webhook(
+                self.settings.get('webhook_url'),
+                {'title': title, 'message': message, 'total_apps': total_apps, 'scan_time': scan_time},
             )
 
 
@@ -503,6 +761,22 @@ class SystemConfig:
 			'export': {
 				'default_format': 'json',
 				'include_timestamp': True,
+			},
+			'notifications': {
+				'notify_on_updates': True,
+				'notify_on_scan_complete': False,
+				'system_notifications': False,
+				'email_enabled': False,
+'email_to': '',
+			'smtp_server': '',
+			'smtp_port': 587,
+			'smtp_username': '',
+			'smtp_password': '',
+			'webhook_enabled': False,
+				'webhook_url': '',
+				'webhook_headers': {},
+				'custom_script_enabled': False,
+				'custom_script_path': '',
 			},
 		}
 		self.load()
@@ -3374,6 +3648,7 @@ class SystemUpdateApp:
 		self.checker = UpdateChecker()
 		self.executor = UpdateExecutor()
 		self.cache_mgr = CacheManager(config.cache_file, config.settings['cache']['duration_hours'])
+		self.notifier = NotificationManager()
 
 		self.vuln_history = VulnerabilityHistory(
 			Path(config.config_dir) / 'vulnerability_history.json'
@@ -4349,7 +4624,7 @@ class SystemUpdateApp:
 			self._handle_single_update(apps, args)
 			return
 
-		# Display results
+# Display results
 		updates = [a for a in apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE]
 		vulnerable = [a for a in apps if a.update_status == UpdateStatus.VULNERABLE]
 
@@ -4367,8 +4642,13 @@ class SystemUpdateApp:
 			console.print('\n[dim]💾 Showing: updates only[/dim]')
 
 		# Handle updates
-		if updates:
-			console.print(f'\n[bold yellow]🎯 Found {len(updates)} available updates[/bold yellow]')
+		if updates or vulnerable:
+			total_count = len(updates) + len(vulnerable)
+			console.print(f'\n[bold yellow]🎯 Found {total_count} available updates[/bold yellow]')
+
+			# Send notification if --notify flag is set
+			if getattr(args, 'notify', False):
+				self.notifier.notify_updates_available(total_count, len(vulnerable), force=True)
 
 			if args.update_all:
 				# Security Update Auto-Priority: update vulnerable packages first
@@ -4820,6 +5100,7 @@ Examples:
 	)
 	parser.add_argument('--log', action='store_true', help='Enable log file output')
 	parser.add_argument('--debug', action='store_true', help='Enable debug output')
+	parser.add_argument('--notify', action='store_true', help='Send notification when updates available')
 	parser.add_argument(
 		'--interactive', action='store_true', help='Launch interactive TUI for package selection'
 	)
