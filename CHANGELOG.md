@@ -15,7 +15,7 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
-### v2.10.0 (April 2026)
+### v3.1.0 (April 2026)
 - **Interactive TUI (3.1)**: Launch interactive mode with `--interactive` for package selection
   - Fuzzy Search: Search packages by partial name match
   - Package Multi-Select: Select multiple packages with numbers (e.g., 1,3,5 or 1-5)

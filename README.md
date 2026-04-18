@@ -4,7 +4,7 @@
 
 A comprehensive Python-based system package management tool that scans, checks, and updates software from multiple sources.
 
-**Version:** 2.8.0
+**Version:** 3.1.0
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
 
@@ -20,6 +20,7 @@ A comprehensive Python-based system package management tool that scans, checks, 
 - **Parallel Processing**: ThreadPoolExecutor for optimal performance.
 - **Modular Architecture**: Clean separation of concerns with dataclasses.
 - **Smart Version Comparison**: Handles preview/stable version detection.
+- **Interactive TUI**: Fuzzy search, multi-select, and preview for package selection.
 
 ---
 
@@ -96,6 +97,7 @@ python system_update.py --export json --output report.json
 | `--show-all` | Show all packages (including up-to-date) |
 | `--log` | Enable logging to file |
 | `--debug` | Show all executed commands |
+| `--interactive` | Launch interactive TUI for package selection |
 
 ### Examples
 
@@ -132,6 +134,9 @@ python system_update.py --no-cache --export json
 
 # Show all packages (including up-to-date)
 python system_update.py --show-all
+
+# Interactive package selection
+python system_update.py --interactive
 ```
 
 ---
