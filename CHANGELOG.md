@@ -15,6 +15,27 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v3.3.0 (April 2026)
+- **Better Error Handling**: Enhanced error classification with recovery suggestions
+  - ErrorCategory enum for error types: NOT_FOUND, TIMEOUT, PERMISSION_DENIED, NETWORK_ERROR, PARSE_ERROR, COMMAND_FAILED, UNKNOWN
+  - CommandError class with structured error info and recovery suggestions
+  - Applied to run_command function for better diagnostics
+- **AppX/MSIX Fixes**: Fixed Windows Store app scanning
+  - Fixed Get-AppxPackage to use without -AllUsers (was causing "Access is denied")
+  - AppX now returns Store-signed packages (SignatureKind = 'Store')
+  - MSIX returns sideloaded/development apps (SignatureKind != 'Store')
+  - Appx/MSIX now show "✅ up-to-date" instead of "❓ unknown"
+- **Banner Enhancement**: Shows all config files in data directory
+  - Now displays: cache.json, config.json, errors.log, system.log, vulnerability_history.json
+- **Logging Improvements**: Enhanced debug logging
+  - --debug: Shows all commands, outputs, and errors in console + saves to system.log
+  - --log: Saves to system.log without console output
+  - Removed --verbose (redundant)
+  - Separate errors.log file for warnings/errors only
+- **Code Quality**: Ruff lint fixes
+  - Removed unused imports
+  - Fixed variable naming
+
 ### v3.2.0 (April 2026)
 - **Progress Enhancements**: Enhanced progress bars with more metrics
   - ETA: Show estimated time remaining using TimeRemainingColumn

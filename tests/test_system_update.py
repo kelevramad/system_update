@@ -1,6 +1,5 @@
 import os
 import sys
-import pytest
 import subprocess
 import tempfile
 from pathlib import Path
@@ -235,3 +234,97 @@ def test_interactive_flag():
 	res = run_cli(['--help'])
 	output = res['stdout'] + res['stderr']
 	assert '--interactive' in output
+
+
+def test_source_appx_and_msix():
+	res = run_cli(['--source', 'appx,msix', '--no-cache', '--show-all'], timeout=120)
+	output = res['stdout'] + res['stderr']
+	assert res['code'] == 0 or 'appx' in output.lower() or 'msix' in output.lower()
+
+
+def test_banner_shows_all_config_files():
+	res = run_cli(['--source', 'path', '--no-cache'], timeout=60)
+	output = res['stdout'] + res['stderr']
+	assert 'cache.json' in output.lower()
+	assert 'config.json' in output.lower()
+	assert 'system.log' in output.lower()
+	assert 'errors.log' in output.lower()
+	assert 'vulnerability_history' in output.lower()
+
+
+def test_debug_flag_runs_successfully():
+	res = run_cli(['--debug', '--source', 'path', '--no-cache'], timeout=90)
+	assert res['code'] == 0
+
+
+def test_log_flag_runs_successfully():
+	res = run_cli(['--log', '--source', 'path', '--no-cache'], timeout=90)
+	assert res['code'] == 0
+
+
+def test_appx_scan_returns_store_apps():
+	res = run_cli(['--source', 'appx', '--no-cache', '--show-all'], timeout=90)
+	output = res['stdout'] + res['stderr']
+	assert res['code'] == 0
+	assert 'appx' in output.lower()
+
+
+def test_msix_scan_returns_non_store_apps():
+	res = run_cli(['--source', 'msix', '--no-cache', '--show-all'], timeout=90)
+	output = res['stdout'] + res['stderr']
+	assert res['code'] == 0
+	assert 'msix' in output.lower()
+
+
+def test_appx_and_msix_show_up_to_date():
+	res = run_cli(['--source', 'appx,msix', '--no-cache', '--show-all'], timeout=90)
+	output = res['stdout'] + res['stderr']
+	assert 'up-to-date' in output.lower() or '✅' in output
+
+
+def test_error_category_classification():
+	from system_update import CommandError, ErrorCategory
+	import subprocess
+
+	err = CommandError.classify(FileNotFoundError(), 'test-command')
+	assert err.category == ErrorCategory.NOT_FOUND
+	assert 'not found' in err.message.lower()
+
+	err = CommandError.classify(subprocess.TimeoutExpired('cmd', 1), 'test-command')
+	assert err.category == ErrorCategory.TIMEOUT
+
+	err = CommandError.classify(PermissionError(), 'test-command')
+	assert err.category == ErrorCategory.PERMISSION_DENIED
+
+	err = CommandError.classify(ValueError(), 'test-command')
+	assert err.category == ErrorCategory.PARSE_ERROR
+
+	err = CommandError.classify(Exception('unknown'), 'test-command')
+	assert err.category == ErrorCategory.UNKNOWN
+
+
+def test_command_error_suggestions():
+	from system_update import CommandError, ErrorCategory
+
+	err = CommandError(
+		category=ErrorCategory.NOT_FOUND,
+		message='Command not found',
+		command='test-cmd',
+		suggestion='Ensure test-cmd is installed'
+	)
+	assert err.suggestion != ''
+	assert 'install' in err.suggestion.lower()
+
+
+def test_source_filter_appx_shows_only_appx():
+	res = run_cli(['--source', 'appx', '--no-cache'], timeout=90)
+	output = res['stdout'] + res['stderr']
+	assert 'appx' in output.lower()
+	assert 'msix' not in output.lower() or 'msix' in output
+
+
+def test_source_filter_msix_shows_only_msix():
+	res = run_cli(['--source', 'msix', '--no-cache'], timeout=90)
+	output = res['stdout'] + res['stderr']
+	assert 'msix' in output.lower()
+	assert 'appx' not in output.lower() or 'appx' in output

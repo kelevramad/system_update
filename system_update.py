@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-===============================================================================
+================================================================================
                           SYSTEM UPDATE ENHANCED
-===============================================================================
- Version: 3.2.1
-Author: Gemini (Redesigned)
+================================================================================
+  Version: 3.3.0
+ Author: Gemini (Redesigned)
 
 A sophisticated system update tool with enhanced UI architecture and modular design.
 
@@ -70,6 +70,81 @@ from pathlib import Path  # Path manipulation
 from typing import List, Dict, Optional, Tuple  # Type hints
 from enum import Enum  # Enumeration support
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ERROR HANDLING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class ErrorCategory(Enum):
+    """Classification of error types for better error handling."""
+    NOT_FOUND = 'not_found'
+    TIMEOUT = 'timeout'
+    PERMISSION_DENIED = 'permission_denied'
+    NETWORK_ERROR = 'network_error'
+    PARSE_ERROR = 'parse_error'
+    COMMAND_FAILED = 'command_failed'
+    UNKNOWN = 'unknown'
+
+
+class CommandError:
+    """Structured error information with recovery suggestions."""
+
+    def __init__(self, category: ErrorCategory, message: str, command: str = '', suggestion: str = ''):
+        self.category = category
+        self.message = message
+        self.command = command
+        self.suggestion = suggestion
+
+    @staticmethod
+    def classify(exception: Exception, command: str = '') -> 'CommandError':
+        """Classify an exception and provide recovery suggestions."""
+        error_type = type(exception).__name__
+
+        if isinstance(exception, FileNotFoundError):
+            return CommandError(
+                category=ErrorCategory.NOT_FOUND,
+                message=f"Command not found: {command}",
+                command=command,
+                suggestion=f"Ensure {command.split()[0] if command else 'the tool'} is installed and in PATH"
+            )
+        elif isinstance(exception, subprocess.TimeoutExpired):
+            return CommandError(
+                category=ErrorCategory.TIMEOUT,
+                message=f"Command timed out: {command}",
+                command=command,
+                suggestion="Increase timeout or check if the command is hanging"
+            )
+        elif isinstance(exception, PermissionError):
+            return CommandError(
+                category=ErrorCategory.PERMISSION_DENIED,
+                message=f"Permission denied: {command}",
+                command=command,
+                suggestion="Run as administrator or check file permissions"
+            )
+        elif isinstance(exception, (json.JSONDecodeError, ValueError)):
+            return CommandError(
+                category=ErrorCategory.PARSE_ERROR,
+                message=f"Failed to parse output: {error_type}",
+                command=command,
+                suggestion="Check command output format or version compatibility"
+            )
+        elif isinstance(exception, subprocess.CalledProcessError):
+            return CommandError(
+                category=ErrorCategory.COMMAND_FAILED,
+                message=f"Command failed with code {exception.returncode}: {command}",
+                command=command,
+                suggestion="Check command syntax and dependencies"
+            )
+        else:
+            return CommandError(
+                category=ErrorCategory.UNKNOWN,
+                message=f"{error_type}: {str(exception)}",
+                command=command,
+                suggestion="Check logs for details or run with --debug"
+            )
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # THIRD-PARTY IMPORTS (RICH LIBRARY)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -78,20 +153,17 @@ RICH_AVAILABLE = True
 try:
 	from rich import print
 	from rich.console import Console  # Terminal output management
-	from rich.panel import Panel  # Boxed text panels
 	from rich.table import Table  # Tabular data display
 	from rich.text import Text  # Styled text objects
-	from rich.prompt import Confirm, Prompt  # Yes/No user prompts, text input
+	from rich.prompt import Confirm  # Yes/No user prompts
 	from rich.progress import (  # Progress bar components
 		Progress,
-		TextColumn,
 		BarColumn,
+		TextColumn,
 		TimeElapsedColumn,
 		TimeRemainingColumn,
 		MofNCompleteColumn,
-		TaskID,
 	)
-	from rich.style import Style  # Style definitions
 	from rich import box  # Table border styles
 except ImportError:
 	RICH_AVAILABLE = False
@@ -498,14 +570,52 @@ class SystemConfig:
 
 
 config = SystemConfig()
-logging.basicConfig(
-	level=logging.INFO,
-	format='%(asctime)s - %(levelname)s - %(message)s',
-	handlers=[
-		logging.FileHandler(config.log_file),
-		logging.NullHandler(),
-	],
-)
+
+
+class WarningFileHandler(logging.FileHandler):
+    """File handler that only records WARNING and above."""
+    def __init__(self, filename, mode='a', encoding='utf-8', delay=False):
+        super().__init__(filename, mode, encoding, delay)
+        self.setLevel(logging.WARNING)
+
+
+def setup_logging(debug: bool = False, enable_log: bool = False):
+    """Configure logging based on command-line flags."""
+    root_logger = logging.getLogger()
+
+    # Remove existing handlers
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    # Determine log level
+    if debug:
+        level = logging.DEBUG
+    elif enable_log:
+        level = logging.INFO
+    else:
+        level = logging.WARNING
+
+    # Always add file handler for logging
+    file_handler = logging.FileHandler(config.log_file, encoding='utf-8')
+    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    file_handler.setLevel(logging.DEBUG)  # Capture all levels to file
+    root_logger.addHandler(file_handler)
+
+    # Console handler: show on console for --debug
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+    console_handler.setLevel(level)
+    console_handler.stream.reconfigure(encoding='utf-8', errors='replace')
+    root_logger.addHandler(console_handler)
+
+    # Error handler for separate error log
+    error_handler = WarningFileHandler(config.config_dir / 'errors.log')
+    root_logger.addHandler(error_handler)
+
+    root_logger.setLevel(logging.DEBUG)  # Set to DEBUG to allow all through, handlers filter themselves
+
+
+setup_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -935,12 +1045,18 @@ def run_command(
 	    >>> if output:
 	    ...     print(f'Git version: {output}')
 	"""
+	cmd_str = ' '.join(cmd)
+	logger.debug(f'[EXEC] Starting: {cmd_str}')
+
 	try:
 		# On Windows, resolve the executable path for better compatibility
 		if platform.system() == 'Windows':
 			executable = shutil.which(cmd[0])
 			if executable:
+				logger.debug(f'[EXEC] Resolved {cmd[0]} to: {executable}')
 				cmd[0] = executable
+			else:
+				logger.debug(f'[EXEC] Command not found in PATH: {cmd[0]}')
 
 		result = subprocess.run(
 			cmd,
@@ -951,19 +1067,65 @@ def run_command(
 			errors='ignore',
 			timeout=timeout,
 		)
+
+		logger.debug(f'[EXEC] Exit code: {result.returncode}')
+
+		# Log stdout length for reference
+		stdout_len = len(result.stdout) if result.stdout else 0
+		stderr_len = len(result.stderr) if result.stderr else 0
+
+		if stdout_len > 0:
+			stdout_trunc = result.stdout[:300] + '...[truncated]' if stdout_len > 300 else result.stdout
+			logger.debug(f'[EXEC] stdout ({stdout_len} chars): {stdout_trunc}')
+		else:
+			logger.debug('[EXEC] stdout (empty)')
+
+		# Log stderr if present
+		if stderr_len > 0:
+			stderr_trunc = result.stderr[:300] + '...[truncated]' if stderr_len > 300 else result.stderr
+			logger.debug(f'[EXEC] stderr ({stderr_len} chars): {stderr_trunc}')
+
 		if result.returncode != 0 and not allow_failure:
-			logger.debug(f'Command exited {result.returncode}: {" ".join(cmd)}')
+			logger.warning(f'[EXEC] Command failed (exit {result.returncode}): {cmd_str}')
 			return None
+
 		# Mirror JS: combine stdout+stderr when include_stderr is requested
 		if include_stderr:
 			combined = f'{result.stdout}\n{result.stderr}'.strip()
 			return combined or None
+
+		logger.debug(f'[EXEC] Success: {cmd_str} ({stdout_len} output chars)')
 		return result.stdout.strip() or None
-	except subprocess.TimeoutExpired:
-		logger.warning(f'Command timed out: {" ".join(cmd)}')
+
+	except subprocess.TimeoutExpired as exc:
+		cmd_str = ' '.join(cmd)
+		error = CommandError.classify(exc, cmd_str)
+		logger.warning(f'[EXEC] Timeout: {cmd_str} - {error.suggestion}')
+		logger.debug(f'[EXEC] Timeout details: {exc}')
 		return None
-	except FileNotFoundError as e:
-		logger.debug(f'Command not found: {" ".join(cmd)} - {e}')
+	except FileNotFoundError as exc:
+		cmd_str = ' '.join(cmd)
+		error = CommandError.classify(exc, cmd_str)
+		logger.debug(f'[EXEC] Not found: {cmd_str} - {error.suggestion}')
+		logger.debug(f'[EXEC] FileNotFoundError: {exc}')
+		return None
+	except PermissionError as exc:
+		cmd_str = ' '.join(cmd)
+		error = CommandError.classify(exc, cmd_str)
+		logger.warning(f'[EXEC] Permission denied: {cmd_str} - {error.suggestion}')
+		logger.debug(f'[EXEC] PermissionError: {exc}')
+		return None
+	except (json.JSONDecodeError, ValueError) as exc:
+		cmd_str = ' '.join(cmd)
+		error = CommandError.classify(exc, cmd_str)
+		logger.warning(f'[EXEC] Parse error: {cmd_str} - {error.suggestion}')
+		logger.debug(f'[EXEC] Parse error details: {exc}')
+		return None
+	except Exception as exc:
+		cmd_str = ' '.join(cmd)
+		error = CommandError.classify(exc, cmd_str)
+		logger.warning(f'[EXEC] Error: {error.category.value}: {error.message} - {error.suggestion}')
+		logger.debug(f'[EXEC] Exception details: {exc}')
 		return None
 
 
@@ -1059,8 +1221,7 @@ class UISystem:
 		def hr(ch='─', width=70):
 			return ch * width
 
-		w = 68
-		title = f'🚀 System Update Python v3.2.1'
+		title = '🚀 System Update Python v3.2.1'
 		sub = f'⚙️ Data dir: {config.config_dir}'
 
 		console.print(f'[cyan]┌{hr("─", 70)}┐[/cyan]')
@@ -1068,7 +1229,12 @@ class UISystem:
 		console.print(f'[cyan]│[/cyan] [dim cyan]{sub.ljust(69)}[/dim cyan][cyan]│[/cyan]')
 		console.print(f'[cyan]└{hr("─", 70)}┘[/cyan]')
 
-		console.print(f'Cache  [dim white]→ {config.cache_file}[/dim white]')
+		console.print(f'[dim white]Files in {config.config_dir}:[/dim white]')
+		console.print(f'  [dim white]cache.json → {config.cache_file}[/dim white]')
+		console.print(f'  [dim white]config.json → {config.config_file}[/dim white]')
+		console.print(f'  [dim white]errors.log → {config.config_dir / "errors.log"}[/dim white]')
+		console.print(f'  [dim white]system.log → {config.log_file}[/dim white]')
+		console.print(f'  [dim white]vulnerability_history.json → {config.config_dir / "vulnerability_history.json"}[/dim white]')
 		console.print()
 
 	@staticmethod
@@ -1101,7 +1267,7 @@ class UISystem:
 		    ⏱️ scan duration  12.34s
 		    ⚙️ sources        winget:20, npm:15, pip:7
 		"""
-		console.print(f'[bold magenta]📊 Summary[/bold magenta]')
+		console.print('[bold magenta]📊 Summary[/bold magenta]')
 		console.print(f'📦 total apps     [bold white]{total_apps}[/bold white]')
 		console.print(f'🔄 updates        [bold yellow]{updates}[/bold yellow]')
 		console.print(f'⏱️ scan duration  [bold white]{scan_time:.2f}s[/bold white]')
@@ -1983,7 +2149,7 @@ class PackageScanner:
 
 		Note:
 		    - Windows-only functionality (returns empty list on other platforms)
-		    - Filters out framework packages and system components
+		    - AppX returns Store-signed packages
 		    - Requires PowerShell on Windows
 		"""
 		if platform.system() != 'Windows':
@@ -1991,10 +2157,10 @@ class PackageScanner:
 
 		apps = []
 		ps_script = """
-        Get-AppxPackage -AllUsers |
-            Where-Object { $_.IsFramework -eq $false -and $_.SignatureKind -ne 'System' } |
+        Get-AppxPackage |
+            Where-Object { $_.IsFramework -eq $false -and $_.SignatureKind -eq 'Store' } |
             Select-Object Name, Version, PackageFullName, InstallLocation |
-            ConvertTo-Json
+            ConvertTo-Json -Depth 1
         """
 
 		output = run_command(
@@ -2008,13 +2174,12 @@ class PackageScanner:
 					apps.append(
 						AppInfo(
 							name=item['Name'],
-							source='AppX',
-							version=item.get('Version'),
-							install_path=item.get('InstallLocation'),
-							app_id=item.get('PackageFullName'),
+							version=item['Version'],
+							source='appx',
+							install_path=item.get('InstallLocation', ''),
 						)
 					)
-			except Exception:
+			except json.JSONDecodeError:
 				pass
 
 		return apps
@@ -2032,7 +2197,7 @@ class PackageScanner:
 
 		Note:
 		    - Windows-only functionality (returns empty list on other platforms)
-		    - MSIX packages have SignatureKind='AppxPackage'
+		    - MSIX returns sideloaded/development apps (non-Store)
 		    - Requires PowerShell on Windows
 		"""
 		if platform.system() != 'Windows':
@@ -2040,10 +2205,10 @@ class PackageScanner:
 
 		apps = []
 		ps_script = """
-        Get-AppxPackage -AllUsers |
-            Where-Object { $_.SignatureKind -eq 'AppxPackage' } |
+        Get-AppxPackage |
+            Where-Object { $_.IsFramework -eq $false -and $_.SignatureKind -ne 'Store' } |
             Select-Object Name, Version, PackageFullName, InstallLocation |
-            ConvertTo-Json
+            ConvertTo-Json -Depth 1
         """
 
 		output = run_command(
@@ -2057,13 +2222,12 @@ class PackageScanner:
 					apps.append(
 						AppInfo(
 							name=item['Name'],
-							source='MSIX',
-							version=item.get('Version'),
-							install_path=item.get('InstallLocation'),
-							app_id=item.get('PackageFullName'),
+							version=item['Version'],
+							source='msix',
+							install_path=item.get('InstallLocation', ''),
 						)
 					)
-			except Exception:
+			except json.JSONDecodeError:
 				pass
 
 		return apps
@@ -2142,6 +2306,8 @@ class UpdateChecker:
 			'rust': [a for a in apps if a.source.lower() == 'rust'],
 			'scoop': [a for a in apps if a.source.lower() == 'scoop'],
 			'dotnet': [a for a in apps if a.source.lower() == 'dotnet'],
+			'appx': [a for a in apps if a.source.lower() == 'appx'],
+			'msix': [a for a in apps if a.source.lower() == 'msix'],
 		}
 
 		# Filter to only sources with apps
@@ -2231,6 +2397,8 @@ class UpdateChecker:
 				'rust',
 				'path',
 				'dotnet',
+				'appx',
+				'msix',
 			]:
 				app.update_status = UpdateStatus.UP_TO_DATE
 			else:
@@ -2743,7 +2911,7 @@ class UpdateChecker:
 						latest = app.version
 
 				if latest:
-					clean_version = re.sub(r'^[^\d]+', '', app.version).strip()
+					_clean_version = re.sub(r'^[^\d]+', '', app.version).strip()
 					clean_latest = re.sub(r'^[^\d]+', '', latest).strip()
 					app.latest_version = clean_latest
 
@@ -3307,10 +3475,11 @@ class SystemUpdateApp:
 							{f'{a.source}|{a.name}|{a.version}'.lower(): a for a in apps}.values()
 						)
 						all_apps.extend(unique_apps)
+						emoji = '✓' if len(unique_apps) == 0 else '✅'
 						progress.update(
 							source_tasks[source_name],
 							completed=1,
-							description=f'✅ {source_badge(source_name)} [{len(unique_apps)}]',
+							description=f'{emoji} {source_badge(source_name)} [{len(unique_apps)}]',
 						)
 					except Exception as e:
 						progress.update(
@@ -3970,6 +4139,12 @@ class SystemUpdateApp:
 		    - Respects --no-cache flag to force fresh scan
 		    - Handles --package for single-package updates
 		"""
+		# Configure logging based on args
+		setup_logging(
+			debug=getattr(args, 'debug', False),
+			enable_log=getattr(args, 'log', False),
+		)
+
 		# Handle cache operations
 		if args.clear_cache:
 			self.cache_mgr.clear()
@@ -4068,11 +4243,8 @@ class SystemUpdateApp:
 
 			if not active_security:
 				console.print('[bold green]🛡️ No security vulnerabilities found.[/bold green]\n')
-				self.cache_mgr.save(apps)
-				scan_time = time.time() - start_time
-				return apps, total_updates, scan_time
 
-			# Check vulnerabilities with per-source progress bars
+			# Check vulnerabilities with per-source progress bars (only if there are security sources)
 			with Progress(
 				TextColumn('{task.description}'),
 				BarColumn(
@@ -4190,9 +4362,9 @@ class SystemUpdateApp:
 
 		# Display showing status after table (matching JS behavior)
 		if args.show_all:
-			console.print(f'\n[dim]💾 Showing: all packages[/dim]')
+			console.print('\n[dim]💾 Showing: all packages[/dim]')
 		else:
-			console.print(f'\n[dim]💾 Showing: updates only[/dim]')
+			console.print('\n[dim]💾 Showing: updates only[/dim]')
 
 		# Handle updates
 		if updates:
@@ -4296,7 +4468,7 @@ class SystemUpdateApp:
 			return
 
 		if len(candidates) > 1 and not args.source:
-			console.print(f'[yellow]⚠️  Multiple packages found:[/yellow]')
+			console.print('[yellow]⚠️  Multiple packages found:[/yellow]')
 			for i, c in enumerate(candidates):
 				console.print(f'  {i + 1}. {c.name} ({c.source}) - {c.version}')
 			console.print('[yellow]💡 Please specify --source to target one[/yellow]')
@@ -4337,7 +4509,7 @@ class SystemUpdateApp:
 
 		# Scan and get all updates
 		apps = self.scan_system(args.source)
-		total_updates = self.checker.check_all_updates(apps)
+		self.checker.check_all_updates(apps)
 
 		# --- PHASE 3: SECURITY CHECK for interactive mode ---
 		console.print('[bold magenta]🔒 Checking security vulnerabilities...[/bold magenta]')
