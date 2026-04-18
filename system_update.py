@@ -3,7 +3,7 @@
 ================================================================================
                           SYSTEM UPDATE ENHANCED
 ================================================================================
-  Version: 3.4.0
+  Version: 3.5.0
  Author: Gemini (Redesigned)
 
 A sophisticated system update tool with enhanced UI architecture and modular design.
@@ -757,6 +757,8 @@ class SystemConfig:
 				'show_stats': True,
 				'compact_view': False,
 				'color_scheme': 'vibrant',
+				'display_format': 'auto',
+				'use_icons': False,
 			},
 			'export': {
 				'default_format': 'json',
@@ -1451,6 +1453,296 @@ def source_badge(source: str) -> str:
 	}
 	style = style_map.get(source_lower, 'bright_white')
 	return f'[{style}]{source_lower}[/{style}]'
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# UI THEMES & DISPLAY FORMATS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+THEMES = {
+	'default': {
+		'name': 'Default',
+		'source_colors': {
+			'winget': 'blue',
+			'chocolatey': 'yellow',
+			'npm': 'red',
+			'pnpm': 'color(206)',
+			'pip': 'cyan',
+			'bun': 'bright_blue',
+			'yarn': 'bright_white',
+			'rust': 'color(129)',
+			'path': 'green',
+			'registry': 'grey37',
+			'scoop': 'bright_yellow',
+			'dotnet': 'gold',
+		},
+		'status_colors': {
+			'up_to_date': 'green',
+			'update_available': 'bold yellow',
+			'error': 'bold red',
+			'vulnerable': 'bold red',
+			'security_update': 'bold magenta',
+			'unknown': 'dim white',
+		},
+		'header_style': 'bold cyan',
+		'border_style': 'dim white',
+	},
+	'vibrant': {
+		'name': 'Vibrant',
+		'source_colors': {
+			'winget': 'bright_cyan',
+			'chocolatey': 'bright_yellow',
+			'npm': 'bright_red',
+			'pnpm': 'color(219)',
+			'pip': 'bright_magenta',
+			'bun': 'bright_blue',
+			'yarn': 'bright_white',
+			'rust': 'color(171)',
+			'path': 'bright_green',
+			'registry': 'grey37',
+			'scoop': 'bright_yellow',
+			'dotnet': 'bright_gold',
+		},
+		'status_colors': {
+			'up_to_date': 'bold green',
+			'update_available': 'bold yellow',
+			'error': 'bold bright_red',
+			'vulnerable': 'bold bright_red',
+			'security_update': 'bold bright_magenta',
+			'unknown': 'dim white',
+		},
+		'header_style': 'bold bright_cyan',
+		'border_style': 'cyan',
+	},
+	'minimal': {
+		'name': 'Minimal',
+		'source_colors': {
+			'winget': 'white',
+			'chocolatey': 'white',
+			'npm': 'white',
+			'pnpm': 'white',
+			'pip': 'white',
+			'bun': 'white',
+			'yarn': 'white',
+			'rust': 'white',
+			'path': 'white',
+			'registry': 'grey',
+			'scoop': 'white',
+			'dotnet': 'white',
+		},
+		'status_colors': {
+			'up_to_date': 'green',
+			'update_available': 'yellow',
+			'error': 'red',
+			'vulnerable': 'red',
+			'security_update': 'magenta',
+			'unknown': 'dim',
+		},
+		'header_style': 'bold white',
+		'border_style': 'white',
+	},
+	'dark': {
+		'name': 'Dark',
+		'source_colors': {
+			'winget': 'cyan',
+			'chocolatey': 'yellow',
+			'npm': 'red',
+			'pnpm': 'magenta',
+			'pip': 'color(201)',
+			'bun': 'bright_blue',
+			'yarn': 'white',
+			'rust': 'color(207)',
+			'path': 'green',
+			'registry': 'grey',
+			'scoop': 'yellow',
+			'dotnet': 'gold',
+		},
+		'status_colors': {
+			'up_to_date': 'green',
+			'update_available': 'yellow',
+			'error': 'red',
+			'vulnerable': 'red',
+			'security_update': 'color(201)',
+			'unknown': 'dim',
+		},
+		'header_style': 'bold cyan',
+		'border_style': 'dim cyan',
+	},
+	'neon': {
+		'name': 'Neon',
+		'source_colors': {
+			'winget': 'color(39)',
+			'chocolatey': 'color(226)',
+			'npm': 'color(196)',
+			'pnpm': 'color(219)',
+			'pip': 'color(201)',
+			'bun': 'color(75)',
+			'yarn': 'color(255)',
+			'rust': 'color(171)',
+			'path': 'color(82)',
+			'registry': 'color(242)',
+			'scoop': 'color(226)',
+			'dotnet': 'color(220)',
+		},
+		'status_colors': {
+			'up_to_date': 'bold color(82)',
+			'update_available': 'bold color(226)',
+			'error': 'bold color(196)',
+			'vulnerable': 'bold color(196)',
+			'security_update': 'bold color(201)',
+			'unknown': 'dim white',
+		},
+		'header_style': 'bold color(75)',
+		'border_style': 'color(75)',
+	},
+}
+
+
+SOURCE_ICONS = {
+	'winget': '📦',
+	'chocolatey': '🍫',
+	'npm': '📚',
+	'pnpm': '📦',
+	'pip': '🐍',
+	'bun': '🧈',
+	'yarn': '🧶',
+	'rust': '🦀',
+	'path': '📁',
+	'registry': '🖥️',
+	'scoop': '🥄',
+	'dotnet': '🔷',
+}
+
+
+STATUS_ICONS = {
+	'up_to_date': '✅',
+	'update_available': '⬆️',
+	'error': '❌',
+	'vulnerable': '⚠️',
+	'security_update': '🔒',
+	'unknown': '❓',
+}
+
+
+class ThemeManager:
+	"""Manages UI themes and display customization."""
+
+	@staticmethod
+	def get_theme(name: str = 'default') -> dict:
+		"""Get theme configuration by name."""
+		return THEMES.get(name, THEMES['default'])
+
+	@staticmethod
+	def get_source_color(source: str, theme: str = 'default') -> str:
+		"""Get color for a source in given theme."""
+		theme_data = ThemeManager.get_theme(theme)
+		source_lower = source.lower()
+		return theme_data['source_colors'].get(source_lower, 'white')
+
+	@staticmethod
+	def get_status_color(status: str, theme: str = 'default') -> str:
+		"""Get color for a status in given theme."""
+		theme_data = ThemeManager.get_theme(theme)
+		status_key = status.lower().replace(' ', '_')
+		return theme_data['status_colors'].get(status_key, 'white')
+
+	@staticmethod
+	def get_source_icon(source: str) -> str:
+		"""Get icon for a source."""
+		return SOURCE_ICONS.get(source.lower(), '')
+
+	@staticmethod
+	def get_status_icon(status: str) -> str:
+		"""Get icon for a status."""
+		return STATUS_ICONS.get(status.lower().replace(' ', '_'), '')
+
+
+class DisplayFormatter:
+	"""Handles different display formats (compact, verbose, JSON, auto)."""
+
+	@staticmethod
+	def format_table(apps: List[AppInfo], format_mode: str = 'auto', theme: str = 'default', use_icons: bool = False) -> Table:
+		"""Format apps table based on display mode."""
+		if format_mode == 'compact':
+			return DisplayFormatter._compact_table(apps, theme, use_icons)
+		elif format_mode == 'verbose':
+			return DisplayFormatter._verbose_table(apps, theme, use_icons)
+		elif format_mode == 'json':
+			return DisplayFormatter._json_table(apps)
+		else:
+			return DisplayFormatter._auto_table(apps, theme, use_icons)
+
+	@staticmethod
+	def _compact_table(apps: List[AppInfo], theme: str, use_icons: bool) -> Table:
+		"""Create compact table with minimal columns."""
+		theme_data = ThemeManager.get_theme(theme)
+		table = Table(box=box.SIMPLE, show_header=False, pad_edge=False)
+		table.add_column('Item', width=50)
+		for app in sorted(apps, key=lambda x: x.name):
+			icon = ThemeManager.get_source_icon(app.source) if use_icons else ''
+			color = ThemeManager.get_source_color(app.source, theme)
+			row_text = f'{icon} {app.name} → {app.latest_version or "up-to-date"}'
+			table.add_row(f'[{color}]{row_text}[/{color}]')
+		return table
+
+	@staticmethod
+	def _verbose_table(apps: List[AppInfo], theme: str, use_icons: bool) -> Table:
+		"""Create verbose table with all details."""
+		theme_data = ThemeManager.get_theme(theme)
+		table = Table(box=box.ROUNDED, show_header=True, header_style=theme_data['header_style'], pad_edge=False)
+		table.add_column('Package', style='bold white', width=25)
+		table.add_column('Source', width=10)
+		table.add_column('Version', width=15)
+		table.add_column('Latest', width=15)
+		table.add_column('Status', width=20)
+		for app in sorted(apps, key=lambda x: (x.source, x.name)):
+			icon = ThemeManager.get_source_icon(app.source) + ' ' if use_icons else ''
+			src_color = ThemeManager.get_source_color(app.source, theme)
+			status_color = ThemeManager.get_status_color(app.update_status.name, theme)
+			s_icon = ThemeManager.get_status_icon(app.update_status.name) if use_icons else ''
+			table.add_row(
+				app.name[:25],
+				f'[{src_color}]{icon}{app.source}[/{src_color}]',
+				app.version,
+				app.latest_version or '-',
+				f'[{status_color}]{s_icon} {app.status_display}[/{status_color}]',
+			)
+		return table
+
+	@staticmethod
+	def _auto_table(apps: List[AppInfo], theme: str, use_icons: bool) -> Table:
+		"""Create default table (uses UISystem.create_applications_table)."""
+		from copy import deepcopy
+		apps_copy = deepcopy(apps)
+		table = UISystem.create_applications_table(apps_copy, show_all=True)
+		if use_icons and theme:
+			for row in table.rows:
+				if row[1].style:
+					src = row[1].plain
+					icon = SOURCE_ICONS.get(src.lower(), '')
+					if icon:
+						row[1].plain = f'{icon} {src}'
+		return table
+
+	@staticmethod
+	def _json_table(apps: List[AppInfo]) -> Table:
+		"""Create table showing JSON output."""
+		import json
+		table = Table(box=box.SIMPLE, show_header=False, pad_edge=False)
+		table.add_column('JSON', width=80)
+		json_data = [
+			{
+				'name': app.name,
+				'source': app.source,
+				'version': app.version,
+				'latest': app.latest_version,
+				'status': app.update_status.name,
+			}
+			for app in apps
+		]
+		table.add_row(f'[cyan]{json.dumps(json_data, indent=2)}[/cyan]')
+		return table
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3643,6 +3935,8 @@ class SystemUpdateApp:
 		Creates instances of UI, scanner, checker, executor, and cache manager
 		using configuration settings.
 		"""
+		self.config = config
+		self.settings = config.settings
 		self.ui = UISystem()
 		self.scanner = PackageScanner()
 		self.checker = UpdateChecker()
@@ -4420,6 +4714,17 @@ class SystemUpdateApp:
 			enable_log=getattr(args, 'log', False),
 		)
 
+		# Apply UI customizations
+		ui_theme = getattr(args, 'theme', None)
+		if ui_theme:
+			self.settings['ui']['theme'] = ui_theme
+		display_format = getattr(args, 'format', None)
+		if display_format:
+			self.settings['ui']['display_format'] = display_format
+		use_icons = getattr(args, 'icons', False)
+		if use_icons:
+			self.settings['ui']['use_icons'] = True
+
 		# Handle cache operations
 		if args.clear_cache:
 			self.cache_mgr.clear()
@@ -5101,6 +5406,9 @@ Examples:
 	parser.add_argument('--log', action='store_true', help='Enable log file output')
 	parser.add_argument('--debug', action='store_true', help='Enable debug output')
 	parser.add_argument('--notify', action='store_true', help='Send notification when updates available')
+	parser.add_argument('--theme', help='UI theme (default, vibrant, minimal, dark, neon)')
+	parser.add_argument('--format', choices=['auto', 'compact', 'verbose', 'json'], help='Display format')
+	parser.add_argument('--icons', action='store_true', help='Enable source/status icons')
 	parser.add_argument(
 		'--interactive', action='store_true', help='Launch interactive TUI for package selection'
 	)

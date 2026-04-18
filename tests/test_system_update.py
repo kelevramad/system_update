@@ -367,3 +367,52 @@ def test_run_custom_script_invalid_path():
 	nm = NotificationManager()
 	result = nm.run_custom_script('nonexistent_script.bat')
 	assert result is False
+
+
+def test_theme_manager_import():
+	from system_update import ThemeManager, THEMES, SOURCE_ICONS, STATUS_ICONS
+	assert ThemeManager is not None
+	assert isinstance(THEMES, dict)
+	assert isinstance(SOURCE_ICONS, dict)
+	assert isinstance(STATUS_ICONS, dict)
+
+
+def test_theme_manager_get_source_color():
+	from system_update import ThemeManager
+	assert ThemeManager.get_source_color('winget', 'default') == 'blue'
+	assert ThemeManager.get_source_color('npm', 'vibrant') == 'bright_red'
+
+
+def test_theme_manager_get_source_icon():
+	from system_update import ThemeManager
+	assert ThemeManager.get_source_icon('npm') == '📚'
+	assert ThemeManager.get_source_icon('winget') == '📦'
+
+
+def test_theme_manager_get_status_icon():
+	from system_update import ThemeManager
+	assert ThemeManager.get_status_icon('update_available') == '⬆️'
+	assert ThemeManager.get_status_icon('up_to_date') == '✅'
+
+
+def test_display_formatter_import():
+	from system_update import DisplayFormatter
+	assert DisplayFormatter is not None
+
+
+def test_cli_theme_flag():
+	res = run_cli(['--help'])
+	output = res['stdout'] + res['stderr']
+	assert '--theme' in output.lower()
+
+
+def test_cli_format_flag():
+	res = run_cli(['--help'])
+	output = res['stdout'] + res['stderr']
+	assert '--format' in output.lower()
+
+
+def test_cli_icons_flag():
+	res = run_cli(['--help'])
+	output = res['stdout'] + res['stderr']
+	assert '--icons' in output.lower()

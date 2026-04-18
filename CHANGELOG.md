@@ -15,6 +15,17 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v3.5.0 (April 2026)
+- **UI Improvements**: Enhanced user interface with themes and display options
+  - Custom Themes: default, vibrant, minimal, dark, neon color schemes
+  - Display Formats: auto, compact, verbose, json modes
+  - Source Icons: Custom icons per package manager (📦🍫📚🐍🦀)
+  - Status Icons: Custom status indicators (✅⬆️⚠️🔒❓)
+  - New `--theme` CLI flag
+  - New `--format` CLI flag
+  - New `--icons` CLI flag
+  - ThemeManager and DisplayFormatter classes
+
 ### v3.4.0 (April 2026)
 - **Notification System**: New notification features for updates
   - System Notifications: Native Windows toast/balloon tip notifications
