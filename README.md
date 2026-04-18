@@ -91,7 +91,7 @@ python system_update.py --export json --output report.json
 | `--clear-cache` | Remove cache file and exit |
 | `--export <json\|csv>` | Export scan results to file |
 | `--output <file>` | Output path for export |
-| `--include <csv>` | Limit scan to specific sources (e.g., `winget,npm,pip`) |
+| `--source <csv>` | Limit scan to specific sources (e.g., `winget,npm,pip`) |
 | `--yes`, `-y` | Skip confirmation prompts |
 | `--help`, `-h` | Show help message |
 | `--show-all` | Show all packages (including up-to-date) |
@@ -109,10 +109,16 @@ python system_update.py
 python system_update.py --update-all --yes
 
 # Update only Winget packages
-python system_update.py --update-source winget --yes
+python system_update.py --source winget --yes
 
 # Update only Rust packages
+python system_update.py --source rust --yes
+
+# Update all packages from a specific source
 python system_update.py --update-source rust --yes
+
+# Update all Winget packages
+python system_update.py --update-source winget --dry-run
 
 # Update a specific package
 python system_update.py --package git --source chocolatey
@@ -121,7 +127,7 @@ python system_update.py --package git --source chocolatey
 python system_update.py --dry-run
 
 # Scan only specific sources
-python system_update.py --include winget,npm,pip
+python system_update.py --source winget,npm,pip
 
 # Export results to JSON
 python system_update.py --export json --output updates.json

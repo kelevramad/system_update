@@ -38,86 +38,86 @@ def test_no_args_shows_error():
 	assert res['code'] != 0 or 'system' in output.lower()
 
 
-def test_include_winget():
-	res = run_cli(['--include', 'winget', '--no-cache'], timeout=90)
+def test_source_winget():
+	res = run_cli(['--source', 'winget', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
 
 
-def test_include_chocolatey():
-	res = run_cli(['--include', 'chocolatey', '--no-cache'], timeout=90)
+def test_source_chocolatey():
+	res = run_cli(['--source', 'chocolatey', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
 
 
-def test_include_npm():
-	res = run_cli(['--include', 'npm', '--no-cache'], timeout=90)
+def test_source_npm():
+	res = run_cli(['--source', 'npm', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
 
 
-def test_include_pnpm():
-	res = run_cli(['--include', 'pnpm', '--no-cache'], timeout=90)
+def test_source_pnpm():
+	res = run_cli(['--source', 'pnpm', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
 
 
-def test_include_pip():
-	res = run_cli(['--include', 'pip', '--no-cache'], timeout=90)
+def test_source_pip():
+	res = run_cli(['--source', 'pip', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
 
 
-def test_include_path():
-	res = run_cli(['--include', 'path', '--no-cache'], timeout=90)
+def test_source_path():
+	res = run_cli(['--source', 'path', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
 
 
-def test_include_registry():
-	res = run_cli(['--include', 'registry', '--no-cache'], timeout=90)
+def test_source_registry():
+	res = run_cli(['--source', 'registry', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
 
 
-def test_include_rust():
-	res = run_cli(['--include', 'rust', '--no-cache'], timeout=90)
+def test_source_rust():
+	res = run_cli(['--source', 'rust', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
 
 
-def test_include_scoop():
-	res = run_cli(['--include', 'scoop', '--no-cache'], timeout=90)
+def test_source_scoop():
+	res = run_cli(['--source', 'scoop', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
 
 
-def test_include_dotnet():
-	res = run_cli(['--include', 'dotnet', '--no-cache'], timeout=90)
+def test_source_dotnet():
+	res = run_cli(['--source', 'dotnet', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
 
 
-def test_include_appx():
-	res = run_cli(['--include', 'appx', '--no-cache'], timeout=90)
+def test_source_appx():
+	res = run_cli(['--source', 'appx', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
 
 
-def test_include_msix():
-	res = run_cli(['--include', 'msix', '--no-cache'], timeout=90)
+def test_source_msix():
+	res = run_cli(['--source', 'msix', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
 
 
 def test_dry_run_flag():
-	res = run_cli(['--dry-run', '--include', 'path'], timeout=90)
+	res = run_cli(['--dry-run', '--source', 'path'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
 
 
 def test_show_all_flag():
-	res = run_cli(['--show-all', '--include', 'path', '--no-cache'], timeout=90)
+	res = run_cli(['--show-all', '--source', 'path', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
 
@@ -126,7 +126,7 @@ def test_export_json():
 	with tempfile.TemporaryDirectory() as tmpdir:
 		output_file = os.path.join(tmpdir, 'export.json')
 		res = run_cli(
-			['--export', 'json', '--output', output_file, '--include', 'path'], timeout=90
+			['--export', 'json', '--output', output_file, '--source', 'path'], timeout=90
 		)
 		assert os.path.exists(output_file) or res['code'] == 0
 
@@ -134,7 +134,7 @@ def test_export_json():
 def test_export_csv():
 	with tempfile.TemporaryDirectory() as tmpdir:
 		output_file = os.path.join(tmpdir, 'export.csv')
-		res = run_cli(['--export', 'csv', '--output', output_file, '--include', 'path'], timeout=90)
+		res = run_cli(['--export', 'csv', '--output', output_file, '--source', 'path'], timeout=90)
 		assert os.path.exists(output_file) or res['code'] == 0
 
 
@@ -145,32 +145,32 @@ def test_clear_cache():
 	assert 'cache' in output.lower() or 'clear' in output.lower()
 
 
-def test_include_unknown_source():
-	res = run_cli(['--include', 'unknown_source_xyz'])
+def test_source_unknown_source():
+	res = run_cli(['--source', 'unknown_source_xyz'])
 	output = res['stdout'] + res['stderr']
 	assert res['code'] != 0 or 'source' in output.lower()
 
 
-def test_include_multiple_sources():
-	res = run_cli(['--include', 'winget,npm', '--no-cache'], timeout=90)
+def test_source_multiple_sources():
+	res = run_cli(['--source', 'winget,npm', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
 
 
 def test_log_flag():
-	res = run_cli(['--log', '--include', 'path', '--no-cache'], timeout=90)
+	res = run_cli(['--log', '--source', 'path', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
 
 
 def test_debug_flag():
-	res = run_cli(['--debug', '--include', 'path', '--no-cache'], timeout=90)
+	res = run_cli(['--debug', '--source', 'path', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'apps' in output.lower() or 'scan' in output.lower()
 
 
 def test_security_scan():
-	res = run_cli(['--include', 'pip', '--no-cache'], timeout=90)
+	res = run_cli(['--source', 'pip', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert (
 		res['code'] == 0
@@ -181,7 +181,7 @@ def test_security_scan():
 
 
 def test_security_osv_source():
-	res = run_cli(['--include', 'pip', '--no-cache'], timeout=90)
+	res = run_cli(['--source', 'pip', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert (
 		res['code'] == 0
@@ -192,7 +192,7 @@ def test_security_osv_source():
 
 
 def test_security_github_advisory():
-	res = run_cli(['--include', 'npm', '--no-cache'], timeout=90)
+	res = run_cli(['--source', 'npm', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert (
 		res['code'] == 0
@@ -211,7 +211,7 @@ def test_security_local_advisory():
 		original_home = os.environ.get('SYSTEM_UPDATE_HOME')
 		try:
 			os.environ['SYSTEM_UPDATE_HOME'] = tmpdir
-			res = run_cli(['--include', 'pip', '--no-cache'], timeout=90)
+			res = run_cli(['--source', 'pip', '--no-cache'], timeout=90)
 			output = res['stdout'] + res['stderr']
 			assert res['code'] == 0 or 'scan' in output.lower()
 		finally:
@@ -220,13 +220,13 @@ def test_security_local_advisory():
 
 
 def test_critical_alert_priority():
-	res = run_cli(['--include', 'pip', '--no-cache'], timeout=90)
+	res = run_cli(['--source', 'pip', '--no-cache'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'CRITICAL' in output or 'critical' in output.lower()
 
 
 def test_security_update_auto_priority():
-	res = run_cli(['--include', 'pip', '--update-all', '--dry-run', '--yes'], timeout=90)
+	res = run_cli(['--source', 'pip', '--update-all', '--dry-run', '--yes'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'vuln' in output.lower() or 'update' in output.lower()
 

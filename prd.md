@@ -552,7 +552,7 @@ Users can configure minimum severity to report:
 1. **Caching**: Skip scan if cache is valid (default 2 hours)
 2. **Timeouts**: Kill long-running commands
 3. **Early exit**: Skip disabled sources
-4. **Filtering**: `--include` limits sources scanned
+4. **Filtering**: `--source` limits sources scanned
 
 ---
 
@@ -628,13 +628,12 @@ python system_update.py [options]
 | `--update-source <source>` | - | String | Update all packages from one source |
 | `--package <name>` | - | String | Update one package by name |
 | `--version <ver>` | - | String | Target version (with --package) |
-| `--source <source>` | - | String | Source filter for --package |
+| `--source <source>` | - | String | Filter sources (comma-separated for multiple) |
 | `--dry-run` | - | Flag | Print planned updates without executing |
 | `--no-cache` | - | Flag | Force fresh scan (skip cache) |
 | `--clear-cache` | - | Flag | Remove cache file and exit |
-| `--export <format>` | - | String | Export scan results (json\|csv) |
+| `--export <format>` | - | String | Export scan results (json|csv) |
 | `--output <file>` | - | String | Output path for export |
-| `--include <sources>` | - | String | Limit scan sources (comma-separated) |
 | `--log` | - | Flag | Enable logging to file |
 | `--debug` | - | Flag | Show all executed commands on screen and in log |
 | `--yes` | `-y` | Flag | Skip confirmation prompts |
@@ -668,21 +667,27 @@ python system_update.py --update-all
 # Update everything (no prompts)
 python system_update.py --update-all --yes
 
+# Update all from specific source
+python system_update.py --update-source rust --yes
+
+# Update all Winget packages (dry-run)
+python system_update.py --update-source winget --dry-run
+
 # Update specific package
 python system_update.py --package git --source chocolatey
 
 # Update all Rust packages only
-python system_update.py --update-source rust --yes
+python system_update.py --source rust --yes
 
 # Update all Winget packages only
-python system_update.py --update-source winget --dry-run
+python system_update.py --source winget --dry-run
 
 # Export results
 python system_update.py --export json --output report.json
 python system_update.py --export csv --output updates.csv
 
 # Scan specific sources only
-python system_update.py --include winget,npm,pip
+python system_update.py --source winget,npm,pip
 
 # Force fresh scan
 python system_update.py --no-cache
@@ -762,7 +767,7 @@ python system_update.py --show-all
 **Goal:** Check only Winget-managed software
 
 **Steps:**
-1. Run `python system_update.py --include winget`
+1. Run `python system_update.py --source winget`
 2. Review Winget-specific results
 
 **Expected Output:** Filtered package list

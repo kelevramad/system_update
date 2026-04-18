@@ -3977,11 +3977,18 @@ class SystemUpdateApp:
 		# Display beautiful banner
 		self.ui.display_banner()
 		self._include_sources = set()
-		if getattr(args, 'include', None):
+
+		# Handle --update-source: filter by source and update all
+		if getattr(args, 'update_source', None):
+			args.source = args.update_source
+			args.update_all = True
+			args.yes = True
+
+		if getattr(args, 'source', None):
 			aliases = {'choco': 'chocolatey'}
 			self._include_sources = {
 				aliases.get(item.strip().lower(), item.strip().lower())
-				for item in args.include.split(',')
+				for item in args.source.split(',')
 				if item.strip()
 			}
 
@@ -4580,17 +4587,17 @@ def main():
 	    --output: Custom output filename for export
 	    --package: Update specific package by name
 	    --version: Target version for package update
-	    --source: Filter by package source (winget, npm, etc.)
 
 	Examples:
 	    python system_update.py                    # Scan and show updates
 	    python system_update.py --update-all      # Update all packages
 	    python system_update.py --dry-run          # Preview updates
 	    python system_update.py --package git     # Update specific package
-	    python system_update.py --source rust      # Filter by source
-	    python system_update.py --export json     # Export results to JSON
-	    python system_update.py --show-all        # Show all packages
-	    python system_update.py --interactive     # Interactive package selection
+  python system_update.py --source rust     # Filter by source
+  python system_update.py --source winget,npm,pip  # Multiple sources
+  python system_update.py --export json     # Export results to JSON
+  python system_update.py --show-all        # Show all packages
+  python system_update.py --interactive     # Interactive package selection
 	"""
 	parser = argparse.ArgumentParser(
 		description='System Update Enhanced v3.1.0 - Elite Package Manager',
@@ -4601,11 +4608,14 @@ Examples:
   python system_update.py --update-all      # Update all packages
   python system_update.py --dry-run          # Preview updates
   python system_update.py --package git     # Update specific package
-  python system_update.py --source rust      # Filter by source
+  python system_update.py --source rust     # Filter by source
+  python system_update.py --source winget,npm,pip  # Multiple sources
+  python system_update.py --update-source rust  # Update all from source
+  python system_update.py --update-source winget --dry-run
   python system_update.py --export json     # Export results to JSON
   python system_update.py --show-all        # Show all packages (including up-to-date)
   python system_update.py --interactive     # Interactive package selection
-        """,
+""",
 	)
 
 	# Main options
@@ -4614,7 +4624,14 @@ Examples:
 	parser.add_argument('--no-cache', action='store_true', help='Force fresh scan (ignore cache)')
 	parser.add_argument('--clear-cache', action='store_true', help='Clear scan cache')
 	parser.add_argument('--yes', action='store_true', help='Skip confirmation prompts')
-	parser.add_argument('--include', help='Comma-separated list of sources to include')
+	parser.add_argument(
+		'--source',
+		help='Package source filter (e.g., winget,npm,pip) or comma-separated for multiple',
+	)
+	parser.add_argument(
+		'--update-source',
+		help='Update all packages from a specific source',
+	)
 	parser.add_argument('--log', action='store_true', help='Enable log file output')
 	parser.add_argument('--debug', action='store_true', help='Enable debug output')
 	parser.add_argument(
@@ -4633,10 +4650,6 @@ Examples:
 	# Package options
 	parser.add_argument('--package', help='Update specific package name')
 	parser.add_argument('--version', help='Target version for package update')
-	parser.add_argument(
-		'--source',
-		help='Package source filter (Winget, Chocolatey, NPM, PNPM, PIP, PATH, Registry)',
-	)
 
 	args = parser.parse_args()
 
