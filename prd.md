@@ -894,6 +894,11 @@ Errors are displayed with appropriate styling:
 | 2.6.0 | April 2026 | Added GitHub Advisory Database API integration, local advisory import support (~/.system_update/advisories.json) |
 | 2.7.0 | April 2026 | Implemented **Security Reporting Features**: CVSS Score Display, persistent Vulnerability History tracking, Security Summary Stats with severity counts, and enhanced CVE details |
 | 2.8.0 | April 2026 | Simplified to **Python-only** implementation - removed Node.js and PowerShell scripts |
+| 3.1.0 | April 2026 | Interactive TUI, fuzzy search, multi-select, --source filter rename |
+| 3.2.0 | April 2026 | Progress enhancements (ETA, speed), detailed scanning status |
+| 3.3.0 | April 2026 | Better Error Handling (classification, suggestions), AppX/MSIX fixes |
+| 3.4.0 | April 2026 | Notification System (Toast, Email, Webhook, Custom scripts) |
+| 3.5.0 | April 2026 | UI Improvements (Themes, Formats, Icons), Column layout adjustments |
 
 ## Appendix B: Glossary
 

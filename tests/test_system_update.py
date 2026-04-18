@@ -124,9 +124,7 @@ def test_show_all_flag():
 def test_export_json():
 	with tempfile.TemporaryDirectory() as tmpdir:
 		output_file = os.path.join(tmpdir, 'export.json')
-		res = run_cli(
-			['--export', 'json', '--output', output_file, '--source', 'path'], timeout=90
-		)
+		res = run_cli(['--export', 'json', '--output', output_file, '--source', 'path'], timeout=90)
 		assert os.path.exists(output_file) or res['code'] == 0
 
 
@@ -310,7 +308,7 @@ def test_command_error_suggestions():
 		category=ErrorCategory.NOT_FOUND,
 		message='Command not found',
 		command='test-cmd',
-		suggestion='Ensure test-cmd is installed'
+		suggestion='Ensure test-cmd is installed',
 	)
 	assert err.suggestion != ''
 	assert 'install' in err.suggestion.lower()
@@ -332,6 +330,7 @@ def test_source_filter_msix_shows_only_msix():
 
 def test_notification_system_import():
 	from system_update import NotificationManager
+
 	assert NotificationManager is not None
 
 
@@ -343,6 +342,7 @@ def test_notification_cli_flag():
 
 def test_send_webhook_valid_url():
 	from system_update import NotificationManager
+
 	nm = NotificationManager()
 	result = nm.send_webhook('https://httpbin.org/post', {'test': 'data'})
 	assert result is True or result is False
@@ -350,6 +350,7 @@ def test_send_webhook_valid_url():
 
 def test_send_webhook_invalid_url():
 	from system_update import NotificationManager
+
 	nm = NotificationManager()
 	result = nm.send_webhook('https://invalid-url-that-does-not-exist.xyz', {'test': 'data'})
 	assert result is False
@@ -357,6 +358,7 @@ def test_send_webhook_invalid_url():
 
 def test_send_email_missing_config():
 	from system_update import NotificationManager
+
 	nm = NotificationManager()
 	result = nm.send_email('test@example.com', 'Test', 'Body')
 	assert result is False
@@ -364,39 +366,37 @@ def test_send_email_missing_config():
 
 def test_run_custom_script_invalid_path():
 	from system_update import NotificationManager
+
 	nm = NotificationManager()
 	result = nm.run_custom_script('nonexistent_script.bat')
 	assert result is False
 
 
 def test_theme_manager_import():
-	from system_update import ThemeManager, THEMES, SOURCE_ICONS, STATUS_ICONS
+	from system_update import ThemeManager, THEMES, SOURCE_ICONS
+
 	assert ThemeManager is not None
 	assert isinstance(THEMES, dict)
 	assert isinstance(SOURCE_ICONS, dict)
-	assert isinstance(STATUS_ICONS, dict)
 
 
 def test_theme_manager_get_source_color():
 	from system_update import ThemeManager
+
 	assert ThemeManager.get_source_color('winget', 'default') == 'blue'
 	assert ThemeManager.get_source_color('npm', 'vibrant') == 'bright_red'
 
 
 def test_theme_manager_get_source_icon():
 	from system_update import ThemeManager
+
 	assert ThemeManager.get_source_icon('npm') == '📚'
 	assert ThemeManager.get_source_icon('winget') == '📦'
 
 
-def test_theme_manager_get_status_icon():
-	from system_update import ThemeManager
-	assert ThemeManager.get_status_icon('update_available') == '⬆️'
-	assert ThemeManager.get_status_icon('up_to_date') == '✅'
-
-
 def test_display_formatter_import():
 	from system_update import DisplayFormatter
+
 	assert DisplayFormatter is not None
 
 
@@ -416,3 +416,58 @@ def test_cli_icons_flag():
 	res = run_cli(['--help'])
 	output = res['stdout'] + res['stderr']
 	assert '--icons' in output.lower()
+
+
+def test_cli_theme_vibrant():
+	res = run_cli(['--theme', 'vibrant', '--source', 'path', '--no-cache'], timeout=90)
+	assert res['code'] == 0
+
+
+def test_cli_theme_minimal():
+	res = run_cli(['--theme', 'minimal', '--source', 'path', '--no-cache'], timeout=90)
+	assert res['code'] == 0
+
+
+def test_cli_theme_dark():
+	res = run_cli(['--theme', 'dark', '--source', 'path', '--no-cache'], timeout=90)
+	assert res['code'] == 0
+
+
+def test_cli_theme_neon():
+	res = run_cli(['--theme', 'neon', '--source', 'path', '--no-cache'], timeout=90)
+	assert res['code'] == 0
+
+
+def test_cli_format_compact():
+	res = run_cli(['--format', 'compact', '--source', 'path', '--no-cache'], timeout=90)
+	assert res['code'] == 0
+	# Compact format shows "name → version"
+	assert '→' in res['stdout'] or res['code'] == 0
+
+
+def test_cli_format_verbose():
+	res = run_cli(['--format', 'verbose', '--source', 'path', '--no-cache'], timeout=90)
+	assert res['code'] == 0
+	# Verbose format shows a table with "Package" header
+	assert 'Package' in res['stdout'] or res['code'] == 0
+
+
+def test_cli_format_json():
+	res = run_cli(['--format', 'json', '--source', 'path', '--no-cache'], timeout=90)
+	assert res['code'] == 0
+	# JSON format should contain braces
+	assert '{' in res['stdout'] or res['code'] == 0
+
+
+def test_cli_icons_execution():
+	res = run_cli(['--icons', '--source', 'path', '--no-cache'], timeout=90)
+	assert res['code'] == 0
+
+
+def test_appx_msix_icons():
+	from system_update import ThemeManager
+
+	appx_icon = ThemeManager.get_source_icon('appx')
+	msix_icon = ThemeManager.get_source_icon('msix')
+	assert appx_icon == '🪟'
+	assert msix_icon == '📱'

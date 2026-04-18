@@ -77,72 +77,75 @@ from enum import Enum  # Enumeration support
 
 
 class ErrorCategory(Enum):
-    """Classification of error types for better error handling."""
-    NOT_FOUND = 'not_found'
-    TIMEOUT = 'timeout'
-    PERMISSION_DENIED = 'permission_denied'
-    NETWORK_ERROR = 'network_error'
-    PARSE_ERROR = 'parse_error'
-    COMMAND_FAILED = 'command_failed'
-    UNKNOWN = 'unknown'
+	"""Classification of error types for better error handling."""
+
+	NOT_FOUND = 'not_found'
+	TIMEOUT = 'timeout'
+	PERMISSION_DENIED = 'permission_denied'
+	NETWORK_ERROR = 'network_error'
+	PARSE_ERROR = 'parse_error'
+	COMMAND_FAILED = 'command_failed'
+	UNKNOWN = 'unknown'
 
 
 class CommandError:
-    """Structured error information with recovery suggestions."""
+	"""Structured error information with recovery suggestions."""
 
-    def __init__(self, category: ErrorCategory, message: str, command: str = '', suggestion: str = ''):
-        self.category = category
-        self.message = message
-        self.command = command
-        self.suggestion = suggestion
+	def __init__(
+		self, category: ErrorCategory, message: str, command: str = '', suggestion: str = ''
+	):
+		self.category = category
+		self.message = message
+		self.command = command
+		self.suggestion = suggestion
 
-    @staticmethod
-    def classify(exception: Exception, command: str = '') -> 'CommandError':
-        """Classify an exception and provide recovery suggestions."""
-        error_type = type(exception).__name__
+	@staticmethod
+	def classify(exception: Exception, command: str = '') -> 'CommandError':
+		"""Classify an exception and provide recovery suggestions."""
+		error_type = type(exception).__name__
 
-        if isinstance(exception, FileNotFoundError):
-            return CommandError(
-                category=ErrorCategory.NOT_FOUND,
-                message=f"Command not found: {command}",
-                command=command,
-                suggestion=f"Ensure {command.split()[0] if command else 'the tool'} is installed and in PATH"
-            )
-        elif isinstance(exception, subprocess.TimeoutExpired):
-            return CommandError(
-                category=ErrorCategory.TIMEOUT,
-                message=f"Command timed out: {command}",
-                command=command,
-                suggestion="Increase timeout or check if the command is hanging"
-            )
-        elif isinstance(exception, PermissionError):
-            return CommandError(
-                category=ErrorCategory.PERMISSION_DENIED,
-                message=f"Permission denied: {command}",
-                command=command,
-                suggestion="Run as administrator or check file permissions"
-            )
-        elif isinstance(exception, (json.JSONDecodeError, ValueError)):
-            return CommandError(
-                category=ErrorCategory.PARSE_ERROR,
-                message=f"Failed to parse output: {error_type}",
-                command=command,
-                suggestion="Check command output format or version compatibility"
-            )
-        elif isinstance(exception, subprocess.CalledProcessError):
-            return CommandError(
-                category=ErrorCategory.COMMAND_FAILED,
-                message=f"Command failed with code {exception.returncode}: {command}",
-                command=command,
-                suggestion="Check command syntax and dependencies"
-            )
-        else:
-            return CommandError(
-                category=ErrorCategory.UNKNOWN,
-                message=f"{error_type}: {str(exception)}",
-                command=command,
-                suggestion="Check logs for details or run with --debug"
-            )
+		if isinstance(exception, FileNotFoundError):
+			return CommandError(
+				category=ErrorCategory.NOT_FOUND,
+				message=f'Command not found: {command}',
+				command=command,
+				suggestion=f'Ensure {command.split()[0] if command else "the tool"} is installed and in PATH',
+			)
+		elif isinstance(exception, subprocess.TimeoutExpired):
+			return CommandError(
+				category=ErrorCategory.TIMEOUT,
+				message=f'Command timed out: {command}',
+				command=command,
+				suggestion='Increase timeout or check if the command is hanging',
+			)
+		elif isinstance(exception, PermissionError):
+			return CommandError(
+				category=ErrorCategory.PERMISSION_DENIED,
+				message=f'Permission denied: {command}',
+				command=command,
+				suggestion='Run as administrator or check file permissions',
+			)
+		elif isinstance(exception, (json.JSONDecodeError, ValueError)):
+			return CommandError(
+				category=ErrorCategory.PARSE_ERROR,
+				message=f'Failed to parse output: {error_type}',
+				command=command,
+				suggestion='Check command output format or version compatibility',
+			)
+		elif isinstance(exception, subprocess.CalledProcessError):
+			return CommandError(
+				category=ErrorCategory.COMMAND_FAILED,
+				message=f'Command failed with code {exception.returncode}: {command}',
+				command=command,
+				suggestion='Check command syntax and dependencies',
+			)
+		else:
+			return CommandError(
+				category=ErrorCategory.UNKNOWN,
+				message=f'{error_type}: {str(exception)}',
+				command=command,
+				suggestion='Check logs for details or run with --debug',
+			)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -151,34 +154,34 @@ class CommandError:
 
 
 class NotificationManager:
-    """Manages system notifications, emails, webhooks, and custom script hooks."""
+	"""Manages system notifications, emails, webhooks, and custom script hooks."""
 
-    def __init__(self, config: 'SystemConfig' = None):
-        self.config = config or SystemConfig()
-        self.settings = self.config.settings.get('notifications', {})
+	def __init__(self, config: 'SystemConfig' = None):
+		self.config = config or SystemConfig()
+		self.settings = self.config.settings.get('notifications', {})
 
-    def send_system_notification(self, title: str, message: str) -> bool:
-        """
-        Send Windows toast notification.
+	def send_system_notification(self, title: str, message: str) -> bool:
+		"""
+		Send Windows toast notification.
 
-        Args:
-            title: Notification title
-            message: Notification message
+		Args:
+		    title: Notification title
+		    message: Notification message
 
-        Returns:
-            bool: True if notification sent successfully
-        """
-        if platform.system() != 'Windows':
-            logger.debug('System notifications only available on Windows')
-            return False
+		Returns:
+		    bool: True if notification sent successfully
+		"""
+		if platform.system() != 'Windows':
+			logger.debug('System notifications only available on Windows')
+			return False
 
-        try:
-            logger.debug(f'Sending Windows notification: {title} - {message}')
+		try:
+			logger.debug(f'Sending Windows notification: {title} - {message}')
 
-            escaped_title = title.replace('"', "'").replace("'", "''")
-            escaped_message = message.replace('"', "'").replace("'", "''").replace('\n', ' ')
+			escaped_title = title.replace('"', "'").replace("'", "''")
+			escaped_message = message.replace('"', "'").replace("'", "''").replace('\n', ' ')
 
-            ps_script = f'''
+			ps_script = f'''
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Windows.Forms
 
@@ -192,215 +195,250 @@ $icon.ShowBalloonTip(15000)
 Start-Sleep -Seconds 3
 $icon.Dispose()
 '''
-            run_command(['powershell', '-NoProfile', '-Command', ps_script], allow_failure=True)
-            logger.debug(f'System notification sent: {title}')
-            return True
-        except Exception as e:
-            logger.debug(f'Failed to send system notification: {e}')
-            return False
+			run_command(['powershell', '-NoProfile', '-Command', ps_script], allow_failure=True)
+			logger.debug(f'System notification sent: {title}')
+			return True
+		except Exception as e:
+			logger.debug(f'Failed to send system notification: {e}')
+			return False
 
-    def send_email(
-        self,
-        to_address: str,
-        subject: str,
-        body: str,
-        smtp_server: str = None,
-        smtp_port: int = 587,
-        username: str = None,
-        password: str = None,
-        use_tls: bool = True,
-    ) -> bool:
-        """
-        Send email notification via SMTP or API.
+	def send_email(
+		self,
+		to_address: str,
+		subject: str,
+		body: str,
+		smtp_server: str = None,
+		smtp_port: int = 587,
+		username: str = None,
+		password: str = None,
+		use_tls: bool = True,
+	) -> bool:
+		"""
+		Send email notification via SMTP or API.
 
-        Args:
-            to_address: Recipient email address
-            subject: Email subject
-            body: Email body
-            smtp_server: SMTP server hostname or API URL
-            smtp_port: SMTP port (default: 587)
-            username: SMTP username or API token
-            password: SMTP password
-            use_tls: Use TLS (default: True)
+		Args:
+		    to_address: Recipient email address
+		    subject: Email subject
+		    body: Email body
+		    smtp_server: SMTP server hostname or API URL
+		    smtp_port: SMTP port (default: 587)
+		    username: SMTP username or API token
+		    password: SMTP password
+		    use_tls: Use TLS (default: True)
 
-        Returns:
-            bool: True if email sent successfully
-        """
-        smtp_server = smtp_server or self.settings.get('smtp_server')
-        smtp_port = smtp_port or self.settings.get('smtp_port', 587)
-        username = username or self.settings.get('smtp_username')
-        password = password or self.settings.get('smtp_password')
+		Returns:
+		    bool: True if email sent successfully
+		"""
+		smtp_server = smtp_server or self.settings.get('smtp_server')
+		smtp_port = smtp_port or self.settings.get('smtp_port', 587)
+		username = username or self.settings.get('smtp_username')
+		password = password or self.settings.get('smtp_password')
 
-        if not smtp_server or not username:
-            logger.debug('SMTP/API configuration not available')
-            return False
+		if not smtp_server or not username:
+			logger.debug('SMTP/API configuration not available')
+			return False
 
-        try:
-            logger.debug(f'Attempting to send email to {to_address}')
-            if 'api' in smtp_server.lower() or '/api/' in smtp_server:
-                import subprocess
+		try:
+			logger.debug(f'Attempting to send email to {to_address}')
+			if 'api' in smtp_server.lower() or '/api/' in smtp_server:
+				import subprocess
 
-                payload = json.dumps({
-                    'from': {'email': 'hello@demomailtrap.co', 'name': 'System Update'},
-                    'to': [{'email': to_address}],
-                    'subject': subject,
-                    'text': body,
-                }).replace('"', '\\"')
+				payload = json.dumps(
+					{
+						'from': {'email': 'hello@demomailtrap.co', 'name': 'System Update'},
+						'to': [{'email': to_address}],
+						'subject': subject,
+						'text': body,
+					}
+				).replace('"', '\\"')
 
-                curl_cmd = [
-                    'curl', '-s', '-X', 'POST', smtp_server,
-                    '-H', f'Authorization: Bearer {username}',
-                    '-H', 'Content-Type: application/json',
-                    '-d', payload
-                ]
+				curl_cmd = [
+					'curl',
+					'-s',
+					'-X',
+					'POST',
+					smtp_server,
+					'-H',
+					f'Authorization: Bearer {username}',
+					'-H',
+					'Content-Type: application/json',
+					'-d',
+					payload,
+				]
 
-                result = subprocess.run(
-                    curl_cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
+				result = subprocess.run(
+					curl_cmd,
+					capture_output=True,
+					text=True,
+					timeout=30,
+				)
 
-                if result.returncode == 0 and 'success' in result.stdout:
-                    logger.debug(f'Email API sent to {to_address}')
-                    return True
-                else:
-                    logger.debug(f'Email API failed: {result.stderr or result.stdout}')
-                    return False
-            else:
-                import smtplib
-                from email.mime.text import MIMEText
-                from email.mime.multipart import MIMEMultipart
+				if result.returncode == 0 and 'success' in result.stdout:
+					logger.debug(f'Email API sent to {to_address}')
+					return True
+				else:
+					logger.debug(f'Email API failed: {result.stderr or result.stdout}')
+					return False
+			else:
+				import smtplib
+				from email.mime.text import MIMEText
+				from email.mime.multipart import MIMEMultipart
 
-                msg = MIMEMultipart()
-                msg['From'] = username
-                msg['To'] = to_address
-                msg['Subject'] = subject
-                msg.attach(MIMEText(body, 'plain'))
+				msg = MIMEMultipart()
+				msg['From'] = username
+				msg['To'] = to_address
+				msg['Subject'] = subject
+				msg.attach(MIMEText(body, 'plain'))
 
-                server = smtplib.SMTP(smtp_server, smtp_port)
-                if use_tls:
-                    server.starttls()
-                server.login(username, password)
-                server.send_message(msg)
-                server.quit()
+				server = smtplib.SMTP(smtp_server, smtp_port)
+				if use_tls:
+					server.starttls()
+				server.login(username, password)
+				server.send_message(msg)
+				server.quit()
 
-                logger.debug(f'Email SMTP sent to {to_address}: {subject}')
-                return True
-        except Exception as e:
-            logger.debug(f'Failed to send email: {type(e).__name__}: {e}')
-            return False
+				logger.debug(f'Email SMTP sent to {to_address}: {subject}')
+				return True
+		except Exception as e:
+			logger.debug(f'Failed to send email: {type(e).__name__}: {e}')
+			return False
 
-    def send_webhook(self, url: str, payload: dict, method: str = 'POST', headers: dict = None) -> bool:
-        """
-        Send webhook notification via HTTP POST.
+	def send_webhook(
+		self, url: str, payload: dict, method: str = 'POST', headers: dict = None
+	) -> bool:
+		"""
+		Send webhook notification via HTTP POST.
 
-        Args:
-            url: Webhook URL
-            payload: JSON payload to send
-            method: HTTP method (default: POST)
-            headers: Additional HTTP headers
+		Args:
+		    url: Webhook URL
+		    payload: JSON payload to send
+		    method: HTTP method (default: POST)
+		    headers: Additional HTTP headers
 
-        Returns:
-            bool: True if webhook sent successfully
-        """
-        headers = headers or self.settings.get('webhook_headers', {})
-        headers.setdefault('Content-Type', 'application/json')
+		Returns:
+		    bool: True if webhook sent successfully
+		"""
+		headers = headers or self.settings.get('webhook_headers', {})
+		headers.setdefault('Content-Type', 'application/json')
 
-        try:
-            import urllib.request
-            import urllib.parse
+		try:
+			import urllib.request
+			import urllib.parse
 
-            data = json.dumps(payload).encode('utf-8')
-            req = urllib.request.Request(url, data=data, method=method, headers=headers)
+			data = json.dumps(payload).encode('utf-8')
+			req = urllib.request.Request(url, data=data, method=method, headers=headers)
 
-            with urllib.request.urlopen(req, timeout=10) as response:
-                logger.debug(f'Webhook sent to {url}: {response.status}')
-                return True
-        except Exception as e:
-            logger.debug(f'Failed to send webhook: {e}')
-            return False
+			with urllib.request.urlopen(req, timeout=10) as response:
+				logger.debug(f'Webhook sent to {url}: {response.status}')
+				return True
+		except Exception as e:
+			logger.debug(f'Failed to send webhook: {e}')
+			return False
 
-    def run_custom_script(self, script_path: str, env_vars: dict = None) -> bool:
-        """
-        Execute custom script hook.
+	def run_custom_script(self, script_path: str, env_vars: dict = None) -> bool:
+		"""
+		Execute custom script hook.
 
-        Args:
-            script_path: Path to script file
-            env_vars: Environment variables to pass to script
+		Args:
+		    script_path: Path to script file
+		    env_vars: Environment variables to pass to script
 
-        Returns:
-            bool: True if script executed successfully
-        """
-        if not os.path.exists(script_path):
-            logger.debug(f'Custom script not found: {script_path}')
-            return False
+		Returns:
+		    bool: True if script executed successfully
+		"""
+		if not os.path.exists(script_path):
+			logger.debug(f'Custom script not found: {script_path}')
+			return False
 
-        env = os.environ.copy()
-        if env_vars:
-            env.update(env_vars)
+		env = os.environ.copy()
+		if env_vars:
+			env.update(env_vars)
 
-        try:
-            result = subprocess.run(
-                [script_path],
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                shell=True,
-            )
-            logger.debug(f'Custom script executed: {script_path}, exit code: {result.returncode}')
-            return result.returncode == 0
-        except Exception as e:
-            logger.debug(f'Failed to run custom script: {e}')
-            return False
+		try:
+			result = subprocess.run(
+				[script_path],
+				env=env,
+				capture_output=True,
+				text=True,
+				timeout=30,
+				shell=True,
+			)
+			logger.debug(f'Custom script executed: {script_path}, exit code: {result.returncode}')
+			return result.returncode == 0
+		except Exception as e:
+			logger.debug(f'Failed to run custom script: {e}')
+			return False
 
-    def notify_updates_available(self, updates_count: int, vulnerable_count: int = 0, force: bool = False):
-        """Send notifications for available updates."""
-        if updates_count == 0:
-            return
+	def notify_updates_available(
+		self, updates_count: int, vulnerable_count: int = 0, force: bool = False
+	):
+		"""Send notifications for available updates."""
+		if updates_count == 0:
+			return
 
-        title = '🚀 System Update'
-        if vulnerable_count > 0:
-            message = f'🔔 {updates_count} updates\n🔥 {vulnerable_count} security vulnerabilities!'
-        else:
-            message = f'✅ {updates_count} updates available'
+		title = '🚀 System Update'
+		if vulnerable_count > 0:
+			message = f'🔔 {updates_count} updates\n🔥 {vulnerable_count} security vulnerabilities!'
+		else:
+			message = f'✅ {updates_count} updates available'
 
-        # Force overrides all config checks
-        if force:
-            self.send_system_notification(title, message)
-            if self.settings.get('email_enabled'):
-                self.send_email(self.settings.get('email_to'), title, message)
-            if self.settings.get('webhook_enabled'):
-                self.send_webhook(self.settings.get('webhook_url'), {'title': title, 'message': message})
-            if self.settings.get('custom_script_enabled'):
-                self.run_custom_script(self.settings.get('custom_script_path'), {'UPDATES': str(updates_count)})
-        elif self.settings.get('notify_on_updates', True):
-            if self.settings.get('system_notifications'):
-                self.send_system_notification(title, message)
-            if self.settings.get('email_enabled'):
-                self.send_email(self.settings.get('email_to'), title, message)
-            if self.settings.get('webhook_enabled'):
-                self.send_webhook(self.settings.get('webhook_url'), {'title': title, 'message': message})
-            if self.settings.get('custom_script_enabled'):
-                self.run_custom_script(self.settings.get('custom_script_path'), {'UPDATES': str(updates_count)})
+		# Force overrides all config checks
+		if force:
+			self.send_system_notification(title, message)
+			if self.settings.get('email_enabled'):
+				self.send_email(self.settings.get('email_to'), title, message)
+			if self.settings.get('webhook_enabled'):
+				self.send_webhook(
+					self.settings.get('webhook_url'), {'title': title, 'message': message}
+				)
+			if self.settings.get('custom_script_enabled'):
+				self.run_custom_script(
+					self.settings.get('custom_script_path'), {'UPDATES': str(updates_count)}
+				)
+		elif self.settings.get('notify_on_updates', True):
+			if self.settings.get('system_notifications'):
+				self.send_system_notification(title, message)
+			if self.settings.get('email_enabled'):
+				self.send_email(self.settings.get('email_to'), title, message)
+			if self.settings.get('webhook_enabled'):
+				self.send_webhook(
+					self.settings.get('webhook_url'), {'title': title, 'message': message}
+				)
+			if self.settings.get('custom_script_enabled'):
+				self.run_custom_script(
+					self.settings.get('custom_script_path'), {'UPDATES': str(updates_count)}
+				)
 
-    def notify_scan_complete(self, total_apps: int, scan_time: float, force: bool = False):
-        """Send notifications when scan completes."""
-        title = '🚀 System Update'
-        message = f'📦 Scanned {total_apps} apps in {scan_time:.1f}s'
+	def notify_scan_complete(self, total_apps: int, scan_time: float, force: bool = False):
+		"""Send notifications when scan completes."""
+		title = '🚀 System Update'
+		message = f'📦 Scanned {total_apps} apps in {scan_time:.1f}s'
 
-        if force or (self.settings.get('notify_on_scan_complete', False) and self.settings.get('system_notifications', False)):
-            self.send_system_notification(title, message)
+		if force or (
+			self.settings.get('notify_on_scan_complete', False)
+			and self.settings.get('system_notifications', False)
+		):
+			self.send_system_notification(title, message)
 
-        if force or (self.settings.get('notify_on_scan_complete', False) and self.settings.get('email_enabled', False)):
-            self.send_email(self.settings.get('email_to'), title, message)
+		if force or (
+			self.settings.get('notify_on_scan_complete', False)
+			and self.settings.get('email_enabled', False)
+		):
+			self.send_email(self.settings.get('email_to'), title, message)
 
-        if force or (self.settings.get('notify_on_scan_complete', False) and self.settings.get('webhook_enabled', False)):
-            self.send_webhook(
-                self.settings.get('webhook_url'),
-                {'title': title, 'message': message, 'total_apps': total_apps, 'scan_time': scan_time},
-            )
+		if force or (
+			self.settings.get('notify_on_scan_complete', False)
+			and self.settings.get('webhook_enabled', False)
+		):
+			self.send_webhook(
+				self.settings.get('webhook_url'),
+				{
+					'title': title,
+					'message': message,
+					'total_apps': total_apps,
+					'scan_time': scan_time,
+				},
+			)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -769,12 +807,12 @@ class SystemConfig:
 				'notify_on_scan_complete': False,
 				'system_notifications': False,
 				'email_enabled': False,
-'email_to': '',
-			'smtp_server': '',
-			'smtp_port': 587,
-			'smtp_username': '',
-			'smtp_password': '',
-			'webhook_enabled': False,
+				'email_to': '',
+				'smtp_server': '',
+				'smtp_port': 587,
+				'smtp_username': '',
+				'smtp_password': '',
+				'webhook_enabled': False,
 				'webhook_url': '',
 				'webhook_headers': {},
 				'custom_script_enabled': False,
@@ -849,46 +887,49 @@ config = SystemConfig()
 
 
 class WarningFileHandler(logging.FileHandler):
-    """File handler that only records WARNING and above."""
-    def __init__(self, filename, mode='a', encoding='utf-8', delay=False):
-        super().__init__(filename, mode, encoding, delay)
-        self.setLevel(logging.WARNING)
+	"""File handler that only records WARNING and above."""
+
+	def __init__(self, filename, mode='a', encoding='utf-8', delay=False):
+		super().__init__(filename, mode, encoding, delay)
+		self.setLevel(logging.WARNING)
 
 
 def setup_logging(debug: bool = False, enable_log: bool = False):
-    """Configure logging based on command-line flags."""
-    root_logger = logging.getLogger()
+	"""Configure logging based on command-line flags."""
+	root_logger = logging.getLogger()
 
-    # Remove existing handlers
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
+	# Remove existing handlers
+	for handler in root_logger.handlers[:]:
+		root_logger.removeHandler(handler)
 
-    # Determine log level
-    if debug:
-        level = logging.DEBUG
-    elif enable_log:
-        level = logging.INFO
-    else:
-        level = logging.WARNING
+	# Determine log level
+	if debug:
+		level = logging.DEBUG
+	elif enable_log:
+		level = logging.INFO
+	else:
+		level = logging.WARNING
 
-    # Always add file handler for logging
-    file_handler = logging.FileHandler(config.log_file, encoding='utf-8')
-    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-    file_handler.setLevel(logging.DEBUG)  # Capture all levels to file
-    root_logger.addHandler(file_handler)
+	# Always add file handler for logging
+	file_handler = logging.FileHandler(config.log_file, encoding='utf-8')
+	file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+	file_handler.setLevel(logging.DEBUG)  # Capture all levels to file
+	root_logger.addHandler(file_handler)
 
-    # Console handler: show on console for --debug
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
-    console_handler.setLevel(level)
-    console_handler.stream.reconfigure(encoding='utf-8', errors='replace')
-    root_logger.addHandler(console_handler)
+	# Console handler: show on console for --debug
+	console_handler = logging.StreamHandler(sys.stdout)
+	console_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+	console_handler.setLevel(level)
+	console_handler.stream.reconfigure(encoding='utf-8', errors='replace')
+	root_logger.addHandler(console_handler)
 
-    # Error handler for separate error log
-    error_handler = WarningFileHandler(config.config_dir / 'errors.log')
-    root_logger.addHandler(error_handler)
+	# Error handler for separate error log
+	error_handler = WarningFileHandler(config.config_dir / 'errors.log')
+	root_logger.addHandler(error_handler)
 
-    root_logger.setLevel(logging.DEBUG)  # Set to DEBUG to allow all through, handlers filter themselves
+	root_logger.setLevel(
+		logging.DEBUG
+	)  # Set to DEBUG to allow all through, handlers filter themselves
 
 
 setup_logging()
@@ -1351,14 +1392,18 @@ def run_command(
 		stderr_len = len(result.stderr) if result.stderr else 0
 
 		if stdout_len > 0:
-			stdout_trunc = result.stdout[:300] + '...[truncated]' if stdout_len > 300 else result.stdout
+			stdout_trunc = (
+				result.stdout[:300] + '...[truncated]' if stdout_len > 300 else result.stdout
+			)
 			logger.debug(f'[EXEC] stdout ({stdout_len} chars): {stdout_trunc}')
 		else:
 			logger.debug('[EXEC] stdout (empty)')
 
 		# Log stderr if present
 		if stderr_len > 0:
-			stderr_trunc = result.stderr[:300] + '...[truncated]' if stderr_len > 300 else result.stderr
+			stderr_trunc = (
+				result.stderr[:300] + '...[truncated]' if stderr_len > 300 else result.stderr
+			)
 			logger.debug(f'[EXEC] stderr ({stderr_len} chars): {stderr_trunc}')
 
 		if result.returncode != 0 and not allow_failure:
@@ -1400,7 +1445,9 @@ def run_command(
 	except Exception as exc:
 		cmd_str = ' '.join(cmd)
 		error = CommandError.classify(exc, cmd_str)
-		logger.warning(f'[EXEC] Error: {error.category.value}: {error.message} - {error.suggestion}')
+		logger.warning(
+			f'[EXEC] Error: {error.category.value}: {error.message} - {error.suggestion}'
+		)
 		logger.debug(f'[EXEC] Exception details: {exc}')
 		return None
 
@@ -1468,13 +1515,13 @@ THEMES = {
 			'chocolatey': 'yellow',
 			'npm': 'red',
 			'pnpm': 'color(206)',
-			'pip': 'cyan',
+			'pip': 'magenta',
 			'bun': 'bright_blue',
 			'yarn': 'bright_white',
 			'rust': 'color(129)',
 			'path': 'green',
 			'registry': 'grey37',
-			'scoop': 'bright_yellow',
+			'scoop': 'yellow',
 			'dotnet': 'gold',
 		},
 		'status_colors': {
@@ -1487,6 +1534,8 @@ THEMES = {
 		},
 		'header_style': 'bold cyan',
 		'border_style': 'dim white',
+		'box': box.SIMPLE,
+		'show_lines': False,
 	},
 	'vibrant': {
 		'name': 'Vibrant',
@@ -1514,22 +1563,24 @@ THEMES = {
 		},
 		'header_style': 'bold bright_cyan',
 		'border_style': 'cyan',
+		'box': box.ROUNDED,
+		'show_lines': True,
 	},
 	'minimal': {
 		'name': 'Minimal',
 		'source_colors': {
-			'winget': 'white',
-			'chocolatey': 'white',
-			'npm': 'white',
-			'pnpm': 'white',
-			'pip': 'white',
-			'bun': 'white',
-			'yarn': 'white',
-			'rust': 'white',
-			'path': 'white',
-			'registry': 'grey',
-			'scoop': 'white',
-			'dotnet': 'white',
+			'winget': 'dim cyan',
+			'chocolatey': 'dim yellow',
+			'npm': 'dim red',
+			'pnpm': 'dim magenta',
+			'pip': 'dim green',
+			'bun': 'dim blue',
+			'yarn': 'dim white',
+			'rust': 'dim color(207)',
+			'path': 'dim green',
+			'registry': 'dim grey',
+			'scoop': 'dim yellow',
+			'dotnet': 'dim gold',
 		},
 		'status_colors': {
 			'up_to_date': 'green',
@@ -1541,6 +1592,8 @@ THEMES = {
 		},
 		'header_style': 'bold white',
 		'border_style': 'white',
+		'box': box.SIMPLE_HEAD,
+		'show_lines': False,
 	},
 	'dark': {
 		'name': 'Dark',
@@ -1568,6 +1621,8 @@ THEMES = {
 		},
 		'header_style': 'bold cyan',
 		'border_style': 'dim cyan',
+		'box': box.HEAVY,
+		'show_lines': True,
 	},
 	'neon': {
 		'name': 'Neon',
@@ -1595,6 +1650,8 @@ THEMES = {
 		},
 		'header_style': 'bold color(75)',
 		'border_style': 'color(75)',
+		'box': box.DOUBLE,
+		'show_lines': True,
 	},
 }
 
@@ -1612,16 +1669,8 @@ SOURCE_ICONS = {
 	'registry': '🖥️',
 	'scoop': '🥄',
 	'dotnet': '🔷',
-}
-
-
-STATUS_ICONS = {
-	'up_to_date': '✅',
-	'update_available': '⬆️',
-	'error': '❌',
-	'vulnerable': '⚠️',
-	'security_update': '🔒',
-	'unknown': '❓',
+	'appx': '🪟',
+	'msix': '📱',
 }
 
 
@@ -1652,17 +1701,18 @@ class ThemeManager:
 		"""Get icon for a source."""
 		return SOURCE_ICONS.get(source.lower(), '')
 
-	@staticmethod
-	def get_status_icon(status: str) -> str:
-		"""Get icon for a status."""
-		return STATUS_ICONS.get(status.lower().replace(' ', '_'), '')
-
 
 class DisplayFormatter:
 	"""Handles different display formats (compact, verbose, JSON, auto)."""
 
 	@staticmethod
-	def format_table(apps: List[AppInfo], format_mode: str = 'auto', theme: str = 'default', use_icons: bool = False) -> Table:
+	def format_table(
+		apps: List[AppInfo],
+		format_mode: str = 'auto',
+		theme: str = 'default',
+		use_icons: bool = False,
+		show_all: bool = False,
+	) -> Table:
 		"""Format apps table based on display mode."""
 		if format_mode == 'compact':
 			return DisplayFormatter._compact_table(apps, theme, use_icons)
@@ -1671,7 +1721,7 @@ class DisplayFormatter:
 		elif format_mode == 'json':
 			return DisplayFormatter._json_table(apps)
 		else:
-			return DisplayFormatter._auto_table(apps, theme, use_icons)
+			return DisplayFormatter._auto_table(apps, theme, use_icons, show_all)
 
 	@staticmethod
 	def _compact_table(apps: List[AppInfo], theme: str, use_icons: bool) -> Table:
@@ -1689,7 +1739,17 @@ class DisplayFormatter:
 	def _verbose_table(apps: List[AppInfo], theme: str, use_icons: bool) -> Table:
 		"""Create verbose table with all details."""
 		theme_data = ThemeManager.get_theme(theme)
-		table = Table(box=box.ROUNDED, show_header=True, header_style=theme_data['header_style'], pad_edge=False)
+		# Verbose mode should always be more "framed" than auto mode
+		default_box = box.ROUNDED if theme == 'default' else theme_data.get('box', box.ROUNDED)
+
+		table = Table(
+			box=default_box,
+			show_header=True,
+			show_lines=True,
+			header_style=theme_data['header_style'],
+			border_style=theme_data['border_style'],
+			pad_edge=False,
+		)
 		table.add_column('Package', style='bold white', width=25)
 		table.add_column('Source', width=10)
 		table.add_column('Version', width=15)
@@ -1699,35 +1759,33 @@ class DisplayFormatter:
 			icon = ThemeManager.get_source_icon(app.source) + ' ' if use_icons else ''
 			src_color = ThemeManager.get_source_color(app.source, theme)
 			status_color = ThemeManager.get_status_color(app.update_status.name, theme)
-			s_icon = ThemeManager.get_status_icon(app.update_status.name) if use_icons else ''
 			table.add_row(
 				app.name[:25],
 				f'[{src_color}]{icon}{app.source}[/{src_color}]',
 				app.version,
 				app.latest_version or '-',
-				f'[{status_color}]{s_icon} {app.status_display}[/{status_color}]',
+				f'[{status_color}]{app.status_display}[/{status_color}]',
 			)
 		return table
 
 	@staticmethod
-	def _auto_table(apps: List[AppInfo], theme: str, use_icons: bool) -> Table:
-		"""Create default table (uses UISystem.create_applications_table)."""
+	def _auto_table(
+		apps: List[AppInfo], theme: str, use_icons: bool, show_all: bool = False
+	) -> Table:
+		"""Create default table (uses UISystem.create_apps_table)."""
 		from copy import deepcopy
+
 		apps_copy = deepcopy(apps)
-		table = UISystem.create_applications_table(apps_copy, show_all=True)
-		if use_icons and theme:
-			for row in table.rows:
-				if row[1].style:
-					src = row[1].plain
-					icon = SOURCE_ICONS.get(src.lower(), '')
-					if icon:
-						row[1].plain = f'{icon} {src}'
+		table = UISystem.create_apps_table(
+			apps_copy, show_all=show_all, theme=theme, use_icons=use_icons
+		)
 		return table
 
 	@staticmethod
 	def _json_table(apps: List[AppInfo]) -> Table:
 		"""Create table showing JSON output."""
 		import json
+
 		table = Table(box=box.SIMPLE, show_header=False, pad_edge=False)
 		table.add_column('JSON', width=80)
 		json_data = [
@@ -1799,7 +1857,9 @@ class UISystem:
 		console.print(f'  [dim white]config.json → {config.config_file}[/dim white]')
 		console.print(f'  [dim white]errors.log → {config.config_dir / "errors.log"}[/dim white]')
 		console.print(f'  [dim white]system.log → {config.log_file}[/dim white]')
-		console.print(f'  [dim white]vulnerability_history.json → {config.config_dir / "vulnerability_history.json"}[/dim white]')
+		console.print(
+			f'  [dim white]vulnerability_history.json → {config.config_dir / "vulnerability_history.json"}[/dim white]'
+		)
 		console.print()
 
 	@staticmethod
@@ -1850,6 +1910,8 @@ class UISystem:
 		apps: List[AppInfo],
 		title: str = 'Installed Applications',
 		show_all: bool = False,
+		theme: str = 'default',
+		use_icons: bool = False,
 	) -> Table:
 		"""
 		Create applications table matching JS version.
@@ -1862,6 +1924,8 @@ class UISystem:
 		    apps: List of AppInfo objects to display.
 		    title: Table title string (default: "Installed Applications").
 		    show_all: If True, show all packages; if False, show only updates/vulnerable.
+		    theme: Theme name for color styling (default, vibrant, minimal, dark, neon).
+		    use_icons: If True, show source and status icons.
 
 		Returns:
 		    Table: Configured Rich Table object ready for display.
@@ -1872,6 +1936,7 @@ class UISystem:
 		    - Status column uses emoji and color coding
 		    - Latest version shows "-" for up-to-date packages
 		"""
+
 		# Filter apps: by default show only updates/vulnerable, unless show_all is True
 		if not show_all:
 			display_apps = [
@@ -1882,46 +1947,34 @@ class UISystem:
 		else:
 			display_apps = apps
 
+		# Get theme configuration
+		theme_data = ThemeManager.get_theme(theme)
+
 		table = Table(
-			box=box.SIMPLE,
+			box=theme_data.get('box', box.SIMPLE),
 			show_header=True,
-			header_style='bold cyan',
-			border_style='dim white',
+			show_lines=theme_data.get('show_lines', False),
+			header_style=theme_data['header_style'],
+			border_style=theme_data['border_style'],
 			pad_edge=False,
 		)
 
 		table.add_column('Package', style='bold white', width=30, justify='left')
-		table.add_column('Source', width=12, justify='left')
+		table.add_column('Source', width=16, justify='left')
 		table.add_column('Current', width=20, style='white', justify='left')
 		table.add_column('Latest', width=20, justify='left')
 		table.add_column('Status', width=17, justify='left')
 
 		for app in sorted(display_apps, key=lambda x: (x.source, x.name)):
-			# Source-based coloring (Rich styles)
-			src_styles = {
-				'winget': 'blue',
-				'chocolatey': 'yellow',
-				'npm': 'red',
-				'pnpm': 'color(206)',
-				'pip': 'magenta',
-				'bun': 'bright_blue',
-				'yarn': 'bright_white',
-				'rust': 'color(129)',
-				'path': 'green',
-				'registry': 'grey37',
-			}
-			source_lower = app.source.lower()
-			source_style = src_styles.get(source_lower, 'bright_white')
-			# Status-based coloring
-			status_styles = {
-				UpdateStatus.UP_TO_DATE: 'green',
-				UpdateStatus.UPDATE_AVAILABLE: 'bold yellow',
-				UpdateStatus.ERROR: 'bold red',
-				UpdateStatus.VULNERABLE: 'bold red',
-				UpdateStatus.SECURITY_UPDATE_AVAILABLE: 'bold magenta',
-				UpdateStatus.UNKNOWN: 'dim white',
-			}
-			status_style = status_styles.get(app.update_status, 'white')
+			# Get theme-based source color
+			src_color = ThemeManager.get_source_color(app.source, theme)
+
+			# Get source icon if enabled (status icons already in status_display)
+			src_icon = ThemeManager.get_source_icon(app.source) + ' ' if use_icons else ''
+
+			# Get theme-based status color (status_display already has icons)
+			status_key = app.update_status.name.lower().replace('_', '_')
+			status_color = ThemeManager.get_status_color(status_key, theme)
 
 			# Latest version column: yellow bold when update available (matching JS)
 			# Show "-" when up-to-date (no update needed)
@@ -1934,10 +1987,10 @@ class UISystem:
 
 			table.add_row(
 				app.name[:30],
-				Text(app.source, style=source_style),
+				f'[{src_color}]{src_icon}{app.source}[/{src_color}]',
 				app.version,
 				latest_text,
-				f'[{status_style}]{app.status_display}[/{status_style}]',
+				f'[{status_color}]{app.status_display}[/{status_color}]',
 			)
 
 		return table
@@ -4714,13 +4767,15 @@ class SystemUpdateApp:
 		)
 
 		# Apply UI customizations
-		ui_theme = getattr(args, 'theme', None)
+		ui_theme = getattr(args, 'theme', None) or config.settings['ui'].get('theme', 'default')
 		if ui_theme:
 			self.settings['ui']['theme'] = ui_theme
-		display_format = getattr(args, 'format', None)
+		display_format = getattr(args, 'format', None) or config.settings['ui'].get(
+			'display_format', 'auto'
+		)
 		if display_format:
 			self.settings['ui']['display_format'] = display_format
-		use_icons = getattr(args, 'icons', False)
+		use_icons = getattr(args, 'icons', False) or config.settings['ui'].get('use_icons', False)
 		if use_icons:
 			self.settings['ui']['use_icons'] = True
 
@@ -4928,14 +4983,18 @@ class SystemUpdateApp:
 			self._handle_single_update(apps, args)
 			return
 
-# Display results
+		# Display results
 		updates = [a for a in apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE]
 		vulnerable = [a for a in apps if a.update_status == UpdateStatus.VULNERABLE]
 
 		# Show applications table
 		console.print()
-		apps_table = self.ui.create_apps_table(
-			apps, '📦 All Installed Applications', show_all=args.show_all
+		display_format = self.settings['ui'].get('display_format', 'auto')
+		theme = self.settings['ui'].get('theme', 'default')
+		use_icons = self.settings['ui'].get('use_icons', False)
+
+		apps_table = DisplayFormatter.format_table(
+			apps, display_format, theme, use_icons, show_all=args.show_all
 		)
 		console.print(apps_table)
 
@@ -5122,9 +5181,7 @@ class SystemUpdateApp:
 		if os.path.isfile(local_advisory_file):
 			local_advisories = self.load_local_advisories(local_advisory_file)
 		if local_advisories:
-			local_apps = [
-				app for app in apps if app.source.lower() not in unique_apps_by_source
-			]
+			local_apps = [app for app in apps if app.source.lower() not in unique_apps_by_source]
 			if local_apps:
 				active_security.insert(0, ('local', local_apps))
 
@@ -5342,35 +5399,35 @@ class SystemUpdateApp:
 
 def main():
 	"""
-	Application entry point.
+	      Application entry point.
 
-	Sets up command-line argument parsing and launches the SystemUpdateApp.
-	Defines all available command-line options and their descriptions.
+	      Sets up command-line argument parsing and launches the SystemUpdateApp.
+	      Defines all available command-line options and their descriptions.
 
-	Command-Line Options:
-	    --update-all: Update all available packages (with confirmation)
-	    --dry-run: Preview updates without executing them
-	    --no-cache: Force fresh scan, ignore cached results
-	    --clear-cache: Clear the scan cache and exit
-	    --show-all: Show all packages including up-to-date ones
-	    --export: Export results in specified format (json/csv)
-	    --output: Custom output filename for export
-	    --package: Update specific package by name
-	    --version: Target version for package update
+	      Command-Line Options:
+	   --update-all: Update all available packages (with confirmation)
+	   --dry-run: Preview updates without executing them
+	   --no-cache: Force fresh scan, ignore cached results
+	   --clear-cache: Clear the scan cache and exit
+	   --show-all: Show all packages including up-to-date ones
+	   --export: Export results in specified format (json/csv)
+	   --output: Custom output filename for export
+	   --package: Update specific package by name
+	   --version: Target version for package update
 
-	Examples:
-	    python system_update.py                    # Scan and show updates
-	    python system_update.py --update-all      # Update all packages
-	    python system_update.py --dry-run          # Preview updates
-	    python system_update.py --package git     # Update specific package
-  python system_update.py --source rust     # Filter by source
-  python system_update.py --source winget,npm,pip  # Multiple sources
-  python system_update.py --export json     # Export results to JSON
-  python system_update.py --show-all        # Show all packages
-  python system_update.py --interactive     # Interactive package selection
+	      Examples:
+	   python system_update.py                    # Scan and show updates
+	   python system_update.py --update-all      # Update all packages
+	   python system_update.py --dry-run          # Preview updates
+	   python system_update.py --package git     # Update specific package
+	python system_update.py --source rust     # Filter by source
+	python system_update.py --source winget,npm,pip  # Multiple sources
+	python system_update.py --export json     # Export results to JSON
+	python system_update.py --show-all        # Show all packages
+	python system_update.py --interactive     # Interactive package selection
 	"""
 	parser = argparse.ArgumentParser(
-		description='System Update Enhanced v3.2.1 - Elite Package Manager',
+		description='System Update Enhanced v3.5.0 - Elite Package Manager',
 		formatter_class=argparse.RawDescriptionHelpFormatter,
 		epilog="""
 Examples:
@@ -5404,9 +5461,13 @@ Examples:
 	)
 	parser.add_argument('--log', action='store_true', help='Enable log file output')
 	parser.add_argument('--debug', action='store_true', help='Enable debug output')
-	parser.add_argument('--notify', action='store_true', help='Send notification when updates available')
+	parser.add_argument(
+		'--notify', action='store_true', help='Send notification when updates available'
+	)
 	parser.add_argument('--theme', help='UI theme (default, vibrant, minimal, dark, neon)')
-	parser.add_argument('--format', choices=['auto', 'compact', 'verbose', 'json'], help='Display format')
+	parser.add_argument(
+		'--format', choices=['auto', 'compact', 'verbose', 'json'], help='Display format'
+	)
 	parser.add_argument('--icons', action='store_true', help='Enable source/status icons')
 	parser.add_argument(
 		'--interactive', action='store_true', help='Launch interactive TUI for package selection'
