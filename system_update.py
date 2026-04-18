@@ -3,7 +3,7 @@
 ===============================================================================
                           SYSTEM UPDATE ENHANCED
 ===============================================================================
- Version: 2.10.0
+ Version: 3.1.0
 Author: Gemini (Redesigned)
 
 A sophisticated system update tool with enhanced UI architecture and modular design.
@@ -1059,7 +1059,7 @@ class UISystem:
 			return ch * width
 
 		w = 68
-		title = f'🚀 System Update Python v2.10.0'
+		title = f'🚀 System Update Python v3.1.0'
 		sub = f'⚙️ Data dir: {config.config_dir}'
 
 		console.print(f'[cyan]┌{hr("─", 70)}┐[/cyan]')
@@ -4318,6 +4318,72 @@ class SystemUpdateApp:
 		apps = self.scan_system(args.source)
 		total_updates = self.checker.check_all_updates(apps)
 
+		# --- PHASE 3: SECURITY CHECK for interactive mode ---
+		console.print('[bold magenta]🔒 Checking security vulnerabilities...[/bold magenta]')
+
+		# Group apps by source for security check
+		unique_apps_by_source = {}
+		for app in apps:
+			src = app.source.lower()
+			if src not in unique_apps_by_source:
+				unique_apps_by_source[src] = []
+			unique_apps_by_source[src].append(app)
+
+		security_sources = ['npm', 'pip', 'osv', 'github']
+		active_security = [
+			(name, apps_list)
+			for name, apps_list in (
+				(name, unique_apps_by_source.get(name, [])) for name in security_sources
+			)
+			if apps_list
+		]
+
+		local_advisories = {}
+		local_advisory_file = os.path.join(
+			os.path.expanduser('~'), '.system_update', 'advisories.json'
+		)
+		if os.path.isfile(local_advisory_file):
+			local_advisories = self.load_local_advisories(local_advisory_file)
+		if local_advisories:
+			local_apps = [
+				app for app in apps if app.source.lower() not in unique_apps_by_source
+			]
+			if local_apps:
+				active_security.insert(0, ('local', local_apps))
+
+		security_vulns = []
+		for source_name, source_apps in active_security:
+			try:
+				if source_name == 'npm':
+					source_vulns = self._check_npm_vulns(source_apps)
+				elif source_name == 'pip':
+					source_vulns = self._check_pip_vulns(source_apps)
+				elif source_name == 'pypi':
+					source_vulns = self.check_pypi_json_vulnerabilities(source_apps)
+				elif source_name == 'osv':
+					source_vulns = self.check_osv_vulnerabilities(source_apps)
+				elif source_name == 'github':
+					source_vulns = self.check_github_advisory_vulnerabilities(source_apps)
+				elif source_name == 'local':
+					source_vulns = self.check_local_advisory_vulnerabilities(
+						source_apps, local_advisories
+					)
+				else:
+					source_vulns = []
+			except Exception as e:
+				logger.warning(f'Security check failed for {source_name}: {e}')
+				source_vulns = []
+
+			security_vulns.extend(source_vulns)
+
+		if security_vulns:
+			console.print(
+				f'[bold red]🔥 Found {len(security_vulns)} security vulnerabilities.[/bold red]'
+			)
+		else:
+			console.print('[bold green]🛡️ No security vulnerabilities found.[/bold green]')
+		console.print()
+
 		# Filter to packages with updates
 		updatable = [a for a in apps if a.has_update]
 		if not updatable:
@@ -4337,7 +4403,7 @@ class SystemUpdateApp:
 
 		for i, app in enumerate(updatable, 1):
 			vuln_count = len(app.security_findings) if app.security_findings else 0
-			vuln_str = str(vuln_count) if vuln_count > 0 else '-'
+			vuln_str = f'🔥 {vuln_count}' if vuln_count > 0 else '-'
 			table.add_row(
 				str(i),
 				app.name,
@@ -4360,8 +4426,12 @@ class SystemUpdateApp:
 		# Preview changes
 		self._preview_updates(selected)
 
+		# Show selected packages before confirmation (in case screen scrolled)
+		selected_names = ', '.join([app.name for app in selected])
+		console.print(f'\n[bold]Selected packages:[/bold] {selected_names}\n')
+
 		# Confirm and apply
-		if args.yes or Confirm.ask(f'\n[bold]Update {len(selected)} package(s)?[/bold]'):
+		if args.yes or Confirm.ask(f'[bold]Update {len(selected)} package(s)?[/bold]'):
 			self.executor.execute_updates(selected, args.dry_run)
 		else:
 			console.print('[yellow]Update cancelled.[/yellow]')
@@ -4451,6 +4521,47 @@ class SystemUpdateApp:
 
 		console.print(preview_table)
 
+		# Show security vulnerabilities for selected packages
+		vuln_apps = [app for app in selected if app.security_findings]
+		if vuln_apps:
+			console.print('\n[bold red]🔥 Security Vulnerabilities Detected:[/bold red]\n')
+
+			vuln_table = Table(
+				show_header=True,
+				header_style='bold red',
+				box=box.HEAVY_EDGE,
+				show_lines=True,
+			)
+			vuln_table.add_column('Package', style='cyan')
+			vuln_table.add_column('Severity', justify='center')
+			vuln_table.add_column('CVSS', justify='center')
+			vuln_table.add_column('CVE', justify='center')
+			vuln_table.add_column('Description', style='dim')
+
+			for app in vuln_apps:
+				for vuln in app.security_findings:
+					sev = vuln.get('severity', 'UNKNOWN')
+					cvss = vuln.get('cvss_score')
+					cvss_str = f'{cvss:.1f}' if isinstance(cvss, (int, float)) else '-'
+					desc = vuln.get('description', 'N/A')
+
+					sev_color = {
+						'CRITICAL': 'bold red',
+						'HIGH': 'red',
+						'MEDIUM': 'yellow',
+						'LOW': 'green',
+					}.get(sev.upper(), 'white')
+
+					vuln_table.add_row(
+						app.name,
+						f'[{sev_color}]{sev}[/{sev_color}]',
+						cvss_str,
+						vuln.get('cve', 'N/A'),
+						desc,
+					)
+
+			console.print(vuln_table)
+
 
 def main():
 	"""
@@ -4482,7 +4593,7 @@ def main():
 	    python system_update.py --interactive     # Interactive package selection
 	"""
 	parser = argparse.ArgumentParser(
-		description='System Update Enhanced v2.10.0 - Elite Package Manager',
+		description='System Update Enhanced v3.1.0 - Elite Package Manager',
 		formatter_class=argparse.RawDescriptionHelpFormatter,
 		epilog="""
 Examples:
