@@ -15,6 +15,13 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v3.2.0 (April 2026)
+- **Progress Enhancements**: Enhanced progress bars with more metrics
+  - ETA: Show estimated time remaining using TimeRemainingColumn
+  - Speed: Show processing speed using SpeedColumn
+  - All progress bars now display elapsed time, remaining time, and speed
+  - More detailed source status during scanning
+
 ### v3.1.0 (April 2026)
 - **Interactive TUI (3.1)**: Launch interactive mode with `--interactive` for package selection
   - Fuzzy Search: Search packages by partial name match

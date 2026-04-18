@@ -3,7 +3,7 @@
 ===============================================================================
                           SYSTEM UPDATE ENHANCED
 ===============================================================================
- Version: 3.1.0
+ Version: 3.2.0
 Author: Gemini (Redesigned)
 
 A sophisticated system update tool with enhanced UI architecture and modular design.
@@ -87,6 +87,7 @@ try:
 		TextColumn,
 		BarColumn,
 		TimeElapsedColumn,
+		TimeRemainingColumn,
 		MofNCompleteColumn,
 		TaskID,
 	)
@@ -1059,7 +1060,7 @@ class UISystem:
 			return ch * width
 
 		w = 68
-		title = f'🚀 System Update Python v3.1.0'
+		title = f'🚀 System Update Python v3.2.0'
 		sub = f'⚙️ Data dir: {config.config_dir}'
 
 		console.print(f'[cyan]┌{hr("─", 70)}┐[/cyan]')
@@ -2146,7 +2147,7 @@ class UpdateChecker:
 		# Filter to only sources with apps
 		active_sources = [(name, apps_list) for name, apps_list in sources.items() if apps_list]
 
-		# Check updates for each source using Rich Progress
+		# Check updates for each source using Rich Progress with ETA
 		with Progress(
 			TextColumn('{task.description}'),
 			BarColumn(
@@ -2158,6 +2159,7 @@ class UpdateChecker:
 			TextColumn('[progress.percentage]{task.percentage:>3.0f}%'),
 			MofNCompleteColumn(),
 			TimeElapsedColumn(),
+			TimeRemainingColumn(),
 			TextColumn('{task.fields[extra]}'),
 			console=console,
 		) as progress:
@@ -3027,6 +3029,7 @@ class UpdateExecutor:
 			TextColumn('[progress.percentage]{task.percentage:>3.0f}%'),
 			MofNCompleteColumn(),
 			TimeElapsedColumn(),
+			TimeRemainingColumn(),
 			TextColumn('{task.fields[extra]}'),
 			console=console,
 		) as progress:
@@ -3272,7 +3275,7 @@ class SystemUpdateApp:
 		all_apps = []
 		max_workers = config.settings['performance']['max_workers']
 
-		# Scan in parallel like JS Promise.all using Rich Progress
+		# Scan in parallel like JS Promise.all using Rich Progress with ETA
 		with Progress(
 			TextColumn('{task.description}'),
 			BarColumn(
@@ -3284,6 +3287,7 @@ class SystemUpdateApp:
 			TextColumn('[progress.percentage]{task.percentage:>3.0f}%'),
 			MofNCompleteColumn(),
 			TimeElapsedColumn(),
+			TimeRemainingColumn(),
 			TextColumn('{task.fields[extra]}'),
 			console=console,
 		) as progress:
@@ -4600,7 +4604,7 @@ def main():
   python system_update.py --interactive     # Interactive package selection
 	"""
 	parser = argparse.ArgumentParser(
-		description='System Update Enhanced v3.1.0 - Elite Package Manager',
+		description='System Update Enhanced v3.2.0 - Elite Package Manager',
 		formatter_class=argparse.RawDescriptionHelpFormatter,
 		epilog="""
 Examples:
