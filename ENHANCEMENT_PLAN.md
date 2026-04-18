@@ -24,16 +24,16 @@ Windows-only improvement roadmap for `system_update.py` (Python implementation).
 
 | # | Source | Command | Description | Implementation File |
 |---|--------|---------|-------------|-------------------|
-| 1.1.1 | Scoop | `scoop list` + `scoop status` | Scan Scoop packages | Python | ✅ |
-| 1.1.2 | .NET Global Tools | `dotnet tool list -g` | Scan .NET CLI tools | Python | ✅ |
-| 1.1.3 | Cargo crates.io | Query crates.io API | Check Rust crate updates | Python | ✅ |
+| 1.1.1 | Scoop | `scoop list` + `scoop status` | Scan Scoop packages |
+| 1.1.2 | .NET Global Tools | `dotnet tool list -g` | Scan .NET CLI tools |
+| 1.1.3 | Cargo crates.io | Query crates.io API | Check Rust crate updates |
 
 ### 1.2 Windows Store Apps
 
 | # | Feature | Command | Description | Implementation File |
 |---|---------|----------|-------------|---------------------|
-| 1.2.1 | AppX/Packaged Apps | `Get-AppxPackage` | Scan Windows Store apps | Python | ✅ |
-| 1.2.2 | MSIX Scanning | Query MSIX packages | Scan MSIX installations | Python | ✅ |
+| 1.2.1 | AppX/Packaged Apps | `Get-AppxPackage` | Scan Windows Store apps |
+| 1.2.2 | MSIX Scanning | Query MSIX packages | Scan MSIX installations |
 
 ---
 
@@ -43,27 +43,27 @@ Windows-only improvement roadmap for `system_update.py` (Python implementation).
 
 | # | Feature | Description | Implementation File | Status |
 |---|---------|-------------|---------------------|--------|
-| 2.1.1 | OSV (Open Source Vulnerabilities) API | Query Google's OSV for all ecosystems | Python | ✅ |
-| 2.1.2 | PyPI Security JSON | Use PyPI JSON API for vulnerability data | Python | ✅ |
-| 2.1.3 | NPM Audit Full Parse | Parse full audit JSON, not just summary | Python | ✅ |
-| 2.1.4 | GitHub Advisory Database | Query GitHub advisories via API | Python | ✅ |
-| 2.1.5 | Local Advisory Import | Support custom vulnerability data | Python | ✅ |
+| 2.1.1 | OSV (Open Source Vulnerabilities) API | Query Google's OSV for all ecosystems |
+| 2.1.2 | PyPI Security JSON | Use PyPI JSON API for vulnerability data |
+| 2.1.3 | NPM Audit Full Parse | Parse full audit JSON, not just summary |
+| 2.1.4 | GitHub Advisory Database | Query GitHub advisories via API |
+| 2.1.5 | Local Advisory Import | Support custom vulnerability data |
 
 ### 2.2 Security Reporting
 
 | # | Feature | Description | Implementation File | Status |
 |---|---------|-------------|---------------------|--------|
-| 2.2.1 | CVSS Score Display | Show severity scores | Python | ✅ |
-| 2.2.2 | CVE Details Table | Full CVE information display | Python | ✅ |
-| 2.2.3 | Vulnerability History | Track vulnerabilities over time | Python | ✅ |
-| 2.2.4 | Security Summary Stats | Critical/High/Medium/Low counts | Python | ✅ |
+| 2.2.1 | CVSS Score Display | Show severity scores |
+| 2.2.2 | CVE Details Table | Full CVE information display |
+| 2.2.3 | Vulnerability History | Track vulnerabilities over time |
+| 2.2.4 | Security Summary Stats | Critical/High/Medium/Low counts |
 
 ### 2.3 Security Notifications
 
 | # | Feature | Description | Implementation File |
 |---|---------|-------------|---------------------|
-| 2.3.1 | Critical Alert Priority | Highlight critical vulnerabilities | Python |
-| 2.3.2 | Security Update Auto-Priority | Auto-update vulnerable packages first | Python |
+| 2.3.1 | Critical Alert Priority | Highlight critical vulnerabilities |
+| 2.3.2 | Security Update Auto-Priority | Auto-update vulnerable packages first |
 
 ---
 
@@ -73,47 +73,47 @@ Windows-only improvement roadmap for `system_update.py` (Python implementation).
 
 | # | Feature | Description | Implementation File |
 |---|---------|-------------|---------------------|
-| 3.1.1 | Fuzzy Search | Search packages by partial name match | Python |
-| 3.1.2 | Package Multi-Select | Select multiple packages for batch update | Python |
-| 3.1.3 | Keyboard Navigation | Arrow keys to navigate packages | Python |
-| 3.1.4 | Real-time Filtering | Filter as you type | Python |
-| 3.1.5 | Preview Changes | Show what will happen before applying | Python |
+| 3.1.1 | Fuzzy Search | Search packages by partial name match |
+| 3.1.2 | Package Multi-Select | Select multiple packages for batch update |
+| 3.1.3 | Keyboard Navigation | Arrow keys to navigate packages |
+| 3.1.4 | Real-time Filtering | Filter as you type |
+| 3.1.5 | Preview Changes | Show what will happen before applying |
 
 ### 3.2 Progress Enhancements
 
 | # | Feature | Description | Implementation File |
 |---|---------|-------------|---------------------|
-| 3.2.1 | Scan Checkpointing | Save progress every N packages | Python |
-| 3.2.2 | Resume Interrupted Scan | Continue from last checkpoint | Python |
-| 3.2.3 | ETA Display | Show estimated time remaining | Python |
-| 3.2.4 | Per-Source Progress | Progress for each source independently | Python |
+| 3.2.1 | Scan Checkpointing | Save progress every N packages |
+| 3.2.2 | Resume Interrupted Scan | Continue from last checkpoint |
+| 3.2.3 | ETA Display | Show estimated time remaining |
+| 3.2.4 | Per-Source Progress | Progress for each source independently |
 
 ### 3.3 Better Error Handling
 
 | # | Feature | Description | Implementation File |
 |---|---------|-------------|---------------------|
-| 3.3.1 | Error Classification | Categorize errors (not_found, timeout, etc.) | Python |
-| 3.3.2 | Recovery Suggestions | Show how to fix each error type | Python |
-| 3.3.3 | Verbose Mode | `--verbose` for detailed debugging | Python |
-| 3.3.4 | Error Log File | Separate log file for errors | Python |
+| 3.3.1 | Error Classification | Categorize errors (not_found, timeout, etc.) |
+| 3.3.2 | Recovery Suggestions | Show how to fix each error type |
+| 3.3.3 | Verbose Mode | `--verbose` for detailed debugging |
+| 3.3.4 | Error Log File | Separate log file for errors |
 
 ### 3.4 Notification System
 
 | # | Feature | Description | Implementation File |
 |---|---------|-------------|---------------------|
-| 3.4.1 | System Notifications | Native Windows toast notifications | Python |
-| 3.4.2 | Email Alerts | SMTP integration for email | Python |
-| 3.4.3 | Webhook Notifications | HTTP POST to URL | Python |
-| 3.4.4 | Custom Script Hooks | Execute user-defined scripts | Python |
+| 3.4.1 | System Notifications | Native Windows toast notifications |
+| 3.4.2 | Email Alerts | SMTP integration for email |
+| 3.4.3 | Webhook Notifications | HTTP POST to URL |
+| 3.4.4 | Custom Script Hooks | Execute user-defined scripts |
 
 ### 3.5 UI Improvements
 
 | # | Feature | Description | Implementation File |
 |---|---------|-------------|---------------------|
-| 3.5.1 | Custom Theme | User-defined color schemes | Python only |
-| 3.5.2 | More Display Formats | Compact/verbose/JSON modes | All three |
-| 3.5.3 | Source Icons | Custom icons per package manager | All three |
-| 3.5.4 | Status Icons | Custom status indicators | All three |
+| 3.5.1 | Custom Theme | User-defined color schemes |
+| 3.5.2 | More Display Formats | Compact/verbose/JSON modes |
+| 3.5.3 | Source Icons | Custom icons per package manager |
+| 3.5.4 | Status Icons | Custom status indicators |
 
 ---
 
@@ -123,10 +123,10 @@ Windows-only improvement roadmap for `system_update.py` (Python implementation).
 
 | # | Feature | Description | Implementation File |
 |---|---------|-------------|---------------------|
-| 4.1.1 | JSON Config File | Persistent configuration | All three |
-| 4.1.2 | YAML Config Support | Alternative to JSON | Python only |
-| 4.1.3 | Config Validation | Validate config on load | All three |
-| 4.1.4 | Config Migration | Auto-upgrade old configs | All three |
+| 4.1.1 | JSON Config File | Persistent configuration |
+| 4.1.2 | YAML Config Support | Alternative to JSON |
+| 4.1.3 | Config Validation | Validate config on load |
+| 4.1.4 | Config Migration | Auto-upgrade old configs |
 
 ### 4.2 Environment Variables
 
@@ -142,9 +142,9 @@ Windows-only improvement roadmap for `system_update.py` (Python implementation).
 
 | # | Feature | Description | Implementation File |
 |---|---------|-------------|---------------------|
-| 4.3.1 | Named Profiles | Multiple config profiles | All three |
-| 4.3.2 | Profile Switching | `--profile dev` flag | All three |
-| 4.3.3 | Profile Export/Import | Share configs between machines | All three |
+| 4.3.1 | Named Profiles | Multiple config profiles |
+| 4.3.2 | Profile Switching | `--profile dev` flag |
+| 4.3.3 | Profile Export/Import | Share configs between machines |
 
 ---
 
@@ -154,36 +154,36 @@ Windows-only improvement roadmap for `system_update.py` (Python implementation).
 
 | # | Feature | Description | Implementation File |
 |---|---------|-------------|---------------------|
-| 5.1.1 | SQLite Database | Store scan history | All three |
-| 5.1.2 | Version History | Track package versions over time | All three |
-| 5.1.3 | Trend Analysis | Show update trends | All three |
-| 5.1.4 | Report Generation | Periodic summary reports | All three |
+| 5.1.1 | SQLite Database | Store scan history |
+| 5.1.2 | Version History | Track package versions over time |
+| 5.1.3 | Trend Analysis | Show update trends |
+| 5.1.4 | Report Generation | Periodic summary reports |
 
 ### 5.2 Export Formats
 
 | # | Format | Use Case | Implementation File |
 |---|--------|---------|----------------|
-| 5.2.1 | HTML Report | Email/sharing with styling | All three |
-| 5.2.2 | XML | Enterprise integration | All three |
-| 5.2.3 | Markdown | GitHub-compatible | All three |
-| 5.2.4 | Diff | Version-to-version | All three |
-| 5.2.5 | PDF | Printable reports | Python |
+| 5.2.1 | HTML Report | Email/sharing with styling |
+| 5.2.2 | XML | Enterprise integration |
+| 5.2.3 | Markdown | GitHub-compatible |
+| 5.2.4 | Diff | Version-to-version |
+| 5.2.5 | PDF | Printable reports |
 
 ### 5.3 Report Templates
 
 | # | Feature | Description | Implementation File |
 |---|---------|-------------|---------------------|
-| 5.3.1 | Custom HTML Templates | User-defined report style | Python |
-| 5.3.2 | Logo Insertion | Add company/logo to reports | All three |
-| 5.3.3 | Report Branding | Custom colors/header | All three |
+| 5.3.1 | Custom HTML Templates | User-defined report style |
+| 5.3.2 | Logo Insertion | Add company/logo to reports |
+| 5.3.3 | Report Branding | Custom colors/header |
 
 ### 5.4 Data Sharing
 
 | # | Feature | Description | Implementation File |
 |---|---------|-------------|---------------------|
-| 5.4.1 | Import Scan Data | Load from JSON/CSV | All three |
-| 5.4.2 | Merge Scans | Combine multiple scans | All three |
-| 5.4.3 | Cloud Sync | Sync cache across devices | All three |
+| 5.4.1 | Import Scan Data | Load from JSON/CSV |
+| 5.4.2 | Merge Scans | Combine multiple scans |
+| 5.4.3 | Cloud Sync | Sync cache across devices |
 
 ---
 
@@ -193,42 +193,42 @@ Windows-only improvement roadmap for `system_update.py` (Python implementation).
 
 | # | Feature | Description | Implementation File |
 |---|---------|-------------|---------------------|
-| 6.1.1 | Task Scheduler Integration | Windows Task Scheduler integration | All three |
-| 6.1.2 | Daily/Weekly Scans | Automatic periodic scans | All three |
-| 6.1.3 | Conditional Actions | Actions based on criteria | All three |
+| 6.1.1 | Task Scheduler Integration | Windows Task Scheduler integration |
+| 6.1.2 | Daily/Weekly Scans | Automatic periodic scans |
+| 6.1.3 | Conditional Actions | Actions based on criteria |
 
 ### 6.2 Rollback Support
 
 | # | Feature | Description | Implementation File |
 |---|---------|-------------|---------------------|
-| 6.2.1 | Version Snapshots | Save pre-update state | All three |
-| 6.2.2 | One-Click Rollback | Revert failed updates | All three |
-| 6.2.3 | Snapshot Listing | View available snapshots | All three |
+| 6.2.1 | Version Snapshots | Save pre-update state |
+| 6.2.2 | One-Click Rollback | Revert failed updates |
+| 6.2.3 | Snapshot Listing | View available snapshots |
 
 ### 6.3 Dependency Graph
 
 | # | Feature | Description | Implementation File |
 |---|---------|-------------|---------------------|
-| 6.3.1 | Graphviz DOT Export | Generate dependency graphs | All three |
-| 6.3.2 | Conflict Detection | Find version conflicts | All three |
-| 6.3.3 | Minimal Update Set | Suggest minimal updates | All three |
+| 6.3.1 | Graphviz DOT Export | Generate dependency graphs |
+| 6.3.2 | Conflict Detection | Find version conflicts |
+| 6.3.3 | Minimal Update Set | Suggest minimal updates |
 
 ### 6.4 Remote Management
 
 | # | Feature | Description | Implementation File |
 |---|---------|-------------|---------------------|
-| 6.4.1 | WinRM Remote Execution | Execute on remote Windows machines | All three |
-| 6.4.2 | Inventory Management | Define machine groups | All three |
-| 6.4.3 | Consolidated Reports | Aggregate multiple machines | All three |
-| 6.4.4 | Mass Update | Update all machines at once | All three |
+| 6.4.1 | WinRM Remote Execution | Execute on remote Windows machines |
+| 6.4.2 | Inventory Management | Define machine groups |
+| 6.4.3 | Consolidated Reports | Aggregate multiple machines |
+| 6.4.4 | Mass Update | Update all machines at once |
 
 ### 6.5 Plugin Architecture
 
 | # | Feature | Description | Implementation File |
 |---|---------|-------------|---------------------|
-| 6.5.1 | Custom Scanners | Add custom package sources | All three |
-| 6.5.2 | Custom Notifiers | Add notification channels | All three |
-| 6.5.3 | Plugin API | Public API for extensions | All three |
+| 6.5.1 | Custom Scanners | Add custom package sources |
+| 6.5.2 | Custom Notifiers | Add notification channels |
+| 6.5.3 | Plugin API | Public API for extensions |
 
 ---
 
@@ -238,34 +238,34 @@ Windows-only improvement roadmap for `system_update.py` (Python implementation).
 
 | # | Feature | Description | Implementation File |
 |---|---------|-------------|---------------------|
-| 7.1.1 | Incremental Scan | Only scan changed sources | All three |
-| 7.1.2 | Delta Cache | Store diffs instead of full | All three |
-| 7.1.3 | LRU Memory Cache | Cache hot packages | All three |
-| 7.1.4 | Pre-fetch | Background version checks | All three |
+| 7.1.1 | Incremental Scan | Only scan changed sources |
+| 7.1.2 | Delta Cache | Store diffs instead of full |
+| 7.1.3 | LRU Memory Cache | Cache hot packages |
+| 7.1.4 | Pre-fetch | Background version checks |
 
 ### 7.2 Parallel Processing
 
 | # | Feature | Description | Implementation File |
 |---|---------|-------------|---------------------|
-| 7.2.1 | Worker Pool | Per-source worker pools | All three |
-| 7.2.2 | Shared Deduplication | Cross-source cache | All three |
-| 7.2.3 | Graceful Degradation | Handle partial failures | All three |
+| 7.2.1 | Worker Pool | Per-source worker pools |
+| 7.2.2 | Shared Deduplication | Cross-source cache |
+| 7.2.3 | Graceful Degradation | Handle partial failures |
 
 ### 7.3 Network Optimization
 
 | # | Feature | Description | Implementation File |
 |---|---------|-------------|---------------------|
-| 7.3.1 | Batch API Requests | Single request for multiple packages | All three |
-| 7.3.2 | Rate Limiting | Respect API limits | All three |
-| 7.3.3 | Response Caching | Cache API responses | All three |
+| 7.3.1 | Batch API Requests | Single request for multiple packages |
+| 7.3.2 | Rate Limiting | Respect API limits |
+| 7.3.3 | Response Caching | Cache API responses |
 
 ### 7.4 Size Reduction
 
 | # | Feature | Description | Implementation File |
 |---|---------|-------------|---------------------|
-| 7.4.1 | Compressed Cache | Gzip cached data | All three |
-| 7.4.2 | Data Pruning | Remove old data automatically | All three |
-| 7.4.3 | Selective Storage | Store only requested fields | All three |
+| 7.4.1 | Compressed Cache | Gzip cached data |
+| 7.4.2 | Data Pruning | Remove old data automatically |
+| 7.4.3 | Selective Storage | Store only requested fields |
 
 ---
 
@@ -273,12 +273,12 @@ Windows-only improvement roadmap for `system_update.py` (Python implementation).
 
 | # | Feature | Command | Description | Implementation File |
 |---|---------|----------|-------------|---------------------|
-| 8.1.1 | AppX Scanning | `Get-AppxPackage` | Scan Windows Store apps | All three |
-| 8.1.2 | Windows Store Updates | `winget upgrade` for Store | Microsoft Store updates | All three |
+| 8.1.1 | AppX Scanning | `Get-AppxPackage` | Scan Windows Store apps |
+| 8.1.2 | Windows Store Updates | `winget upgrade` for Store | Microsoft Store updates |
 | 8.1.3 | Driver Updates | Check via `pnputil` | Driver version checking | PowerShell |
-| 8.1.4 | Windows Services | Query Service states | Detect outdated services | All three |
-| 8.1.5 | PowerShell Modules | `Get-Module` | Scan PS module updates | All three |
-| 8.1.6 | Visual Studio Extensions | Query VS Marketplace | VS Code/VS extensions | All three |
+| 8.1.4 | Windows Services | Query Service states | Detect outdated services |
+| 8.1.5 | PowerShell Modules | `Get-Module` | Scan PS module updates |
+| 8.1.6 | Visual Studio Extensions | Query VS Marketplace | VS Code/VS extensions |
 
 ---
 
