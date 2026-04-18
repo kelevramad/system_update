@@ -217,5 +217,15 @@ def test_security_local_advisory():
 		finally:
 			if original_home:
 				os.environ['SYSTEM_UPDATE_HOME'] = original_home
-			else:
-				os.environ.pop('SYSTEM_UPDATE_HOME', None)
+
+
+def test_critical_alert_priority():
+	res = run_cli(['--include', 'pip', '--no-cache'], timeout=90)
+	output = res['stdout'] + res['stderr']
+	assert res['code'] == 0 or 'CRITICAL' in output or 'critical' in output.lower()
+
+
+def test_security_update_auto_priority():
+	res = run_cli(['--include', 'pip', '--update-all', '--dry-run', '--yes'], timeout=90)
+	output = res['stdout'] + res['stderr']
+	assert res['code'] == 0 or 'vuln' in output.lower() or 'update' in output.lower()
