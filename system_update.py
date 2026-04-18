@@ -1676,7 +1676,6 @@ class DisplayFormatter:
 	@staticmethod
 	def _compact_table(apps: List[AppInfo], theme: str, use_icons: bool) -> Table:
 		"""Create compact table with minimal columns."""
-		theme_data = ThemeManager.get_theme(theme)
 		table = Table(box=box.SIMPLE, show_header=False, pad_edge=False)
 		table.add_column('Item', width=50)
 		for app in sorted(apps, key=lambda x: x.name):
