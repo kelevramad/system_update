@@ -22,6 +22,16 @@ This project is provided as-is for system administration and package management.
   - Keyboard Navigation: Use `input()` for selection
   - Real-time Filtering: Type to fuzzy search packages
   - Preview Changes: Shows preview table before applying updates
+- **Source Filter Refactor**: Rename `--include` to `--source` for clarity
+  - `--source` filters scan to specific sources (e.g., `--source pip,npm`)
+- **New --update-source**: Add new flag to update all packages from a specific source
+  - Combines `--source` filtering with `--update-all` and `--yes`
+- **Security Enhancements**: Enhanced interactive mode security vulnerability display
+  - Show vulnerability count with fire emoji (🔥) in selection table
+  - Show full security vulnerability details in preview before confirmation
+  - Display CVE, severity, CVSS, and description for each vulnerability
+  - Add horizontal lines between vulnerability entries
+- **Improved UX**: Show selected packages before confirmation prompt (handles scrolling)
 
 ### v2.9.0 (April 2026)
 - **Critical Alert Priority**: Critical vulnerabilities now sorted first and highlighted with 🚨 emoji and bold red blink effect
