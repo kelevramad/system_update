@@ -1,42 +1,81 @@
 # System Update CLI
 
-> 🚀 A powerful multi-language system update tool for Windows and beyond.
+> 🚀 A powerful system update tool for Windows.
 
-This repository contains a collection of system package management tools implemented in three different languages: **Node.js**, **Python**, and **PowerShell**. All three scripts provide a unified, comprehensive way to scan, check, and update software from multiple sources.
+A comprehensive Python-based system package management tool that scans, checks, and updates software from multiple sources.
 
-## 🌟 Common Features
-
-Regardless of which script you choose, you get access to a rich set of shared features:
+## 🌟 Features
 
 - **Multi-source Package Discovery**: Scan applications installed via Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Scoop, system PATH executables, and Windows Registry.
 - **Security Scanning**: Real-time vulnerability checking for NPM (`npm audit`) and PIP (`pip check`) packages.
 - **Intelligent Caching**: 2-hour caching mechanism to drastically speed up repetitive runs.
 - **Dry-run & Output Options**: Safely preview updates before applying them and export reports to JSON or CSV formats.
-- **Rich Terminal UI**: Beautiful, colorful console output with spinners, progress bars, and emoji indicators.
+- **Rich Terminal UI**: Beautiful, colorful console output built with the `rich` library, featuring spinners, progress bars, and emoji indicators.
 
 ---
 
-## 💻 The Scripts
+## 📋 Requirements
 
-Choose the implementation that best fits your environment and preferences:
+- **Python** 3.8 or higher
+- **Rich library** (auto-installed on first run)
+- **Windows 10/11** (primary platform)
 
-### 1. 🟢 Node.js (`system_update.js`)
-A highly optimized JavaScript implementation natively leveraging the Node.js asynchronous architecture for parallel scanning.
-- **Requirements**: Node.js 16.x+
-- **Usage**: `node system_update.js`
-- **Documentation**: [README_js.md](README_js.md)
+---
 
-### 2. 🐍 Python (`system_update.py`)
-A modular and sophisticated Python script featuring an advanced UI built with the `rich` library. It uses ThreadPoolExecutor for highly concurrent processing.
-- **Requirements**: Python 3.8+, `rich` library
-- **Usage**: `python system_update.py`
-- **Documentation**: [README_py.md](README_py.md)
+## 🚀 Quick Start
 
-### 3. 🖥️ PowerShell (`system_update.ps1`)
-A native Windows implementation requiring ZERO external dependencies. Built for PowerShell 7+, it includes robust handling of command execution and native APIs.
-- **Requirements**: PowerShell 7.0+
-- **Usage**: `.\system_update.ps1`
-- **Documentation**: [README_ps.md](README_ps.md)
+### Installation
+
+```bash
+# Navigate to the script directory
+cd C:\Git\System_Update
+
+# Optional: Install dependencies manually
+pip install rich
+```
+
+The script will automatically prompt to install the `rich` library if missing.
+
+### Basic Usage
+
+```bash
+# Run a full system scan
+python system_update.py
+
+# Update all packages automatically
+python system_update.py --update-all --yes
+
+# Check for updates without installing
+python system_update.py --dry-run
+
+# Export scan results to JSON
+python system_update.py --export json --output report.json
+```
+
+---
+
+## 📖 Command Reference
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--update-all` | Update every package with available updates |
+| `--update-source <source>` | Update all packages from a specific source |
+| `--package <name>` | Update a specific package by name |
+| `--version <ver>` | Target version (use with `--package`) |
+| `--source <source>` | Filter by source (winget\|chocolatey\|npm\|pnpm\|bun\|yarn\|pip\|path\|rust\|registry) |
+| `--dry-run` | Show planned updates without executing |
+| `--no-cache` | Force fresh scan (ignore cache) |
+| `--clear-cache` | Remove cache file and exit |
+| `--export <json\|csv>` | Export scan results to file |
+| `--output <file>` | Output path for export |
+| `--include <csv>` | Limit scan to specific sources (e.g., `winget,npm,pip`) |
+| `--yes`, `-y` | Skip confirmation prompts |
+| `--help`, `-h` | Show help message |
+| `--show-all` | Show all packages (including up-to-date) |
+| `--log` | Enable logging to file |
+| `--debug` | Show all executed commands |
 
 ---
 
@@ -59,53 +98,32 @@ A native Windows implementation requiring ZERO external dependencies. Built for 
 
 ## 🧪 Testing
 
-This project follows the same testing conventions as crypt_tools and includes a comprehensive test suite for validating all three implementations. Tests are located in the `tests/` directory.
+This project includes a comprehensive test suite using pytest. Tests are located in the `tests/` directory.
 
-### Run All Tests
+### Run Tests
 
 ```bash
-# Node.js tests with coverage
-npm run test
-npm run coverage
-npm run test:all        # Runs tests + coverage
+# Install dependencies
+uv sync --all-extras --dev
 
-# Python tests with coverage (using uv)
-uv sync --all-extras --dev  # Install dependencies
-uv run pytest           # Run tests
-uv run pytest --cov=system_update --cov-report=term-missing  # With coverage
+# Run tests
+uv run pytest
 
-# PowerShell tests (Pester framework)
-pwsh -File ./tests/test_system_update.ps1   # Run Pester tests directly
-Invoke-Pester ./tests/*.ps1            # If Pester installed and v5+
-```
-
-### Test Coverage
-
-| Feature | Node.js | Python | PowerShell |
-|---------|---------|--------|------------|
-| Help display | ✅ | ✅ | ✅ |
-| Scanner functions | ✅ | ✅ | ✅ |
-| Export (JSON/CSV) | ✅ | ✅ | ✅ |
-| Dry-run mode | ✅ | ✅ | ✅ |
-| Cache system | ✅ | ✅ | ✅ |
-| --show-all flag | ✅ | ✅ | ✅ |
-| --clear-cache | ✅ | ✅ | ✅ |
-| --log/--debug flags | ✅ | ✅ | ✅ |
-
-### Test Files
-
-```
-tests/
-├── test_system_update.py         # Python tests (pytest)
-├── system_update_cli.test.js    # Node.js tests (native --test runner)
-└── test_system_update.ps1        # PowerShell tests (Pester)
+# Run with coverage
+uv run pytest --cov=system_update --cov-report=term-missing
 ```
 
 ---
 
 ## 📝 License
 
-These tools are provided as-is for system administration and package management.
+This tool is provided as-is for system administration and package management.
+
+---
+
+## 🆕 Latest Changes (v2.8.0)
+- **Python-only Repository**: Simplified to only Python implementation (removed Node.js and PowerShell scripts)
+- **Repository Cleanup**: Removed all Node.js and PowerShell files, tests, and documentation
 
 ---
 

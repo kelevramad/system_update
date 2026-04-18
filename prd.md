@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 2.7
-**Last Updated:** April 17, 2026
+**Document Version:** 2.8
+**Last Updated:** April 18, 2026
 **Author:** Qwen Code
-**Based On:** `system_update.js` v2.7.0, `system_update.py` v2.7.0, `system_update.ps1` v2.7.0
+**Based On:** `system_update.py` v2.8.0
 
 ---
 
@@ -31,7 +31,7 @@
 
 ## 1. Executive Summary
 
-**System Update Node CLI** is a comprehensive command-line tool designed to scan, discover, and update software packages across multiple package managers and system sources on Windows and Unix-like systems. It provides a unified interface for managing updates from Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Rust, system PATH tools, and Windows Registry installations.
+**System Update Python CLI** is a comprehensive command-line tool designed to scan, discover, and update software packages across multiple package managers and system sources on Windows. It provides a unified interface for managing updates from Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Rust, system PATH tools, and Windows Registry installations.
 
 The tool features parallel scanning, security vulnerability detection, intelligent caching, flexible export options, detailed logging, debug mode, and a polished terminal UI with real-time progress indicators.
 
@@ -73,17 +73,15 @@ A single CLI tool that:
 - **Flexibility**: Extensive CLI options for targeted operations
 - **Observability**: Optional logging with `--log` and debug mode with `--debug`
 
-### 2.4 Implementations
+### 2.4 Implementation
 
-The tool is available in three implementations:
+The tool is available in Python implementation:
 
 | Implementation | File | Requirements | Dependencies |
 |--------------|------|-------------|--------------|
-| Node.js | `system_update.js` | Node.js 16+ | None (built-in modules) |
 | Python | `system_update.py` | Python 3.8+ | `rich` library |
-| PowerShell | `system_update.ps1` | PowerShell 7+ | None (zero dependencies) |
 
-All implementations share identical features and CLI options.
+All features and CLI options are implemented in the Python version.
 
 ---
 
@@ -619,7 +617,7 @@ const DEFAULT_CONFIG = {
 ### 12.1 Command Syntax
 
 ```bash
-node system_update.js [options]
+python system_update.py [options]
 ```
 
 ### 12.2 Options Reference
@@ -662,44 +660,44 @@ node system_update.js [options]
 
 ```bash
 # Basic scan
-node system_update.js
+python system_update.py
 
 # Update everything (with confirmation)
-node system_update.js --update-all
+python system_update.py --update-all
 
 # Update everything (no prompts)
-node system_update.js --update-all --yes
+python system_update.py --update-all --yes
 
 # Update specific package
-node system_update.js --package git --source chocolatey
+python system_update.py --package git --source chocolatey
 
 # Update all Rust packages only
-node system_update.js --update-source rust --yes
+python system_update.py --update-source rust --yes
 
 # Update all Winget packages only
-node system_update.js --update-source winget --dry-run
+python system_update.py --update-source winget --dry-run
 
 # Export results
-node system_update.js --export json --output report.json
-node system_update.js --export csv --output updates.csv
+python system_update.py --export json --output report.json
+python system_update.py --export csv --output updates.csv
 
 # Scan specific sources only
-node system_update.js --include winget,npm,pip
+python system_update.py --include winget,npm,pip
 
 # Force fresh scan
-node system_update.js --no-cache
+python system_update.py --no-cache
 
 # Clear cache
-node system_update.js --clear-cache
+python system_update.py --clear-cache
 
 # Enable logging for debugging
-node system_update.js --log
+python system_update.py --log
 
 # Show all executed commands
-node system_update.js --debug
+python system_update.py --debug
 
 # Show all packages (including up-to-date)
-node system_update.js --show-all
+python system_update.py --show-all
 ```
 
 ---
@@ -712,10 +710,10 @@ node system_update.js --show-all
 **Goal:** Keep development tools updated
 
 **Steps:**
-1. Run `node system_update.js` (uses cache if valid)
+1. Run `python system_update.py` (uses cache if valid)
 2. Review displayed package table
 3. Note packages with ⚠️ update badge
-4. Run `node system_update.js --update-all --yes`
+4. Run `python system_update.py --update-all --yes`
 5. Verify completion message
 
 **Expected Output:** Summary of updated packages
@@ -726,7 +724,7 @@ node system_update.js --show-all
 **Goal:** Identify vulnerable packages
 
 **Steps:**
-1. Run `node system_update.js --no-cache`
+1. Run `python system_update.py --no-cache`
 2. Review security vulnerability table
 3. Note CVEs and severity levels
 4. Export report: `--export json --output security-report.json`
@@ -740,7 +738,7 @@ node system_update.js --show-all
 **Goal:** Update specific package to specific version
 
 **Steps:**
-1. Run `node system_update.js --package node --source path --version 22.0.0`
+1. Run `python system_update.py --package node --source path --version 22.0.0`
 2. Confirm update when prompted
 3. Verify success message
 
@@ -752,7 +750,7 @@ node system_update.js --show-all
 **Goal:** Check for updates in pipeline
 
 **Steps:**
-1. Run `node system_update.js --export json --output $BUILD_DIR/updates.json`
+1. Run `python system_update.py --export json --output $BUILD_DIR/updates.json`
 2. Parse JSON in subsequent pipeline step
 3. Fail build if critical vulnerabilities found
 
@@ -764,7 +762,7 @@ node system_update.js --show-all
 **Goal:** Check only Winget-managed software
 
 **Steps:**
-1. Run `node system_update.js --include winget`
+1. Run `python system_update.py --include winget`
 2. Review Winget-specific results
 
 **Expected Output:** Filtered package list
@@ -890,6 +888,7 @@ Errors are displayed with appropriate styling:
 | 2.5.0 | April 2026 | Enhanced npm vulnerability scanning (full audit JSON parse), added advisory URLs and fix availability info |
 | 2.6.0 | April 2026 | Added GitHub Advisory Database API integration, local advisory import support (~/.system_update/advisories.json) |
 | 2.7.0 | April 2026 | Implemented **Security Reporting Features**: CVSS Score Display, persistent Vulnerability History tracking, Security Summary Stats with severity counts, and enhanced CVE details |
+| 2.8.0 | April 2026 | Simplified to **Python-only** implementation - removed Node.js and PowerShell scripts |
 
 ## Appendix B: Glossary
 
