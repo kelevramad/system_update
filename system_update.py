@@ -1311,6 +1311,7 @@ class UISystem:
 		Generates a Rich Table displaying security vulnerability information with
 		columns for package name, severity level, CVSS score, CVE count, and description.
 		Uses color coding for severity levels (red for critical, yellow for medium, etc.).
+		CRITICAL vulnerabilities are highlighted with extra emphasis.
 
 		Args:
 		    security_results: List of security scan result objects containing
@@ -1321,11 +1322,25 @@ class UISystem:
 
 		Note:
 		    - Severity colors: CRITICAL/HIGH=red, MEDIUM=yellow, LOW=green
+		    - CRITICAL vulnerabilities get extra "🚨" prefix for alert priority
 		    - Description is truncated to 40 characters with ellipsis
 		    - CVSS score shown as numeric value (0.0-10.0) or '-' if unknown
 		"""
+		# Sort by severity priority: CRITICAL first, then HIGH, MEDIUM, LOW
+		severity_priority = {'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3, 'UNKNOWN': 4}
+		sorted_results = sorted(
+			security_results, key=lambda r: severity_priority.get(r.highest_severity, 99)
+		)
+
+		# Count critical vulnerabilities for alert
+		critical_count = sum(1 for r in sorted_results if r.highest_severity == 'CRITICAL')
+
+		title = '[bold red]🔥 Security Vulnerabilities Detected[/bold red]'
+		if critical_count > 0:
+			title = f'[bold red]🚨 CRITICAL ALERT: {critical_count} Critical Vulnerability(ies) Found![/bold red]'
+
 		table = Table(
-			title='[bold red]🔥 Security Vulnerabilities Detected[/bold red]',
+			title=title,
 			box=box.HEAVY_EDGE,
 			border_style='red',
 			show_lines=True,
@@ -1337,13 +1352,16 @@ class UISystem:
 		table.add_column('CVE', justify='center')
 		table.add_column('Description', style='dim', width=50)
 
-		for result in security_results:
+		for result in sorted_results:
+			severity = result.highest_severity
+			# Critical Alert Priority: add alert emoji for CRITICAL
+			alert_prefix = '🚨 ' if severity == 'CRITICAL' else ''
 			severity_color = {
-				'CRITICAL': 'bold red',
+				'CRITICAL': 'bold red blink',  # Blinking effect for critical
 				'HIGH': 'red',
 				'MEDIUM': 'yellow',
 				'LOW': 'green',
-			}.get(result.highest_severity, 'white')
+			}.get(severity, 'white')
 
 			desc = result.vulnerabilities[0].description if result.vulnerabilities else 'Unknown'
 			cvss = result.vulnerabilities[0].get('cvss_score') if result.vulnerabilities else None
@@ -1351,7 +1369,7 @@ class UISystem:
 
 			table.add_row(
 				result.app_info.name,
-				f'[{severity_color}]{result.highest_severity}[/{severity_color}]',
+				f'[{severity_color}]{alert_prefix}{severity}[/{severity_color}]',
 				cvss_display,
 				str(result.total_vulnerabilities),
 				desc,
@@ -4155,8 +4173,27 @@ class SystemUpdateApp:
 			console.print(f'\n[bold yellow]🎯 Found {len(updates)} available updates[/bold yellow]')
 
 			if args.update_all:
-				if args.yes or Confirm.ask('🚀 Proceed with all updates?'):
-					self.executor.execute_updates(updates, args.dry_run)
+				# Security Update Auto-Priority: update vulnerable packages first
+				security_updates = [
+					a for a in updates if a.update_status == UpdateStatus.VULNERABLE
+				]
+				regular_updates = [a for a in updates if a.update_status != UpdateStatus.VULNERABLE]
+
+				if security_updates:
+					console.print(
+						f'\n[bold red]🔒 Priority: Updating {len(security_updates)} vulnerable package(s) first...[/bold red]'
+					)
+					if args.yes or Confirm.ask('🚀 Proceed with security updates?'):
+						self.executor.execute_updates(security_updates, args.dry_run)
+					else:
+						return
+
+				if regular_updates:
+					console.print(
+						f'\n[bold yellow]⚡ Now updating {len(regular_updates)} regular package(s)...[/bold yellow]'
+					)
+					if args.yes or Confirm.ask('🚀 Proceed with remaining updates?') or args.yes:
+						self.executor.execute_updates(regular_updates, args.dry_run)
 		else:
 			console.print('\n[green]✨ System is up to date![/green]')
 
