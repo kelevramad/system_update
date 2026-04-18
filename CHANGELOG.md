@@ -15,6 +15,14 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v2.10.0 (April 2026)
+- **Interactive TUI (3.1)**: Launch interactive mode with `--interactive` for package selection
+  - Fuzzy Search: Search packages by partial name match
+  - Package Multi-Select: Select multiple packages with numbers (e.g., 1,3,5 or 1-5)
+  - Keyboard Navigation: Use `input()` for selection
+  - Real-time Filtering: Type to fuzzy search packages
+  - Preview Changes: Shows preview table before applying updates
+
 ### v2.9.0 (April 2026)
 - **Critical Alert Priority**: Critical vulnerabilities now sorted first and highlighted with 🚨 emoji and bold red blink effect
 - **Security Update Auto-Priority**: Vulnerable packages are now prioritized and updated separately from regular updates

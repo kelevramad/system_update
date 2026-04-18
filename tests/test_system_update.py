@@ -229,3 +229,9 @@ def test_security_update_auto_priority():
 	res = run_cli(['--include', 'pip', '--update-all', '--dry-run', '--yes'], timeout=90)
 	output = res['stdout'] + res['stderr']
 	assert res['code'] == 0 or 'vuln' in output.lower() or 'update' in output.lower()
+
+
+def test_interactive_flag():
+	res = run_cli(['--help'])
+	output = res['stdout'] + res['stderr']
+	assert '--interactive' in output

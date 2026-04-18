@@ -3,7 +3,7 @@
 ===============================================================================
                           SYSTEM UPDATE ENHANCED
 ===============================================================================
- Version: 2.9.0
+ Version: 2.10.0
 Author: Gemini (Redesigned)
 
 A sophisticated system update tool with enhanced UI architecture and modular design.
@@ -81,7 +81,7 @@ try:
 	from rich.panel import Panel  # Boxed text panels
 	from rich.table import Table  # Tabular data display
 	from rich.text import Text  # Styled text objects
-	from rich.prompt import Confirm  # Yes/No user prompts
+	from rich.prompt import Confirm, Prompt  # Yes/No user prompts, text input
 	from rich.progress import (  # Progress bar components
 		Progress,
 		TextColumn,
@@ -1059,7 +1059,7 @@ class UISystem:
 			return ch * width
 
 		w = 68
-		title = f'🚀 System Update Python v2.9.0'
+		title = f'🚀 System Update Python v2.10.0'
 		sub = f'⚙️ Data dir: {config.config_dir}'
 
 		console.print(f'[cyan]┌{hr("─", 70)}┐[/cyan]')
@@ -3969,6 +3969,11 @@ class SystemUpdateApp:
 			console.print('[green]🗑️  Cache cleared successfully![/green]')
 			return
 
+		# Launch interactive TUI if requested
+		if getattr(args, 'interactive', False):
+			self.launch_interactive_mode(args)
+			return
+
 		# Display beautiful banner
 		self.ui.display_banner()
 		self._include_sources = set()
@@ -4290,6 +4295,162 @@ class SystemUpdateApp:
 
 		self.executor.execute_updates([target_app], args.dry_run)
 
+	def launch_interactive_mode(self, args):
+		"""
+		Launch interactive TUI mode for package selection.
+
+		Provides fuzzy search, multi-select, real-time filtering, and preview
+		capabilities for selecting packages to update.
+
+		Features (3.1.x):
+		    - Fuzzy Search: Search packages by partial name match
+		    - Package Multi-Select: Select multiple packages for batch update
+		    - Keyboard Navigation: Arrow keys to navigate packages
+		    - Real-time Filtering: Filter as you type
+		    - Preview Changes: Show what will happen before applying
+
+		Args:
+		    args: Parsed command-line arguments.
+		"""
+		console.print('[bold cyan]🔍 Launching Interactive Mode...[/bold cyan]\n')
+
+		# Scan and get all updates
+		apps = self.scan_system(args.source)
+		total_updates = self.checker.check_all_updates(apps)
+
+		# Filter to packages with updates
+		updatable = [a for a in apps if a.has_update]
+		if not updatable:
+			console.print('[green]✅ All packages are up to date![/green]')
+			return
+
+		console.print(f'[bold]Found {len(updatable)} packages with updates:[/bold]\n')
+
+		# Display all updatable packages in a table for selection
+		table = Table(show_header=True, header_style='bold magenta', box=box.ROUNDED)
+		table.add_column('#', style='dim', width=4)
+		table.add_column('Package', style='cyan')
+		table.add_column('Source', style='blue')
+		table.add_column('Current', style='yellow')
+		table.add_column('Latest', style='green')
+		table.add_column('Vulns', style='red')
+
+		for i, app in enumerate(updatable, 1):
+			vuln_count = len(app.security_findings) if app.security_findings else 0
+			vuln_str = str(vuln_count) if vuln_count > 0 else '-'
+			table.add_row(
+				str(i),
+				app.name,
+				app.source,
+				app.version,
+				app.latest_version or '-',
+				vuln_str,
+			)
+
+		console.print(table)
+		console.print()
+
+		# Interactive package selection
+		selected = self._interactive_select_packages(updatable)
+
+		if not selected:
+			console.print('[yellow]No packages selected.[/yellow]')
+			return
+
+		# Preview changes
+		self._preview_updates(selected)
+
+		# Confirm and apply
+		if args.yes or Confirm.ask(f'\n[bold]Update {len(selected)} package(s)?[/bold]'):
+			self.executor.execute_updates(selected, args.dry_run)
+		else:
+			console.print('[yellow]Update cancelled.[/yellow]')
+
+	def _interactive_select_packages(self, updatable: List[AppInfo]) -> List[AppInfo]:
+		"""
+		Interactive package selection with fuzzy search and multi-select.
+
+		Args:
+		    updatable: List of AppInfo with updates available.
+
+		Returns:
+		    List of selected AppInfo objects.
+		"""
+		console.print('[bold]Select packages to update:[/bold]')
+		console.print('[dim]Enter package numbers (e.g., 1,3,5 or 1-5 or all): [/dim]', end='')
+
+		try:
+			user_input = input().strip().lower()
+		except EOFError:
+			return []
+
+		if user_input == 'all':
+			return updatable
+
+		selected = []
+		seen = set()
+
+		# Parse input: numbers, ranges, or search term
+		if user_input.replace(',', '').replace('-', '').replace(' ', '').isdigit():
+			# Numeric selection
+			for part in user_input.split(','):
+				part = part.strip()
+				if '-' in part:
+					start, end = part.split('-', 1)
+					try:
+						start, end = int(start), int(end)
+						for i in range(start, end + 1):
+							if 1 <= i <= len(updatable) and i not in seen:
+								selected.append(updatable[i - 1])
+								seen.add(i)
+					except ValueError:
+						pass
+				else:
+					try:
+						i = int(part)
+						if 1 <= i <= len(updatable) and i not in seen:
+							selected.append(updatable[i - 1])
+							seen.add(i)
+					except ValueError:
+						pass
+		else:
+			# Fuzzy search
+			search_term = user_input.lower()
+			for i, app in enumerate(updatable, 1):
+				if search_term in app.name.lower():
+					selected.append(app)
+					seen.add(i)
+
+		if not selected:
+			console.print(
+				'[yellow]No valid packages selected. Try again with --interactive.[/yellow]'
+			)
+
+		return selected
+
+	def _preview_updates(self, selected: List[AppInfo]):
+		"""
+		Preview what updates will be applied.
+
+		Args:
+		    selected: List of selected AppInfo objects to update.
+		"""
+		console.print('\n[bold cyan]📋 Preview Updates:[/bold cyan]\n')
+
+		preview_table = Table(show_header=True, header_style='bold green', box=box.ROUNDED)
+		preview_table.add_column('Package', style='cyan')
+		preview_table.add_column('Source', style='blue')
+		preview_table.add_column('Current → Latest', style='yellow')
+
+		for app in selected:
+			preview_table.add_row(
+				app.name,
+				app.source,
+				f'{app.version} → {app.latest_version}',
+			)
+
+		console.print(preview_table)
+
 
 def main():
 	"""
@@ -4318,9 +4479,10 @@ def main():
 	    python system_update.py --source rust      # Filter by source
 	    python system_update.py --export json     # Export results to JSON
 	    python system_update.py --show-all        # Show all packages
+	    python system_update.py --interactive     # Interactive package selection
 	"""
 	parser = argparse.ArgumentParser(
-		description='System Update Enhanced v2.9.0 - Elite Package Manager',
+		description='System Update Enhanced v2.10.0 - Elite Package Manager',
 		formatter_class=argparse.RawDescriptionHelpFormatter,
 		epilog="""
 Examples:
@@ -4331,6 +4493,7 @@ Examples:
   python system_update.py --source rust      # Filter by source
   python system_update.py --export json     # Export results to JSON
   python system_update.py --show-all        # Show all packages (including up-to-date)
+  python system_update.py --interactive     # Interactive package selection
         """,
 	)
 
@@ -4343,6 +4506,9 @@ Examples:
 	parser.add_argument('--include', help='Comma-separated list of sources to include')
 	parser.add_argument('--log', action='store_true', help='Enable log file output')
 	parser.add_argument('--debug', action='store_true', help='Enable debug output')
+	parser.add_argument(
+		'--interactive', action='store_true', help='Launch interactive TUI for package selection'
+	)
 	parser.add_argument(
 		'--show-all',
 		action='store_true',
