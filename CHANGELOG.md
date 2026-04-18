@@ -15,6 +15,10 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v2.9.0 (April 2026)
+- **Critical Alert Priority**: Critical vulnerabilities now sorted first and highlighted with 🚨 emoji and bold red blink effect
+- **Security Update Auto-Priority**: Vulnerable packages are now prioritized and updated separately from regular updates
+
 ### v2.8.0 (April 2026)
 - **Python-only Repository**: Simplified to only Python implementation (removed Node.js and PowerShell scripts)
 - **Repository Cleanup**: Removed all Node.js and PowerShell files, tests, and documentation

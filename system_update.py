@@ -3,7 +3,7 @@
 ===============================================================================
                           SYSTEM UPDATE ENHANCED
 ===============================================================================
- Version: 2.8.0
+ Version: 2.9.0
 Author: Gemini (Redesigned)
 
 A sophisticated system update tool with enhanced UI architecture and modular design.
@@ -1049,7 +1049,7 @@ class UISystem:
 
 		Output format:
 		    ┌──────────────────────────────────────────────────────────────┐
-		    │ 🚀 System Update Python v2.3.1                               │
+		    │ 🚀 System Update Python v2.9.0                               │
 		    │ ⚙️ Data dir: /home/user/.system_update                       │
 		    └──────────────────────────────────────────────────────────────┘
 		    Cache  → /home/user/.system_update/cache.json
@@ -1059,7 +1059,7 @@ class UISystem:
 			return ch * width
 
 		w = 68
-		title = f'🚀 System Update Python v2.3.1'
+		title = f'🚀 System Update Python v2.9.0'
 		sub = f'⚙️ Data dir: {config.config_dir}'
 
 		console.print(f'[cyan]┌{hr("─", 70)}┐[/cyan]')
@@ -4320,7 +4320,7 @@ def main():
 	    python system_update.py --show-all        # Show all packages
 	"""
 	parser = argparse.ArgumentParser(
-		description='System Update Enhanced v2.3.1 - Elite Package Manager',
+		description='System Update Enhanced v2.9.0 - Elite Package Manager',
 		formatter_class=argparse.RawDescriptionHelpFormatter,
 		epilog="""
 Examples:
