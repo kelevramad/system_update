@@ -3,7 +3,7 @@
 ===============================================================================
                           SYSTEM UPDATE ENHANCED
 ===============================================================================
- Version: 3.2.0
+ Version: 3.2.1
 Author: Gemini (Redesigned)
 
 A sophisticated system update tool with enhanced UI architecture and modular design.
@@ -1060,7 +1060,7 @@ class UISystem:
 			return ch * width
 
 		w = 68
-		title = f'🚀 System Update Python v3.2.0'
+		title = f'🚀 System Update Python v3.2.1'
 		sub = f'⚙️ Data dir: {config.config_dir}'
 
 		console.print(f'[cyan]┌{hr("─", 70)}┐[/cyan]')
@@ -2147,23 +2147,26 @@ class UpdateChecker:
 		# Filter to only sources with apps
 		active_sources = [(name, apps_list) for name, apps_list in sources.items() if apps_list]
 
-		# Check updates for each source using Rich Progress with ETA
+		# Check updates with per-source progress bars
 		with Progress(
 			TextColumn('{task.description}'),
 			BarColumn(
-				bar_width=26,
-				complete_style='white',
-				style='dim white',
-				finished_style='white',
+				bar_width=16,
+				complete_style='yellow',
+				style='dim yellow',
+				finished_style='yellow',
 			),
-			TextColumn('[progress.percentage]{task.percentage:>3.0f}%'),
 			MofNCompleteColumn(),
 			TimeElapsedColumn(),
-			TimeRemainingColumn(),
-			TextColumn('{task.fields[extra]}'),
 			console=console,
 		) as progress:
-			task = progress.add_task('🔄 Checking updates', total=len(active_sources), extra='')
+			# Create individual task for each source
+			source_tasks = {}
+			for name, apps_list in active_sources:
+				source_tasks[name] = progress.add_task(
+					f'🔄 {source_badge(name)}',
+					total=1,
+				)
 
 			for source_name, source_apps in active_sources:
 				source_updates = 0
@@ -2195,22 +2198,19 @@ class UpdateChecker:
 
 				total_updates += source_updates
 
-				# Match JS: source_badge + count or "none"
+				# Update individual task
 				if source_updates > 0:
 					progress.update(
-						task,
-						advance=1,
-						extra=f'{source_badge(source_name)}: [bold yellow]{source_updates}[/bold yellow] update(s)',
+						source_tasks[source_name],
+						completed=1,
+						description=f'✅ {source_badge(source_name)} [{source_updates}]',
 					)
 				else:
 					progress.update(
-						task,
-						advance=1,
-						extra=f'{source_badge(source_name)}: [dim white]none[/dim white]',
+						source_tasks[source_name],
+						completed=1,
+						description=f'✓ {source_badge(source_name)} [0]',
 					)
-
-			# Mark complete matching JS
-			progress.update(task, extra='✅ [bold green]update checks complete[/bold green]')
 
 		# Mark apps with proper status (match JavaScript logic)
 		for app in apps:
@@ -3275,23 +3275,26 @@ class SystemUpdateApp:
 		all_apps = []
 		max_workers = config.settings['performance']['max_workers']
 
-		# Scan in parallel like JS Promise.all using Rich Progress with ETA
+		# Scan in parallel with per-source progress bars
 		with Progress(
 			TextColumn('{task.description}'),
 			BarColumn(
-				bar_width=26,
-				complete_style='white',
-				style='dim white',
-				finished_style='white',
+				bar_width=16,
+				complete_style='cyan',
+				style='dim cyan',
+				finished_style='cyan',
 			),
-			TextColumn('[progress.percentage]{task.percentage:>3.0f}%'),
 			MofNCompleteColumn(),
 			TimeElapsedColumn(),
-			TimeRemainingColumn(),
-			TextColumn('{task.fields[extra]}'),
 			console=console,
 		) as progress:
-			task = progress.add_task('🔎 Scanning', total=len(selected), extra='')
+			# Create an individual progress task for each source
+			source_tasks = {}
+			for name, func in selected:
+				source_tasks[name] = progress.add_task(
+					f'🔎 {source_badge(name)}',
+					total=1,
+				)
 
 			with ThreadPoolExecutor(max_workers=max_workers) as executor:
 				future_to_source = {executor.submit(func): name for name, func in selected}
@@ -3300,22 +3303,22 @@ class SystemUpdateApp:
 					source_name = future_to_source[future]
 					try:
 						apps = future.result()
-						# Deduplicate by source|name|version
 						unique_apps = list(
 							{f'{a.source}|{a.name}|{a.version}'.lower(): a for a in apps}.values()
 						)
 						all_apps.extend(unique_apps)
-						# Match JS: source_badge + count
 						progress.update(
-							task,
-							advance=1,
-							extra=f'{source_badge(source_name)} [bold cyan]{str(len(unique_apps)).rjust(4)}[/bold cyan] apps',
+							source_tasks[source_name],
+							completed=1,
+							description=f'✅ {source_badge(source_name)} [{len(unique_apps)}]',
 						)
 					except Exception as e:
-						console.print(f'  [red]✗[/red] {source_name} failed: {e}')
-
-			# Mark complete matching JS
-			progress.update(task, extra='✅ [bold green]scan complete[/bold green]')
+						progress.update(
+							source_tasks[source_name],
+							completed=1,
+							description=f'❌ {source_badge(source_name)} error',
+						)
+						console.print(f'  [red]✗[/red] {source_name}: {e}')
 
 		# Return unique apps sorted like JS
 		return sorted(all_apps, key=lambda x: f'{x.source}{x.name}')
@@ -4069,23 +4072,26 @@ class SystemUpdateApp:
 				scan_time = time.time() - start_time
 				return apps, total_updates, scan_time
 
+			# Check vulnerabilities with per-source progress bars
 			with Progress(
 				TextColumn('{task.description}'),
 				BarColumn(
-					bar_width=26,
-					complete_style='white',
-					style='dim white',
-					finished_style='white',
+					bar_width=16,
+					complete_style='red',
+					style='dim red',
+					finished_style='red',
 				),
-				TextColumn('[progress.percentage]{task.percentage:>3.0f}%'),
 				MofNCompleteColumn(),
 				TimeElapsedColumn(),
-				TextColumn('{task.fields[extra]}'),
 				console=console,
 			) as progress:
-				task = progress.add_task(
-					'🔒 Checking vulnerabilities', total=len(active_security), extra=''
-				)
+				# Create individual task for each security source
+				source_tasks = {}
+				for name, apps_list in active_security:
+					source_tasks[name] = progress.add_task(
+						f'🔒 {name}',
+						total=1,
+					)
 				security_vulns = []
 
 				for source_name, source_apps in active_security:
@@ -4116,15 +4122,19 @@ class SystemUpdateApp:
 
 					security_vulns.extend(source_vulns)
 
-					extra = (
-						f'{source_name} {len(source_vulns)} vuln(s)'
-						if source_vulns
-						else f'{source_name} none'
-					)
-					progress.update(task, advance=1, extra=extra)
-
-			num_sources = len(active_security)
-			progress.update(task, completed=num_sources)
+					# Update individual task
+					if source_vulns:
+						progress.update(
+							source_tasks[source_name],
+							completed=1,
+							description=f'🔥 {source_name} [{len(source_vulns)}]',
+						)
+					else:
+						progress.update(
+							source_tasks[source_name],
+							completed=1,
+							description=f'✓ {source_name} [0]',
+						)
 
 			if security_vulns:
 				console.print(
@@ -4604,7 +4614,7 @@ def main():
   python system_update.py --interactive     # Interactive package selection
 	"""
 	parser = argparse.ArgumentParser(
-		description='System Update Enhanced v3.2.0 - Elite Package Manager',
+		description='System Update Enhanced v3.2.1 - Elite Package Manager',
 		formatter_class=argparse.RawDescriptionHelpFormatter,
 		epilog="""
 Examples:
