@@ -3,7 +3,7 @@
 ================================================================================
                           SYSTEM UPDATE ENHANCED
 ================================================================================
-  Version: 3.6.0
+  Version: 3.7.0
  Author: Gemini (Redesigned)
 
 A sophisticated system update tool with enhanced UI architecture and modular design.
@@ -766,6 +766,8 @@ class SystemConfig:
 		# Default settings organized by category
 		self.settings = {
 			'version': 1,
+			'log_level': 'WARNING',
+			'exclude': [],
 			'cache': {
 				'duration_hours': 2,
 				'enabled': True,
@@ -883,8 +885,76 @@ class SystemConfig:
 			# Merge with defaults
 			self._merge_settings(self.settings, loaded_settings)
 			
-			# Config Validation
-			self._validate_config()
+		# Apply Environment Variables (Overrides file configs)
+		self._load_env_vars()
+		
+		# Config Validation
+		self._validate_config()
+
+	def _load_env_vars(self):
+		"""
+		Dynamically load and override settings from environment variables.
+		Supports specific shortcuts (like SYSTEM_UPDATE_SOURCES) and 
+		generic nested overrides (like SYSTEM_UPDATE_PERFORMANCE__MAX_WORKERS).
+		"""
+		# 1. Handle specific shortcuts
+		if 'SYSTEM_UPDATE_SOURCES' in os.environ:
+			sources_str = os.environ['SYSTEM_UPDATE_SOURCES']
+			source_list = [s.strip().lower() for s in sources_str.split(',') if s.strip()]
+			# Handle choco alias in env vars
+			if 'choco' in source_list:
+				source_list.append('chocolatey')
+			for src in self.settings['sources']:
+				self.settings['sources'][src] = src in source_list
+				
+		if 'SYSTEM_UPDATE_TIMEOUT' in os.environ:
+			try:
+				self.settings['performance']['timeout_seconds'] = int(os.environ['SYSTEM_UPDATE_TIMEOUT'])
+			except ValueError:
+				pass
+				
+		if 'SYSTEM_UPDATE_WORKERS' in os.environ:
+			try:
+				self.settings['performance']['max_workers'] = int(os.environ['SYSTEM_UPDATE_WORKERS'])
+			except ValueError:
+				pass
+				
+		if 'SYSTEM_UPDATE_EXCLUDE' in os.environ:
+			exclude_str = os.environ['SYSTEM_UPDATE_EXCLUDE']
+			self.settings.setdefault('exclude', [])
+			self.settings['exclude'].extend([e.strip() for e in exclude_str.split(',') if e.strip()])
+			
+		if 'SYSTEM_UPDATE_LOG_LEVEL' in os.environ:
+			self.settings['log_level'] = os.environ['SYSTEM_UPDATE_LOG_LEVEL'].upper()
+
+		# 2. Generic Double-Underscore nested overrides mapping
+		prefix = "SYSTEM_UPDATE_"
+		for key, val in os.environ.items():
+			if key.startswith(prefix) and "__" in key:
+				path = key[len(prefix):].lower().split("__")
+				self._set_nested_env_value(self.settings, path, val)
+
+	def _set_nested_env_value(self, target: dict, path: list, value: str):
+		"""Set a nested dictionary value from an environment variable path."""
+		for key in path[:-1]:
+			if key not in target:
+				target[key] = {}
+			target = target[key]
+		
+		# Type casting
+		final_key = path[-1]
+		val_lower = value.lower()
+		if val_lower in ('true', 'yes', '1'):
+			target[final_key] = True
+		elif val_lower in ('false', 'no', '0'):
+			target[final_key] = False
+		elif value.isdigit():
+			target[final_key] = int(value)
+		else:
+			try:
+				target[final_key] = float(value)
+			except ValueError:
+				target[final_key] = value
 
 	def _migrate_config(self, loaded: dict) -> dict:
 		"""Auto-upgrade old configs to current format."""

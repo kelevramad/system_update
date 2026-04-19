@@ -4,7 +4,7 @@
 **Document Version:** 3.0
 **Last Updated:** April 18, 2026
 **Author:** Qwen Code
-**Based On:** `system_update.py` v3.6.0
+**Based On:** `system_update.py` v3.7.0
 
 ---
 
@@ -900,6 +900,7 @@ Errors are displayed with appropriate styling:
 | 3.4.0 | April 2026 | Notification System (Toast, Email, Webhook, Custom scripts) |
 | 3.5.0 | April 2026 | UI Improvements (Themes, Formats, Icons), Column layout adjustments |
 | 3.6.0 | April 2026 | Configuration System (JSON/YAML configs, validation, migration, smart filtering) |
+| 3.7.0 | April 2026 | Advanced Environment Variable System (Dynamic double-underscore nested overrides, auto type-casting, explicit excludes) |
 
 ## Appendix B: Glossary
 
