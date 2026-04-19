@@ -15,6 +15,21 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v4.2.0 (April 2026)
+- **Advanced Environment Variable System**: Comprehensive 12-factor app configuration via environment variables
+  - Implemented core shortcuts: `SYSTEM_UPDATE_SOURCES`, `TIMEOUT`, `WORKERS`, `EXCLUDE`, `LOG_LEVEL`
+  - Added dynamic double-underscore (`__`) override support for *any* nested configuration key (e.g., `SYSTEM_UPDATE_CACHE__ENABLED=false`)
+  - Added smart string-to-boolean/integer type casting for environment variables to ensure safe parsing
+
+### v4.1.0 (April 2026)
+- **Configuration System**: Robust persistent configuration via JSON and YAML
+  - JSON Config File (`~/.system_update/config.json`) with auto-generation and full parameter support
+  - YAML Config Support (`config.yaml`/`config.yml`) with priority loading over JSON
+  - Config Validation with safe default fallbacks for invalid user values
+  - Config Migration schema built-in (`version: 1`) to auto-upgrade legacy formats
+  - Smart Source Filtering: Automatically assumes unlisted sources are `false` if *any* source is explicitly enabled
+  - `choco` alias support for the Chocolatey source
+
 ### v3.7.0 (April 2026)
 - **Advanced Environment Variable System**: Comprehensive 12-factor app configuration via environment variables
   - Implemented core shortcuts: `SYSTEM_UPDATE_SOURCES`, `TIMEOUT`, `WORKERS`, `EXCLUDE`, `LOG_LEVEL`

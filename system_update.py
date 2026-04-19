@@ -3,7 +3,7 @@
 ================================================================================
                           SYSTEM UPDATE ENHANCED
 ================================================================================
-  Version: 3.7.0
+  Version: 4.2.0
  Author: Gemini (Redesigned)
 
 A sophisticated system update tool with enhanced UI architecture and modular design.
