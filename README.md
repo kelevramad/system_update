@@ -4,7 +4,7 @@
 
 A comprehensive Python-based system package management tool that scans, checks, and updates software from multiple sources.
 
-**Version:** 4.1.0
+**Version:** 4.2.0
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
 
