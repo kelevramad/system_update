@@ -3,7 +3,7 @@
 ================================================================================
                           SYSTEM UPDATE ENHANCED
 ================================================================================
-  Version: 3.5.0
+  Version: 3.6.0
  Author: Gemini (Redesigned)
 
 A sophisticated system update tool with enhanced UI architecture and modular design.
@@ -755,6 +755,8 @@ class SystemConfig:
 		"""
 		self.config_dir = Path.home() / '.system_update'
 		self.config_file = self.config_dir / 'config.json'
+		self.yaml_config_file = self.config_dir / 'config.yaml'
+		self.yml_config_file = self.config_dir / 'config.yml'
 		self.cache_file = self.config_dir / 'cache.json'
 		self.log_file = self.config_dir / 'system.log'
 
@@ -763,6 +765,7 @@ class SystemConfig:
 
 		# Default settings organized by category
 		self.settings = {
+			'version': 1,
 			'cache': {
 				'duration_hours': 2,
 				'enabled': True,
@@ -784,6 +787,9 @@ class SystemConfig:
 				'registry': True,
 				'rust': True,
 				'scoop': True,
+				'dotnet': True,
+				'appx': True,
+				'msix': True,
 			},
 			'security': {
 				'enabled': True,
@@ -825,21 +831,98 @@ class SystemConfig:
 		"""
 		Load configuration from file with error handling.
 
-		Reads the configuration JSON file and merges loaded settings with defaults.
+		Reads the configuration JSON or YAML file and merges loaded settings with defaults.
 		This ensures that new settings added in future versions are automatically
 		included while preserving user customizations.
-
-		Note:
-		    If the config file doesn't exist or is invalid, defaults are used.
-		    Errors are logged but don't prevent application startup.
 		"""
-		if self.config_file.exists():
+		loaded_settings = None
+
+		# Try loading YAML config first
+		yaml_path = self.yaml_config_file if self.yaml_config_file.exists() else (
+			self.yml_config_file if self.yml_config_file.exists() else None
+		)
+		
+		if yaml_path:
+			try:
+				import yaml
+				with open(yaml_path, 'r', encoding='utf-8') as f:
+					loaded_settings = yaml.safe_load(f)
+			except ImportError:
+				logging.warning("PyYAML not installed but YAML config found.")
+			except Exception as e:
+				logging.warning(f"Failed to load YAML config: {e}")
+
+		# Fall back to JSON config
+		if not loaded_settings and self.config_file.exists():
 			try:
 				with open(self.config_file, 'r', encoding='utf-8') as f:
 					loaded_settings = json.load(f)
-					self._merge_settings(self.settings, loaded_settings)
 			except Exception as e:
 				logging.warning(f'Failed to load config: {e}')
+
+		if loaded_settings and isinstance(loaded_settings, dict):
+			# Config Migration
+			loaded_settings = self._migrate_config(loaded_settings)
+			
+			# Smart Sources Filtering
+			# If user explicitly enables ANY source, we assume unlisted sources are False.
+			# If they only provide False sources, we keep unlisted ones as True.
+			if 'sources' in loaded_settings and isinstance(loaded_settings['sources'], dict):
+				user_sources = loaded_settings['sources']
+				
+				# Handle aliases
+				if 'choco' in user_sources:
+					user_sources['chocolatey'] = user_sources.pop('choco')
+					
+				has_explicit_true = any(val is True for val in user_sources.values())
+				if has_explicit_true:
+					for src in self.settings['sources']:
+						if src not in user_sources:
+							self.settings['sources'][src] = False
+			
+			# Merge with defaults
+			self._merge_settings(self.settings, loaded_settings)
+			
+			# Config Validation
+			self._validate_config()
+
+	def _migrate_config(self, loaded: dict) -> dict:
+		"""Auto-upgrade old configs to current format."""
+		version = loaded.get('version', 0)
+		if version < 1:
+			# Auto-upgrade logic for configs prior to versioning
+			loaded['version'] = 1
+		return loaded
+
+	def _validate_config(self):
+		"""Validate configuration values and reset invalid ones to defaults."""
+		# Validate cache duration
+		if not isinstance(self.settings['cache']['duration_hours'], (int, float)) or self.settings['cache']['duration_hours'] < 0:
+			logging.warning("Invalid cache.duration_hours. Resetting to default (2).")
+			self.settings['cache']['duration_hours'] = 2
+		
+		# Validate performance max_workers
+		if not isinstance(self.settings['performance']['max_workers'], int) or self.settings['performance']['max_workers'] < 1:
+			logging.warning("Invalid performance.max_workers. Resetting to default (6).")
+			self.settings['performance']['max_workers'] = 6
+			
+		# Validate performance timeout
+		if not isinstance(self.settings['performance']['timeout_seconds'], int) or self.settings['performance']['timeout_seconds'] < 1:
+			logging.warning("Invalid performance.timeout_seconds. Resetting to default (45).")
+			self.settings['performance']['timeout_seconds'] = 45
+			
+		# Validate security severity threshold
+		valid_thresholds = ['low', 'medium', 'high', 'critical']
+		try:
+			if self.settings['security']['severity_threshold'].lower() not in valid_thresholds:
+				logging.warning("Invalid security.severity_threshold. Resetting to 'medium'.")
+				self.settings['security']['severity_threshold'] = 'medium'
+		except (AttributeError, KeyError):
+			self.settings['security']['severity_threshold'] = 'medium'
+			
+		# Ensure core booleans are of boolean type
+		self.settings['cache']['enabled'] = bool(self.settings['cache']['enabled'])
+		self.settings['security']['enabled'] = bool(self.settings['security']['enabled'])
 
 	def _merge_settings(self, base: dict, loaded: dict):
 		"""
@@ -869,16 +952,29 @@ class SystemConfig:
 		"""
 		Save current configuration to file.
 
-		Serializes the current settings dictionary to JSON and writes it to the
-		configuration file. Uses 2-space indentation for readability.
-
-		Note:
-		    Errors during save are logged but don't raise exceptions.
-		    The application can continue running even if save fails.
+		Serializes the current settings dictionary to JSON or YAML and writes it.
+		If a YAML config exists, it updates the YAML file. Otherwise, updates JSON.
+		Uses indentation for readability.
 		"""
+		yaml_path = self.yaml_config_file if self.yaml_config_file.exists() else (
+			self.yml_config_file if self.yml_config_file.exists() else None
+		)
+
 		try:
-			with open(self.config_file, 'w', encoding='utf-8') as f:
-				json.dump(self.settings, f, indent=2, default=str)
+			if yaml_path:
+				import yaml
+				with open(yaml_path, 'w', encoding='utf-8') as f:
+					yaml.dump(self.settings, f, default_flow_style=False, sort_keys=False)
+			else:
+				with open(self.config_file, 'w', encoding='utf-8') as f:
+					json.dump(self.settings, f, indent=2, default=str)
+		except ImportError:
+			# Fallback to JSON if PyYAML isn't available
+			try:
+				with open(self.config_file, 'w', encoding='utf-8') as f:
+					json.dump(self.settings, f, indent=2, default=str)
+			except Exception as e:
+				logging.error(f'Failed to save config: {e}')
 		except Exception as e:
 			logging.error(f'Failed to save config: {e}')
 
