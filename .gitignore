@@ -46,3 +46,5 @@ build/
 ENHANCEMENT_PLAN.md
 coverage/
 .coverage
+test_vuln_history.json
+test_vuln_history2.json
