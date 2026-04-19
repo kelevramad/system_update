@@ -745,26 +745,34 @@ class SystemConfig:
 	    >>> config.save()  # Persist changes
 	"""
 
-	def __init__(self):
+	def __init__(self, profile_name: Optional[str] = None):
 		"""
 		Initialize SystemConfig with default settings and create config directory.
 
 		Sets up the configuration directory structure and initializes all settings
 		to their default values. If a configuration file exists, it will be loaded
 		and merged with defaults.
+
+		Args:
+		    profile_name: Optional name of the profile to use.
 		"""
 		self.config_dir = Path.home() / '.system_update'
-		self.config_file = self.config_dir / 'config.json'
-		self.yaml_config_file = self.config_dir / 'config.yaml'
-		self.yml_config_file = self.config_dir / 'config.yml'
-		self.cache_file = self.config_dir / 'cache.json'
-		self.log_file = self.config_dir / 'system.log'
+		self.profiles_dir = self.config_dir / 'profiles'
+		self.current_profile = profile_name
 
 		# Create config directory if it doesn't exist
 		self.config_dir.mkdir(exist_ok=True)
+		self.profiles_dir.mkdir(exist_ok=True)
+
+		self._update_paths(profile_name)
 
 		# Default settings organized by category
-		self.settings = {
+		self.settings = self._get_default_settings()
+		self.load()
+
+	def _get_default_settings(self) -> Dict:
+		"""Return the default settings dictionary."""
+		return {
 			'version': 1,
 			'log_level': 'WARNING',
 			'exclude': [],
@@ -827,7 +835,85 @@ class SystemConfig:
 				'custom_script_path': '',
 			},
 		}
+
+	def _update_paths(self, profile_name: Optional[str]):
+		"""Update file paths based on the current profile."""
+		if profile_name:
+			profile_dir = self.profiles_dir / profile_name
+			profile_dir.mkdir(exist_ok=True)
+			self.config_file = profile_dir / 'config.json'
+			self.yaml_config_file = profile_dir / 'config.yaml'
+			self.yml_config_file = profile_dir / 'config.yml'
+			self.cache_file = profile_dir / 'cache.json'
+			self.log_file = profile_dir / 'system.log'
+		else:
+			self.config_file = self.config_dir / 'config.json'
+			self.yaml_config_file = self.config_dir / 'config.yaml'
+			self.yml_config_file = self.config_dir / 'config.yml'
+			self.cache_file = self.config_dir / 'cache.json'
+			self.log_file = self.config_dir / 'system.log'
+
+	def reinit(self, profile_name: Optional[str]):
+		"""
+		Switch to a different profile and reload configuration.
+
+		Args:
+		    profile_name: Name of the profile to switch to.
+		"""
+		self.current_profile = profile_name
+		self._update_paths(profile_name)
+
+		# Reset settings to defaults before loading
+		# This ensures switching back to default profile (None) works correctly
+		# without carrying over settings from the previous profile.
+		self.settings = self._get_default_settings()
 		self.load()
+
+	def export_profile(self, output_path: str):
+		"""
+		Export current profile settings to a JSON file.
+
+		Args:
+		    output_path: Path where the profile JSON will be saved.
+		"""
+		try:
+			export_data = {
+				'profile_name': self.current_profile or 'default',
+				'settings': self.settings,
+				'exported_at': datetime.now().isoformat(),
+			}
+			with open(output_path, 'w', encoding='utf-8') as f:
+				json.dump(export_data, f, indent=2)
+			return True
+		except Exception as e:
+			logging.error(f'Failed to export profile: {e}')
+			return False
+
+	def import_profile(self, input_path: str, profile_name: Optional[str] = None):
+		"""
+		Import settings from a profile JSON file.
+
+		Args:
+		    input_path: Path to the profile JSON file.
+		    profile_name: Optional new name for the imported profile.
+		"""
+		try:
+			with open(input_path, 'r', encoding='utf-8') as f:
+				import_data = json.load(f)
+
+			settings = import_data.get('settings')
+			if not settings:
+				logging.error('Invalid profile file: missing settings')
+				return False
+
+			target_profile = profile_name or import_data.get('profile_name', 'imported')
+			self.reinit(target_profile)
+			self.settings = settings
+			self.save()
+			return True
+		except Exception as e:
+			logging.error(f'Failed to import profile: {e}')
+			return False
 
 	def load(self):
 		"""
@@ -840,19 +926,22 @@ class SystemConfig:
 		loaded_settings = None
 
 		# Try loading YAML config first
-		yaml_path = self.yaml_config_file if self.yaml_config_file.exists() else (
-			self.yml_config_file if self.yml_config_file.exists() else None
+		yaml_path = (
+			self.yaml_config_file
+			if self.yaml_config_file.exists()
+			else (self.yml_config_file if self.yml_config_file.exists() else None)
 		)
-		
+
 		if yaml_path:
 			try:
 				import yaml
+
 				with open(yaml_path, 'r', encoding='utf-8') as f:
 					loaded_settings = yaml.safe_load(f)
 			except ImportError:
-				logging.warning("PyYAML not installed but YAML config found.")
+				logging.warning('PyYAML not installed but YAML config found.')
 			except Exception as e:
-				logging.warning(f"Failed to load YAML config: {e}")
+				logging.warning(f'Failed to load YAML config: {e}')
 
 		# Fall back to JSON config
 		if not loaded_settings and self.config_file.exists():
@@ -865,36 +954,36 @@ class SystemConfig:
 		if loaded_settings and isinstance(loaded_settings, dict):
 			# Config Migration
 			loaded_settings = self._migrate_config(loaded_settings)
-			
+
 			# Smart Sources Filtering
 			# If user explicitly enables ANY source, we assume unlisted sources are False.
 			# If they only provide False sources, we keep unlisted ones as True.
 			if 'sources' in loaded_settings and isinstance(loaded_settings['sources'], dict):
 				user_sources = loaded_settings['sources']
-				
+
 				# Handle aliases
 				if 'choco' in user_sources:
 					user_sources['chocolatey'] = user_sources.pop('choco')
-					
+
 				has_explicit_true = any(val is True for val in user_sources.values())
 				if has_explicit_true:
 					for src in self.settings['sources']:
 						if src not in user_sources:
 							self.settings['sources'][src] = False
-			
+
 			# Merge with defaults
 			self._merge_settings(self.settings, loaded_settings)
-			
+
 		# Apply Environment Variables (Overrides file configs)
 		self._load_env_vars()
-		
+
 		# Config Validation
 		self._validate_config()
 
 	def _load_env_vars(self):
 		"""
 		Dynamically load and override settings from environment variables.
-		Supports specific shortcuts (like SYSTEM_UPDATE_SOURCES) and 
+		Supports specific shortcuts (like SYSTEM_UPDATE_SOURCES) and
 		generic nested overrides (like SYSTEM_UPDATE_PERFORMANCE__MAX_WORKERS).
 		"""
 		# 1. Handle specific shortcuts
@@ -906,32 +995,38 @@ class SystemConfig:
 				source_list.append('chocolatey')
 			for src in self.settings['sources']:
 				self.settings['sources'][src] = src in source_list
-				
+
 		if 'SYSTEM_UPDATE_TIMEOUT' in os.environ:
 			try:
-				self.settings['performance']['timeout_seconds'] = int(os.environ['SYSTEM_UPDATE_TIMEOUT'])
+				self.settings['performance']['timeout_seconds'] = int(
+					os.environ['SYSTEM_UPDATE_TIMEOUT']
+				)
 			except ValueError:
 				pass
-				
+
 		if 'SYSTEM_UPDATE_WORKERS' in os.environ:
 			try:
-				self.settings['performance']['max_workers'] = int(os.environ['SYSTEM_UPDATE_WORKERS'])
+				self.settings['performance']['max_workers'] = int(
+					os.environ['SYSTEM_UPDATE_WORKERS']
+				)
 			except ValueError:
 				pass
-				
+
 		if 'SYSTEM_UPDATE_EXCLUDE' in os.environ:
 			exclude_str = os.environ['SYSTEM_UPDATE_EXCLUDE']
 			self.settings.setdefault('exclude', [])
-			self.settings['exclude'].extend([e.strip() for e in exclude_str.split(',') if e.strip()])
-			
+			self.settings['exclude'].extend(
+				[e.strip() for e in exclude_str.split(',') if e.strip()]
+			)
+
 		if 'SYSTEM_UPDATE_LOG_LEVEL' in os.environ:
 			self.settings['log_level'] = os.environ['SYSTEM_UPDATE_LOG_LEVEL'].upper()
 
 		# 2. Generic Double-Underscore nested overrides mapping
-		prefix = "SYSTEM_UPDATE_"
+		prefix = 'SYSTEM_UPDATE_'
 		for key, val in os.environ.items():
-			if key.startswith(prefix) and "__" in key:
-				path = key[len(prefix):].lower().split("__")
+			if key.startswith(prefix) and '__' in key:
+				path = key[len(prefix) :].lower().split('__')
 				self._set_nested_env_value(self.settings, path, val)
 
 	def _set_nested_env_value(self, target: dict, path: list, value: str):
@@ -940,7 +1035,7 @@ class SystemConfig:
 			if key not in target:
 				target[key] = {}
 			target = target[key]
-		
+
 		# Type casting
 		final_key = path[-1]
 		val_lower = value.lower()
@@ -967,20 +1062,29 @@ class SystemConfig:
 	def _validate_config(self):
 		"""Validate configuration values and reset invalid ones to defaults."""
 		# Validate cache duration
-		if not isinstance(self.settings['cache']['duration_hours'], (int, float)) or self.settings['cache']['duration_hours'] < 0:
-			logging.warning("Invalid cache.duration_hours. Resetting to default (2).")
+		if (
+			not isinstance(self.settings['cache']['duration_hours'], (int, float))
+			or self.settings['cache']['duration_hours'] < 0
+		):
+			logging.warning('Invalid cache.duration_hours. Resetting to default (2).')
 			self.settings['cache']['duration_hours'] = 2
-		
+
 		# Validate performance max_workers
-		if not isinstance(self.settings['performance']['max_workers'], int) or self.settings['performance']['max_workers'] < 1:
-			logging.warning("Invalid performance.max_workers. Resetting to default (6).")
+		if (
+			not isinstance(self.settings['performance']['max_workers'], int)
+			or self.settings['performance']['max_workers'] < 1
+		):
+			logging.warning('Invalid performance.max_workers. Resetting to default (6).')
 			self.settings['performance']['max_workers'] = 6
-			
+
 		# Validate performance timeout
-		if not isinstance(self.settings['performance']['timeout_seconds'], int) or self.settings['performance']['timeout_seconds'] < 1:
-			logging.warning("Invalid performance.timeout_seconds. Resetting to default (45).")
+		if (
+			not isinstance(self.settings['performance']['timeout_seconds'], int)
+			or self.settings['performance']['timeout_seconds'] < 1
+		):
+			logging.warning('Invalid performance.timeout_seconds. Resetting to default (45).')
 			self.settings['performance']['timeout_seconds'] = 45
-			
+
 		# Validate security severity threshold
 		valid_thresholds = ['low', 'medium', 'high', 'critical']
 		try:
@@ -989,7 +1093,7 @@ class SystemConfig:
 				self.settings['security']['severity_threshold'] = 'medium'
 		except (AttributeError, KeyError):
 			self.settings['security']['severity_threshold'] = 'medium'
-			
+
 		# Ensure core booleans are of boolean type
 		self.settings['cache']['enabled'] = bool(self.settings['cache']['enabled'])
 		self.settings['security']['enabled'] = bool(self.settings['security']['enabled'])
@@ -1026,13 +1130,16 @@ class SystemConfig:
 		If a YAML config exists, it updates the YAML file. Otherwise, updates JSON.
 		Uses indentation for readability.
 		"""
-		yaml_path = self.yaml_config_file if self.yaml_config_file.exists() else (
-			self.yml_config_file if self.yml_config_file.exists() else None
+		yaml_path = (
+			self.yaml_config_file
+			if self.yaml_config_file.exists()
+			else (self.yml_config_file if self.yml_config_file.exists() else None)
 		)
 
 		try:
 			if yaml_path:
 				import yaml
+
 				with open(yaml_path, 'w', encoding='utf-8') as f:
 					yaml.dump(self.settings, f, default_flow_style=False, sort_keys=False)
 			else:
@@ -1086,7 +1193,8 @@ def setup_logging(debug: bool = False, enable_log: bool = False):
 	console_handler = logging.StreamHandler(sys.stdout)
 	console_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
 	console_handler.setLevel(level)
-	console_handler.stream.reconfigure(encoding='utf-8', errors='replace')
+	if hasattr(console_handler.stream, 'reconfigure'):
+		console_handler.stream.reconfigure(encoding='utf-8', errors='replace')
 	root_logger.addHandler(console_handler)
 
 	# Error handler for separate error log
@@ -5644,6 +5752,11 @@ Examples:
 		help='Show all packages (including up-to-date)',
 	)
 
+	# Profile options
+	parser.add_argument('--profile', help='Switch to a specific configuration profile')
+	parser.add_argument('--profile-export', help='Export current profile to a JSON file')
+	parser.add_argument('--profile-import', help='Import profile from a JSON file')
+
 	# Export options
 	parser.add_argument('--export', choices=['json', 'csv'], help='Export results format')
 	parser.add_argument('--output', help='Output file for export')
@@ -5653,6 +5766,34 @@ Examples:
 	parser.add_argument('--version', help='Target version for package update')
 
 	args = parser.parse_args()
+
+	# Handle profile switching
+	if args.profile:
+		config.reinit(args.profile)
+		# Re-setup logging with new paths if necessary
+		setup_logging(args.debug, args.log)
+
+	# Handle profile export/import
+	if args.profile_export:
+		if config.export_profile(args.profile_export):
+			console.print(f'[green]Successfully exported profile to {args.profile_export}[/green]')
+			return
+		else:
+			console.print(f'[red]Failed to export profile to {args.profile_export}[/red]')
+			sys.exit(1)
+
+	if args.profile_import:
+		if config.import_profile(args.profile_import, args.profile):
+			console.print(
+				f'[green]Successfully imported profile from {args.profile_import}[/green]'
+			)
+			# If we imported into a named profile, make sure it's active
+			if args.profile:
+				config.reinit(args.profile)
+			setup_logging(args.debug, args.log)
+		else:
+			console.print(f'[red]Failed to import profile from {args.profile_import}[/red]')
+			sys.exit(1)
 
 	# Create and run application
 	app = SystemUpdateApp()
