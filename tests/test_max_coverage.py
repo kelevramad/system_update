@@ -110,6 +110,11 @@ def test_run_clear_cache():
     app = SystemUpdateApp()
     args = MagicMock()
     args.clear_cache = True
+    args.history = False
+    args.history_package = None
+    args.history_trends = False
+    args.history_stale = 0
+    args.report = False
 
     with patch.object(app.cache_mgr, 'clear') as mock_clear, \
          patch('system_update.console.print'):
@@ -123,6 +128,11 @@ def test_run_interactive_mode():
     args = MagicMock()
     args.clear_cache = False
     args.interactive = True
+    args.history = False
+    args.history_package = None
+    args.history_trends = False
+    args.history_stale = 0
+    args.report = False
 
     with patch.object(SystemUpdateApp, 'launch_interactive_mode') as mock_int, \
          patch('system_update.console.print'):
@@ -140,8 +150,14 @@ def test_run_normal_scan():
     args.dry_run = False
     args.package = None
     args.update_source = None
+    args.history = False
+    args.history_package = None
+    args.history_trends = False
+    args.history_stale = 0
+    args.report = False
 
     with patch.object(SystemUpdateApp, 'scan_system', return_value=[]) as mock_scan, \
+         patch.object(app.history_db, 'record_scan'), \
          patch('system_update.console.print'):
         app.run(args)
         mock_scan.assert_called()

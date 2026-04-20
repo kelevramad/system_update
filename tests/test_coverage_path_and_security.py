@@ -114,6 +114,7 @@ def test_check_npm_vulns_malformed_json(mock_run):
     mock_run.return_value = "invalid json{"
     vulns = app_obj._check_npm_vulns(apps)
     assert isinstance(vulns, list)
+    app_obj.history_db.close()
 
 
 @patch('system_update.run_command')
@@ -125,3 +126,4 @@ def test_check_pip_vulns_malformed_json(mock_run):
     mock_run.return_value = "invalid{"
     vulns = app_obj._check_pip_vulns(apps)
     assert isinstance(vulns, list)
+    app_obj.history_db.close()

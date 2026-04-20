@@ -1,7 +1,7 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 3.0
+**Document Version:** 5.1.0
 **Last Updated:** April 18, 2026
 **Author:** Qwen Code
 **Based On:** `system_update.py` v4.2.0

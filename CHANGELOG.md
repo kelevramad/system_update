@@ -15,6 +15,14 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v5.1.0 (April 2026)
+- **Historical Tracking**: SQLite database for scan history and package version tracking
+  - Added `HistoryDatabase` class with tables for scans, package_snapshots, and version_history
+  - Auto-record scans to SQLite database on each scan execution
+  - New CLI flags: `--history`, `--history-package`, `--history-trends`, `--history-stale`
+  - New CLI flags: `--report` with text/html/json output formats
+  - Trend analysis: `get_update_trends()`, `get_stale_packages()`, `get_source_distribution()`
+
 ### v4.2.0 (April 2026)
 - **Advanced Environment Variable System**: Comprehensive 12-factor app configuration via environment variables
   - Implemented core shortcuts: `SYSTEM_UPDATE_SOURCES`, `TIMEOUT`, `WORKERS`, `EXCLUDE`, `LOG_LEVEL`

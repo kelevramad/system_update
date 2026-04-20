@@ -85,10 +85,10 @@ def test_check_pip_updates_invalid_json(mock_run):
     assert count == 0
 
 
-@patch('system_update.run_command')
-def test_check_path_updates_command_not_found(mock_run):
+@patch('urllib.request.urlopen')
+def test_check_path_updates_command_not_found(mock_urlopen):
     """FileNotFoundError em _check_path_updates → count = 0, sem crash."""
-    mock_run.side_effect = FileNotFoundError("Command not found")
+    mock_urlopen.side_effect = FileNotFoundError("Command not found")
     apps = [AppInfo(name="git", source="PATH", version="1.0")]
     count = UpdateChecker._check_path_updates(apps)
     assert count == 0
@@ -115,6 +115,7 @@ def test_check_npm_vulns_malformed(mock_run):
     mock_run.return_value = "not json"
     vulns = app_obj._check_npm_vulns(apps)
     assert isinstance(vulns, list)
+    app_obj.history_db.close()
 
 
 @patch('system_update.run_command')
@@ -125,6 +126,7 @@ def test_check_pip_vulns_malformed(mock_run):
     mock_run.return_value = "invalid{"
     vulns = app_obj._check_pip_vulns(apps)
     assert isinstance(vulns, list)
+    app_obj.history_db.close()
 
 
 # ─── Export ────────────────────────────────────────────────────────────────────

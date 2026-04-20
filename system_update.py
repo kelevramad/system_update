@@ -3,7 +3,7 @@
 ================================================================================
                           SYSTEM UPDATE ENHANCED
 ================================================================================
-  Version: 4.2.0
+  Version: 5.1.0
  Author: Gemini (Redesigned)
 
 A sophisticated system update tool with enhanced UI architecture and modular design.
@@ -48,6 +48,7 @@ import re  # Regular expressions for parsing
 import shutil  # Shell utilities (which command lookup)
 import subprocess  # External command execution
 import sys  # System-specific parameters and I/O
+import sqlite3  # SQLite database for historical tracking
 import time  # Timing and performance measurement
 import urllib.request  # OSV API HTTP requests
 
@@ -1357,6 +1358,278 @@ class CacheManager:
 			self.cache_file.unlink()
 
 
+class HistoryDatabase:
+	"""
+	SQLite database for historical tracking of scans and packages.
+
+	This class manages a SQLite database to track scan history, package
+	versions over time, vulnerability trends, and statistical analysis.
+	Data is persisted to ~/.system_update/history.db.
+
+	Attributes:
+	    db_path: Path to the SQLite database file.
+	    conn: Active database connection.
+
+	Example:
+	    >>> db = HistoryDatabase()
+	    >>> db.record_scan(apps)
+	    >>> versions = db.get_version_history('git')
+	"""
+
+	def __init__(self, db_path: Path = None, connect: bool = True):
+		"""
+		Initialize HistoryDatabase.
+
+		Args:
+		    db_path: Optional custom path for the database file.
+		        Defaults to ~/.system_update/history.db.
+		    connect: If True, creates connection immediately. Set to False for lazy initialization.
+		"""
+		self.db_path = db_path or (Path.home() / '.system_update' / 'history.db')
+		self.conn: Optional[sqlite3.Connection] = None
+		if connect:
+			self._connect()
+
+	def _connect(self):
+		"""Create database connection and schema."""
+		if self.conn is not None:
+			return
+		self.db_path.parent.mkdir(exist_ok=True)
+		self.conn = sqlite3.connect(str(self.db_path))
+		self.conn.row_factory = sqlite3.Row
+		self._create_schema()
+
+	def _create_schema(self):
+		"""Create database tables if they don't exist."""
+		self.conn.executescript('''
+			CREATE TABLE IF NOT EXISTS scans (
+				id TEXT PRIMARY KEY,
+				timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+				source TEXT,
+				package_count INTEGER DEFAULT 0,
+				update_count INTEGER DEFAULT 0,
+				vulnerability_count INTEGER DEFAULT 0,
+				duration_seconds REAL DEFAULT 0
+			);
+
+			CREATE TABLE IF NOT EXISTS package_snapshots (
+				id INTEGER PRIMARY KEY,
+				scan_id TEXT REFERENCES scans(id),
+				name TEXT NOT NULL,
+				source TEXT,
+				version TEXT,
+				latest_version TEXT,
+				update_status TEXT,
+				has_vulnerability INTEGER DEFAULT 0
+			);
+
+			CREATE INDEX IF NOT EXISTS idx_snapshots_scan ON package_snapshots(scan_id);
+			CREATE INDEX IF NOT EXISTS idx_snapshots_name ON package_snapshots(name, source);
+
+			CREATE TABLE IF NOT EXISTS version_history (
+				id INTEGER PRIMARY KEY,
+				package_name TEXT NOT NULL,
+				source TEXT,
+				version TEXT NOT NULL,
+				timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+				change_type TEXT DEFAULT 'seen'
+			);
+
+			CREATE INDEX IF NOT EXISTS idx_version_name ON version_history(package_name, source);
+		''')
+		self.conn.commit()
+
+	def _ensure_connection(self):
+		"""Ensure database connection exists."""
+		if self.conn is None:
+			self._connect()
+
+	def record_scan(
+		self,
+		apps: List[AppInfo],
+		scan_id: str,
+		source: str,
+		duration_seconds: float,
+	):
+		"""
+		Record a complete scan session with all package data.
+
+		Args:
+		    apps: List of AppInfo objects from the scan.
+		    scan_id: Unique identifier for this scan.
+		    source: Comma-separated sources that were scanned.
+		    duration_seconds: Time taken for the scan.
+		"""
+		self._ensure_connection()
+		update_count = sum(1 for a in apps if a.has_update)
+		vuln_count = sum(1 for a in apps if a.is_vulnerable)
+
+		self.conn.execute(
+			'''INSERT INTO scans (id, source, package_count, update_count, vulnerability_count, duration_seconds)
+			   VALUES (?, ?, ?, ?, ?, ?)''',
+			(scan_id, source, len(apps), update_count, vuln_count, duration_seconds),
+		)
+
+		for app in apps:
+			self.conn.execute(
+				'''INSERT INTO package_snapshots
+				   (scan_id, name, source, version, latest_version, update_status, has_vulnerability)
+				   VALUES (?, ?, ?, ?, ?, ?, ?)''',
+				(
+					scan_id,
+					app.name,
+					app.source,
+					app.version,
+					app.latest_version,
+					app.update_status.value,
+					1 if app.is_vulnerable else 0,
+				),
+			)
+
+			self.conn.execute(
+				'''INSERT OR IGNORE INTO version_history (package_name, source, version, change_type)
+				   VALUES (?, ?, ?, 'seen')''',
+				(app.name, app.source, app.version),
+			)
+
+		self.conn.commit()
+
+	def get_scans(self, limit: int = 10) -> List[Dict]:
+		"""
+		Get recent scan history.
+
+		Args:
+		    limit: Maximum number of scans to return.
+
+		Returns:
+		    List of scan records as dictionaries.
+		"""
+		self._ensure_connection()
+		cursor = self.conn.execute(
+			'SELECT * FROM scans ORDER BY timestamp DESC LIMIT ?', (limit,)
+		)
+		return [dict(row) for row in cursor.fetchall()]
+
+	def get_package_history(
+		self, package_name: str, source: Optional[str] = None
+	) -> List[Dict]:
+		"""
+		Get version history for a specific package.
+
+		Args:
+		    package_name: Name of the package.
+			source: Optional source filter (e.g., 'npm', 'pip').
+
+		Returns:
+		    List of version records ordered by timestamp.
+		"""
+		self._ensure_connection()
+		if source:
+			cursor = self.conn.execute(
+				'''SELECT * FROM version_history
+				   WHERE package_name = ? AND source = ?
+				   ORDER BY timestamp DESC''',
+				(package_name, source),
+			)
+		else:
+			cursor = self.conn.execute(
+				'''SELECT * FROM version_history
+				   WHERE package_name = ?
+				   ORDER BY timestamp DESC''',
+				(package_name,),
+			)
+		return [dict(row) for row in cursor.fetchall()]
+
+	def get_update_trends(self, days: int = 30) -> Dict:
+		"""
+		Get update trend statistics over a period.
+
+		Args:
+		    days: Number of days to analyze.
+
+		Returns:
+		    Dictionary with trend statistics.
+		"""
+		self._ensure_connection()
+		cursor = self.conn.execute(
+			'''SELECT source,
+					  COUNT(*) as total_scans,
+					  SUM(package_count) as total_packages,
+					  SUM(update_count) as total_updates
+			   FROM scans
+			   WHERE timestamp >= datetime('now', '-' || ? || ' days')
+			   GROUP BY source''',
+			(days,),
+		)
+		sources = [dict(row) for row in cursor.fetchall()]
+
+		cursor = self.conn.execute(
+			'''SELECT COUNT(DISTINCT package_name) as package_count
+			   FROM version_history
+			   WHERE timestamp >= datetime('now', '-' || ? || ' days')''',
+			(days,),
+		)
+		unique_packages = cursor.fetchone()[0]
+
+		return {
+			'period_days': days,
+			'source_stats': sources,
+			'unique_packages': unique_packages,
+		}
+
+	def get_stale_packages(self, days: int = 90) -> List[Dict]:
+		"""
+		Get packages that haven't been updated in specified days.
+
+		Args:
+		    days: Number of days without update to consider stale.
+
+		Returns:
+		    List of stale package records.
+		"""
+		self._ensure_connection()
+		cursor = self.conn.execute(
+			'''SELECT package_name, source, MAX(timestamp) as last_seen
+			   FROM version_history
+			   WHERE timestamp < datetime('now', '-' || ? || ' days')
+			   GROUP BY package_name, source
+			   ORDER BY last_seen''',
+			(days,),
+		)
+		return [dict(row) for row in cursor.fetchall()]
+
+	def get_source_distribution(self) -> Dict:
+		"""
+		Get current package distribution by source.
+
+		Returns:
+		    Dictionary with counts per source.
+		"""
+		self._ensure_connection()
+		cursor = self.conn.execute(
+			'''SELECT source, COUNT(*) as count
+			   FROM package_snapshots
+			   WHERE scan_id = (SELECT id FROM scans ORDER BY timestamp DESC LIMIT 1)
+			   GROUP BY source''',
+		)
+		return {row['source']: row['count'] for row in cursor.fetchall()}
+
+	def close(self):
+		"""Close database connection."""
+		if self.conn:
+			self.conn.close()
+
+	def __enter__(self):
+		return self
+
+	def __exit__(self, exc_type, exc_val, exc_tb):
+		self.close()
+
+	def __del__(self):
+		"""Ensure connection is closed on garbage collection."""
+		self.close()
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # VULNERABILITY HISTORY TRACKING
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2250,15 +2523,19 @@ class UISystem:
 			status_key = app.update_status.name.lower().replace('_', '_')
 			status_color = ThemeManager.get_status_color(status_key, theme)
 
-			# Latest version column: yellow bold when update available (matching JS)
+			# Latest version column: yellow bold when update available or vulnerable (matching JS)
 			# Show "-" when up-to-date (no update needed)
-			if app.latest_version and app.update_status == UpdateStatus.UPDATE_AVAILABLE:
+			if app.latest_version and (
+				app.update_status == UpdateStatus.UPDATE_AVAILABLE
+				or app.update_status == UpdateStatus.VULNERABLE
+			):
 				latest_text = Text(app.latest_version, style='bold yellow')
 			elif app.update_status == UpdateStatus.UP_TO_DATE:
 				latest_text = '-'
 			else:
 				latest_text = app.latest_version or '-'
 
+			# Vulnerable packages already highlighted with yellow latest version
 			table.add_row(
 				app.name[:30],
 				f'[{src_color}]{src_icon}{app.source}[/{src_color}]',
@@ -2747,18 +3024,15 @@ class PackageScanner:
 		Scan PIP packages.
 
 		Executes 'pip list --format=json' to enumerate installed Python packages.
-		Tries multiple command patterns (python -m pip, pip, pip3) for maximum
-		compatibility across different Python installations.
+		Tries multiple command patterns for maximum compatibility.
 
 		Returns:
 		    List[AppInfo]: List of discovered PIP packages.
-
-		Note:
-		    - Tries multiple pip command patterns for compatibility
-		    - Uses JSON format for reliable parsing
 		"""
 		apps = []
-		# Try multiple pip command patterns like Node.js does
+		seen = set()
+		all_packages = []
+
 		pip_commands = [
 			[sys.executable, '-m', 'pip', 'list', '--format=json'],
 			['pip', 'list', '--format=json'],
@@ -2771,24 +3045,92 @@ class PackageScanner:
 			if output:
 				break
 
-		if not output:
+		# Also try to get global pip packages (outside virtual environment)
+		python_exes = [
+			'C:\\Users\\vchav\\AppData\\Local\\Programs\\Python\\Python313\\python.exe',
+			'C:\\Python313\\python.exe',
+			'C:\\Python312\\python.exe',
+			'python.exe',
+		]
+		for pyexe in python_exes:
+			if os.path.exists(pyexe):
+				try:
+					global_output = run_command(
+						[pyexe, '-m', 'pip', 'list', '--format=json'],
+						allow_failure=True,
+					)
+					if global_output and len(global_output) > 100:
+						if output and len(output) > 100:
+							# Merge both outputs
+							all_packages = PackageScanner._merge_pip_lists(output, global_output)
+						else:
+							all_packages = json.loads(global_output)
+						break
+				except Exception:
+					pass
+
+		# Try user packages as fallback
+		if not all_packages:
+			try:
+				global_output = run_command(
+					[sys.executable, '-m', 'pip', 'list', '--format=json', '--user'],
+					allow_failure=True,
+				)
+				if output and global_output:
+					all_packages = PackageScanner._merge_pip_lists(output, global_output)
+			except Exception:
+				pass
+
+		if not all_packages and output:
+			try:
+				all_packages = json.loads(output)
+			except json.JSONDecodeError:
+				pass
+
+		if not all_packages:
 			return apps
 
 		try:
-			data = json.loads(output)
-			for item in data:
-				apps.append(
-					AppInfo(
-						name=item['name'],
-						source='PIP',
-						version=item['version'],
-						app_id=item['name'],
+			for item in all_packages:
+				name = item.get('name')
+				if name and name not in seen:
+					seen.add(name)
+					apps.append(
+						AppInfo(
+							name=name,
+							source='PIP',
+							version=item.get('version', 'unknown'),
+							app_id=name,
+						)
 					)
-				)
-		except json.JSONDecodeError:
+		except (json.JSONDecodeError, KeyError):
 			pass
 
 		return apps
+
+	@staticmethod
+	def _merge_pip_lists(output1: str, output2: str) -> List[Dict]:
+		"""
+		Merge two pip list JSON outputs, removing duplicates.
+		"""
+		merged = {}
+		try:
+			data1 = json.loads(output1) if isinstance(output1, str) else output1
+			for item in data1:
+				if isinstance(item, dict) and 'name' in item:
+					merged[item['name']] = item
+		except (json.JSONDecodeError, AttributeError):
+			pass
+
+		try:
+			data2 = json.loads(output2) if isinstance(output2, str) else output2
+			for item in data2:
+				if isinstance(item, dict) and 'name' in item:
+					merged[item['name']] = item
+		except (json.JSONDecodeError, AttributeError):
+			pass
+
+		return list(merged.values())
 
 	@staticmethod
 	def scan_path() -> List[AppInfo]:
@@ -3254,15 +3596,26 @@ class UpdateChecker:
 				elif source_name == 'dotnet':
 					source_updates = UpdateChecker._check_dotnet_updates(source_apps)
 
-				total_updates += source_updates
+				# Count each source properly: regular updates + security updates (vulnerable with update)
+				regular = sum(1 for a in source_apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE)
+				security = sum(1 for a in source_apps if a.update_status == UpdateStatus.VULNERABLE and a.latest_version)
+				source_total = regular + security
+				total_updates += source_total
 
-				# Update individual task
-				if source_updates > 0:
-					progress.update(
-						source_tasks[source_name],
-						completed=1,
-						description=f'✅ {source_badge(source_name)} [{source_updates}]',
-					)
+				# Update individual task with breakdown
+				if source_total > 0:
+					if security > 0:
+						progress.update(
+							source_tasks[source_name],
+							completed=1,
+							description=f'✅ {source_badge(source_name)} [{regular}+{security}]',
+						)
+					else:
+						progress.update(
+							source_tasks[source_name],
+							completed=1,
+							description=f'✅ {source_badge(source_name)} [{source_total}]',
+						)
 				else:
 					progress.update(
 						source_tasks[source_name],
@@ -3572,33 +3925,89 @@ class UpdateChecker:
 		    - Uses case-insensitive name matching
 		"""
 		updates = 0
-		pip_commands = [
+
+		# First try uv pip list (in uv environment)
+		uv_commands = [
+			['uv', 'pip', 'list', '--outdated', '--format=json'],
 			[sys.executable, '-m', 'pip', 'list', '--outdated', '--format=json'],
 			['pip', 'list', '--outdated', '--format=json'],
 			['pip3', 'list', '--outdated', '--format=json'],
 		]
 
 		output = None
-		for cmd in pip_commands:
+		for cmd in uv_commands:
 			output = run_command(cmd, allow_failure=True)
 			if output:
 				break
 
-		if not output:
+		# Also try global Python and merge results
+		all_outdated = []
+		if output:
+			try:
+				all_outdated = json.loads(output)
+			except Exception:
+				pass
+
+		python_exes = [
+			'C:\\Users\\vchav\\AppData\\Local\\Programs\\Python\\Python313\\python.exe',
+			'C:\\Python313\\python.exe',
+			'C:\\Python312\\python.exe',
+			'python.exe',
+		]
+		for pyexe in python_exes:
+			if os.path.exists(pyexe):
+				try:
+					global_output = run_command(
+						[pyexe, '-m', 'pip', 'list', '--outdated', '--format=json'],
+						allow_failure=True,
+					)
+					if global_output and len(global_output) > 10:
+						try:
+							global_data = json.loads(global_output)
+							# Merge: add packages not already in list
+							existing_names = {p.get('name', '').lower() for p in all_outdated}
+							for pkg in global_data:
+								if pkg.get('name', '').lower() not in existing_names:
+									all_outdated.append(pkg)
+						except Exception:
+							pass
+				except Exception:
+					pass
+
+		if not all_outdated:
 			return updates
 
-		try:
-			data = json.loads(output)
-			for item in data:
-				name = item.get('name')
-				latest = item.get('latest_version')
-				for app in apps:
-					if app.name.lower() == name.lower():
-						app.latest_version = latest
+		# Process all outdated packages
+		seen_updates = set()
+		for item in all_outdated:
+			if not isinstance(item, dict):
+				continue
+			name = item.get('name', '')
+			latest = item.get('latest_version', '')
+			if not name:
+				continue
+			for app in apps:
+				if app.name.lower() == name.lower() and name.lower() not in seen_updates:
+					app.latest_version = latest
+					if app.update_status != UpdateStatus.VULNERABLE:
 						app.update_status = UpdateStatus.UPDATE_AVAILABLE
-						updates += 1
-		except Exception:
-			pass
+					updates += 1
+					seen_updates.add(name.lower())
+					break
+
+		# For vulnerable packages without latest version, try PyPI API
+		for app in apps:
+			if app.is_vulnerable and not app.latest_version:
+				try:
+					import urllib.request
+					url = f'https://pypi.org/pypi/{app.name}/json'
+					req = urllib.request.Request(url, headers={'User-Agent': 'SystemUpdateCLI'})
+					with urllib.request.urlopen(req, timeout=10) as response:
+						data = json.loads(response.read().decode())
+						if 'info' in data:
+							app.latest_version = data['info'].get('version', '')
+				except Exception:
+					pass
 
 		return updates
 
@@ -4269,10 +4678,18 @@ class SystemUpdateApp:
 		self.executor = UpdateExecutor()
 		self.cache_mgr = CacheManager(config.cache_file, config.settings['cache']['duration_hours'])
 		self.notifier = NotificationManager()
+		self.history_db = HistoryDatabase(
+			Path(config.config_dir) / 'history.db'
+		)
 
 		self.vuln_history = VulnerabilityHistory(
 			Path(config.config_dir) / 'vulnerability_history.json'
 		)
+
+	def __del__(self):
+		"""Close database connections on destruction."""
+		if hasattr(self, 'history_db') and self.history_db:
+			self.history_db.close()
 
 	def scan_system(self, source_filter: Optional[str] = None) -> List[AppInfo]:
 		"""
@@ -5006,6 +5423,175 @@ class SystemUpdateApp:
 					pass
 		return vulns
 
+	def _show_history(self):
+		"""Display recent scan history from SQLite database."""
+		scans = self.history_db.get_scans(limit=10)
+		if not scans:
+			console.print('[yellow]No scan history found.[/yellow]')
+			return
+
+		console.print('\n[bold cyan]📊 Recent Scans[/bold cyan]')
+		console.print('─' * 60)
+		for scan in scans:
+			console.print(
+				f"[dim]{scan['timestamp']}[/dim] | "
+				f"[bold]{scan['package_count']}[/bold] packages | "
+				f"[cyan]{scan['update_count']}[/cyan] updates | "
+				f"[red]{scan['vulnerability_count']}[/red] vulns | "
+				f"[dim]{scan['source']}[/dim]"
+			)
+
+	def _show_package_history(self, package_name: str):
+		"""Show version history for a specific package."""
+		history = self.history_db.get_package_history(package_name)
+		if not history:
+			console.print(f'[yellow]No history found for package: {package_name}[/yellow]')
+			return
+
+		console.print(f'\n[bold cyan]📜 Version History: {package_name}[/bold cyan]')
+		console.print('─' * 60)
+		for record in history[:20]:
+			console.print(
+				f"[dim]{record['timestamp']}[/dim] | "
+				f"[bold]{record['version']}[/bold] | "
+				f"[dim]{record['source']}[/dim]"
+			)
+
+	def _show_trends(self):
+		"""Show update trend statistics."""
+		trends = self.history_db.get_update_trends(days=30)
+		console.print('\n[bold cyan]📈 Update Trends (Last 30 days)[/bold cyan]')
+		console.print('─' * 60)
+
+		for stat in trends['source_stats']:
+			console.print(
+				f"[bold cyan]{stat['source']}[/bold cyan]: "
+				f"[bold]{stat['total_scans']}[/bold] scans, "
+				f"[bold]{stat['total_packages']}[/bold] packages, "
+				f"[green]{stat['total_updates']}[/green] updates"
+			)
+		console.print(f'\n[bold]Unique packages tracked:[/bold] {trends["unique_packages"]}')
+
+	def _show_stale_packages(self, days: int):
+		"""Show packages not updated in specified days."""
+		stale = self.history_db.get_stale_packages(days=days)
+		if not stale:
+			console.print(f'[yellow]No stale packages found (not updated in {days} days).[/yellow]')
+			return
+
+		console.print(f'\n[bold cyan]📦 Stale Packages (not updated in {days} days)[/bold cyan]')
+		console.print('─' * 60)
+		for pkg in stale:
+			console.print(
+				f"[bold]{pkg['package_name']}[/bold] | "
+				f"[dim]{pkg['source']}[/dim] | "
+				f"[yellow]last seen: {pkg['last_seen']}[/yellow]"
+			)
+
+	def _generate_report(self, format_type: str, output_file: Optional[str]):
+		"""Generate a history report in specified format."""
+		import sqlite3
+
+		scans = self.history_db.get_scans(limit=100)
+		trends = self.history_db.get_update_trends(days=30)
+		dist = self.history_db.get_source_distribution()
+
+		if not output_file:
+			timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+			output_file = f'report_{timestamp}.{format_type}'
+
+		if format_type == 'json':
+			data = {
+				'generated_at': datetime.now().isoformat(),
+				'scans': scans,
+				'trends': trends,
+				'distribution': dist,
+			}
+			with open(output_file, 'w', encoding='utf-8') as f:
+				json.dump(data, f, indent=2)
+
+		elif format_type == 'text':
+			lines = []
+			lines.append('=' * 60)
+			lines.append('SYSTEM UPDATE - HISTORY REPORT')
+			lines.append('=' * 60)
+			lines.append(f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+			lines.append('')
+			lines.append('RECENT SCANS')
+			lines.append('-' * 60)
+			for scan in scans[:10]:
+				lines.append(
+					f"{scan['timestamp']} | {scan['package_count']} packages | "
+					f"{scan['update_count']} updates | {scan['vulnerability_count']} vulns"
+				)
+			lines.append('')
+			lines.append('SOURCE DISTRIBUTION')
+			lines.append('-' * 60)
+			for source, count in dist.items():
+				lines.append(f'{source}: {count} packages')
+			lines.append('')
+			lines.append('TRENDS (30 days)')
+			lines.append('-' * 60)
+			for stat in trends['source_stats']:
+				lines.append(
+					f"{stat['source']}: {stat['total_scans']} scans, "
+					f"{stat['total_packages']} packages"
+				)
+			lines.append(f'Unique packages: {trends["unique_packages"]}')
+			lines.append('=' * 60)
+
+			with open(output_file, 'w', encoding='utf-8') as f:
+				f.write('\n'.join(lines))
+
+		elif format_type == 'html':
+			html = f'''<!DOCTYPE html>
+<html>
+<head>
+	<title>System Update - History Report</title>
+	<style>
+		body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 40px; }}
+		h1 {{ color: #2c3e50; }}
+		table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
+		th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+		th {{ background: #3498db; color: white; }}
+		tr:nth-child(even) {{ background: #f2f2f2; }}
+		.section {{ margin: 30px 0; }}
+	</style>
+</head>
+<body>
+	<h1>System Update - History Report</h1>
+	<p>Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
+
+	<div class="section">
+		<h2>Recent Scans</h2>
+		<table>
+			<tr><th>Timestamp</th><th>Packages</th><th>Updates</th><th>Vulnerabilities</th><th>Sources</th></tr>
+			{chr(10).join(f"<tr><td>{s['timestamp']}</td><td>{s['package_count']}</td><td>{s['update_count']}</td><td>{s['vulnerability_count']}</td><td>{s['source']}</td></tr>" for s in scans[:10])}
+		</table>
+	</div>
+
+	<div class="section">
+		<h2>Source Distribution</h2>
+		<table>
+			<tr><th>Source</th><th>Count</th></tr>
+			{chr(10).join(f"<tr><td>{src}</td><td>{cnt}</td></tr>" for src, cnt in dist.items())}
+		</table>
+	</div>
+
+	<div class="section">
+		<h2>Trends (30 days)</h2>
+		<table>
+			<tr><th>Source</th><th>Scans</th><th>Packages</th></tr>
+			{chr(10).join(f"<tr><td>{t['source']}</td><td>{t['total_scans']}</td><td>{t['total_packages']}</td></tr>" for t in trends['source_stats'])}
+		</table>
+	</div>
+</body>
+</html>'''
+			with open(output_file, 'w', encoding='utf-8') as f:
+				f.write(html)
+
+		console.print(f'[green]Report saved to: {output_file}[/green]')
+
 	def run(self, args):
 		"""
 		Main application entry point.
@@ -5052,6 +5638,28 @@ class SystemUpdateApp:
 		use_icons = getattr(args, 'icons', False) or config.settings['ui'].get('use_icons', False)
 		if use_icons:
 			self.settings['ui']['use_icons'] = True
+
+		# Handle history queries
+		if args.history:
+			self._show_history()
+			return
+
+		if args.history_package:
+			self._show_package_history(args.history_package)
+			return
+
+		if args.history_trends:
+			self._show_trends()
+			return
+
+		if args.history_stale > 0:
+			self._show_stale_packages(args.history_stale)
+			return
+
+		# Handle report generation
+		if args.report:
+			self._generate_report(args.report, args.report_output)
+			return
 
 		# Handle cache operations
 		if args.clear_cache:
@@ -5105,11 +5713,18 @@ class SystemUpdateApp:
 			# --- PHASE 2: UPDATE CHECKING ---
 			console.print('[bold cyan]🔄 Checking for updates...[/bold cyan]')
 			# Check updates (progress bar handled internally)
-			total_updates = self.checker.check_all_updates(apps)
+			self.checker.check_all_updates(apps)
 
-			console.print(
-				f'[bold magenta]📊 Detected {total_updates} update candidates.[/bold magenta]\n'
-			)
+			# Count updates properly: regular + security (vulnerable with update available)
+			regular_updates = sum(1 for a in apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE)
+			security_updates = sum(1 for a in apps if a.update_status == UpdateStatus.VULNERABLE and a.latest_version)
+			total_updates = regular_updates + security_updates
+
+			# Only show brief message here - full breakdown shown after security check
+			if security_updates > 0:
+				console.print(f'[bold magenta]📊 Detected {security_updates} security updates (urgent).[/bold magenta]')
+			else:
+				console.print(f'[bold magenta]📊 Detected {total_updates} update candidates.[/bold magenta]\n')
 
 			# --- PHASE 3: SECURITY CHECK with progress bar ---
 			console.print('[bold magenta]🔒 Checking security vulnerabilities...[/bold magenta]')
@@ -5148,9 +5763,6 @@ class SystemUpdateApp:
 				active_security.append(('pypi', unique_apps_by_source['pip']))
 
 			logger.info(f'Security check sources: {[s[0] for s in active_security]}')
-
-			if not active_security:
-				console.print('[bold green]🛡️ No security vulnerabilities found.[/bold green]\n')
 
 			# Check vulnerabilities with per-source progress bars (only if there are security sources)
 			with Progress(
@@ -5223,6 +5835,20 @@ class SystemUpdateApp:
 			else:
 				console.print('[bold green]🛡️ No security vulnerabilities found.[/bold green]\n')
 
+			# For vulnerable packages without latest version, get from PyPI
+			for app in apps:
+				if app.is_vulnerable and not app.latest_version:
+					try:
+						import urllib.request
+						url = f'https://pypi.org/pypi/{app.name}/json'
+						req = urllib.request.Request(url, headers={'User-Agent': 'SystemUpdateCLI'})
+						with urllib.request.urlopen(req, timeout=10) as response:
+							data = json.loads(response.read().decode())
+							if 'info' in data:
+								app.latest_version = data['info'].get('version', '')
+					except Exception:
+						pass
+
 			# Record vulnerabilities to history for tracking over time
 			scan_id = datetime.now().strftime('%Y%m%d_%H%M%S')
 			for app in apps:
@@ -5230,17 +5856,31 @@ class SystemUpdateApp:
 					for finding in app.security_findings:
 						self.vuln_history.record_vulnerability(app, finding, scan_id)
 
+			# Record scan to SQLite history database
+			scanned_sources = args.source if args.source else ','.join(
+				s for s in ['winget', 'chocolatey', 'npm', 'pnpm', 'bun', 'yarn', 'pip', 'path', 'registry', 'rust', 'scoop', 'dotnet', 'appx', 'msix']
+				if config.settings['sources'].get(s, True)
+			)
+			scan_time = time.time() - start_time
+			self.history_db.record_scan(apps, scan_id, scanned_sources, scan_time)
+
 			# Display security statistics for current scan
 			current_stats = self.ui.compute_security_stats(security_vulns)
 			self.ui.display_security_summary(current_stats)
 
+			# Recalculate total_updates to include security updates after security check
+			regular = sum(1 for a in apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE)
+			security = sum(1 for a in apps if a.update_status == UpdateStatus.VULNERABLE and a.latest_version)
+			total_updates = regular + security
+
 			# Save to cache
 			self.cache_mgr.save(apps)
-
-			scan_time = time.time() - start_time
 		else:
 			# For cached results, calculate updates count and set scan time to 0
-			total_updates = sum(1 for a in apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE)
+			# Include both regular updates and vulnerable packages with update available
+			regular = sum(1 for a in apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE)
+			security = sum(1 for a in apps if a.update_status == UpdateStatus.VULNERABLE and a.latest_version)
+			total_updates = regular + security
 			scan_time = 0.0
 
 		# Display summary (always)
@@ -5764,6 +6404,39 @@ Examples:
 	# Package options
 	parser.add_argument('--package', help='Update specific package name')
 	parser.add_argument('--version', help='Target version for package update')
+
+	# History options
+	parser.add_argument(
+		'--history',
+		action='store_true',
+		help='Show scan history from SQLite database',
+	)
+	parser.add_argument(
+		'--history-package',
+		help='Show version history for a specific package',
+	)
+	parser.add_argument(
+		'--history-trends',
+		action='store_true',
+		help='Show update trends over time',
+	)
+	parser.add_argument(
+		'--history-stale',
+		type=int,
+		default=0,
+		help='Show packages not updated in N days',
+	)
+
+	# Report options
+	parser.add_argument(
+		'--report',
+		choices=['text', 'html', 'json'],
+		help='Generate a history report',
+	)
+	parser.add_argument(
+		'--report-output',
+		help='Output file for report',
+	)
 
 	args = parser.parse_args()
 

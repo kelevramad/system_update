@@ -321,6 +321,7 @@ def test_app_run_specific_package(mock_print, mock_check, mock_scan):
 	args.update_source = None
 	args.yes = False
 	app.run(args)
+	app.history_db.close()
 
 
 @patch('system_update.PackageScanner.scan_winget')
