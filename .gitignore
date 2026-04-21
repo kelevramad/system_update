@@ -49,3 +49,6 @@ coverage/
 test_vuln_history.json
 test_vuln_history2.json
 AGENTS.md
+.openclaude-profile.json
+.openclaude/settings.local.json
+CLAUDE.md
