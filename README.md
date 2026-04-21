@@ -4,7 +4,7 @@
 
 A comprehensive Python-based system package management tool that scans, checks, and updates software from multiple sources.
 
-**Version:** 5.1.0
+**Version:** 5.2.0
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
 
@@ -89,7 +89,7 @@ python system_update.py --export json --output report.json
 | `--dry-run` | Show planned updates without executing |
 | `--no-cache` | Force fresh scan (ignore cache) |
 | `--clear-cache` | Remove cache file and exit |
-| `--export <json\|csv>` | Export scan results to file |
+| `--export <json\|csv\|html\|xml\|md\|diff>` | Export scan results to file |
 | `--output <file>` | Output path for export |
 | `--source <csv>` | Limit scan to specific sources (e.g., `winget,npm,pip`) |
 | `--yes`, `-y` | Skip confirmation prompts |
@@ -134,6 +134,18 @@ python system_update.py --export json --output updates.json
 
 # Export results to CSV
 python system_update.py --export csv --output updates.csv
+
+# Export results to HTML
+python system_update.py --export html --output updates.html
+
+# Export results to XML
+python system_update.py --export xml --output updates.xml
+
+# Export results to Markdown
+python system_update.py --export md --output updates.md
+
+# Export results to Diff
+python system_update.py --export diff --output updates.diff
 
 # Force fresh scan and export
 python system_update.py --no-cache --export json
@@ -250,17 +262,33 @@ Vulnerabilities are filtered by severity level:
 ```json
 {
   "scan_time": "2026-02-26T10:30:00.000000",
-  "total_apps": 45,
+  "summary": {
+    "total_apps": 45,
+    "up_to_date": 30,
+    "update_available": 15,
+    "vulnerable": 0,
+    "unknown": 0
+  },
+  "security_summary": {
+    "total_vulns": 0,
+    "packages_affected": 0,
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0
+  },
+  "sources": {
+    "Winget": 20,
+    "NPM": 10,
+    "PIP": 15
+  },
   "apps": [
     {
       "name": "git",
-      "source": "Winget",
+      "source": "winget",
       "version": "2.40.1",
-      "latest_version": "2.44.0",
-      "update_status": "⬆️",
-      "app_id": "Git.Git",
-      "has_update": true,
-      "scan_time": "2026-02-26T10:30:00.000000"
+      "latestVersion": "2.44.0",
+      "status": "update_available"
     }
   ]
 }
@@ -269,10 +297,56 @@ Vulnerabilities are filtered by severity level:
 ### CSV Export
 
 ```csv
-name,source,version,latest_version,update_status,app_id,scan_time
-git,Winget,2.40.1,2.44.0,⬆️,Git.Git,2026-02-26T10:30:00.000000
-node,NPM,18.16.0,20.11.0,⬆️,node,2026-02-26T10:30:00.000000
+Name,Source,Version,Latest,Status
+git,Winget,2.40.1,2.44.0,update_available
+node,NPM,18.16.0,20.11.0,update_available
+
+Security Summary
+Critical,0
+High,0
+Medium,0
+Low,0
+
+Sources
+Winget,20
+NPM,10
+PIP,15
 ```
+
+### HTML Export
+
+Styled HTML report with:
+- Summary stats cards (Total, Up to Date, Updates, Vulnerable)
+- Color-coded status badges
+- Security Vulnerabilities table (if found)
+- Security Summary section (Critical/High/Medium/Low)
+- Sources breakdown
+
+### XML Export
+
+Enterprise-compatible XML with:
+- Package details with vulnerability data
+- Security vulnerabilities section
+- Security summary counts
+- Source distribution
+
+### Markdown Export
+
+GitHub-compatible markdown with:
+- Summary table
+- Package table with emoji status icons
+- Security Vulnerabilities section (if found)
+- Security Summary table
+- Sources list
+
+### Diff Export
+
+Line-by-line diff showing:
+- Updated packages (old -> new versions)
+- Vulnerable packages with CVE details
+- Up to date packages
+- Security Summary
+- Sources breakdown
 
 ---
 
