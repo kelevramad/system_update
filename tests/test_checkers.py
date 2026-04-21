@@ -431,3 +431,34 @@ def test_check_path_updates_command_not_found(mock_run):
     mock_run.side_effect = side_effect
     count = UpdateChecker._check_path_updates(apps)
     assert count >= 0
+
+
+def test_executor_update_all_sources():
+    apps = [
+        AppInfo(name='Git', source='Winget', version='1.0', latest_version='2.0', app_id='Git'),
+        AppInfo(name='Node', source='npm', version='1.0', latest_version='2.0', app_id='Node'),
+    ]
+    result = UpdateExecutor.execute_updates(apps)
+    assert result is None or result is True
+
+
+@patch('system_update.run_command', return_value='Success')
+def test_executor_execute_single(mock_run):
+    app = AppInfo(name='Test', source='npm', version='1.0', latest_version='2.0', app_id='test')
+    result = UpdateExecutor._execute_single_update(app)
+    assert isinstance(result, bool)
+
+
+def test_checker_check_winget_none():
+    result = UpdateChecker._check_winget_updates([])
+    assert result == 0
+
+
+def test_checker_check_npm_none():
+    result = UpdateChecker._check_npm_updates([])
+    assert result == 0
+
+
+def test_checker_check_pip_none():
+    result = UpdateChecker._check_pip_updates([])
+    assert result == 0

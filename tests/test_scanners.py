@@ -113,3 +113,19 @@ def test_scan_path_parsing(mock_run):
     mock_run.return_value = '1.0.0'
     apps = PackageScanner.scan_path()
     assert isinstance(apps, list)
+
+
+@patch('platform.system', return_value='Windows')
+def test_scan_registry_windows(mock_sys):
+    with patch('system_update.run_command') as mock_run:
+        mock_run.return_value = '[]'
+        apps = PackageScanner.scan_registry()
+        assert isinstance(apps, list)
+
+
+@patch('platform.system', return_value='Linux')
+def test_scan_registry_linux(mock_sys):
+    with patch('system_update.run_command') as mock_run:
+        mock_run.return_value = '[]'
+        apps = PackageScanner.scan_registry()
+        assert isinstance(apps, list)

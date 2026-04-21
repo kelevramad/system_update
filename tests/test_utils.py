@@ -368,3 +368,85 @@ def test_command_error_network():
     import urllib.error
     ce = CommandError.classify(urllib.error.URLError('no network'), 'cmd')
     assert ce.category == ErrorCategory.NETWORK_ERROR or ce.category == ErrorCategory.UNKNOWN
+
+
+def test_app_info_has_update():
+    from system_update import AppInfo
+    app = AppInfo(name='Test', source='npm', version='1.0.0')
+    assert app.has_update is False
+    app.latest_version = '2.0.0'
+    assert app.has_update is True
+
+
+def test_app_info_is_vulnerable():
+    from system_update import AppInfo
+    app = AppInfo(name='Test', source='npm', version='1.0.0')
+    assert app.is_vulnerable is False
+    app.security_findings = [{'cve_id': 'CVE-2023-1'}]
+    assert app.is_vulnerable is True
+
+
+def test_app_info_str():
+    from system_update import AppInfo
+    app = AppInfo(name='Test', source='npm', version='1.0.0')
+    s = str(app)
+    assert 'Test' in s
+
+
+def test_app_info_repr():
+    from system_update import AppInfo
+    app = AppInfo(name='Test', source='npm', version='1.0.0')
+    r = repr(app)
+    assert 'Test' in r
+
+
+def test_update_status_enum():
+    from system_update import UpdateStatus
+    assert UpdateStatus.UP_TO_DATE.value == 'up_to_date'
+    assert UpdateStatus.UPDATE_AVAILABLE.value == 'update_available'
+    assert UpdateStatus.VULNERABLE.value == 'vulnerable'
+    assert UpdateStatus.UNKNOWN.value == 'unknown'
+    assert UpdateStatus.ERROR.value == 'error'
+    assert UpdateStatus.SECURITY_UPDATE_AVAILABLE.value == 'security_update_available'
+
+
+def test_app_info_install_path():
+    from system_update import AppInfo
+    app = AppInfo(name='Test', source='npm', version='1.0.0', install_path='C:\\Test')
+    assert app.install_path == 'C:\\Test'
+
+
+def test_app_info_install_path_none():
+    from system_update import AppInfo
+    app = AppInfo(name='Test', source='npm', version='1.0.0')
+    assert app.install_path is None
+
+
+def test_app_info_app_id():
+    from system_update import AppInfo
+    app = AppInfo(name='Test', source='npm', version='1.0.0', app_id='test-app')
+    assert app.app_id == 'test-app'
+
+
+def test_app_info_app_id_none():
+    from system_update import AppInfo
+    app = AppInfo(name='Test', source='npm', version='1.0.0')
+    assert app.app_id is None
+
+
+def test_app_info_source():
+    from system_update import AppInfo
+    app = AppInfo(name='Test', source='npm', version='1.0.0')
+    assert app.source == 'npm'
+
+
+def test_app_info_latest_version():
+    from system_update import AppInfo
+    app = AppInfo(name='Test', source='npm', version='1.0.0', latest_version='2.0.0')
+    assert app.latest_version == '2.0.0'
+
+
+def test_app_info_latest_version_none():
+    from system_update import AppInfo
+    app = AppInfo(name='Test', source='npm', version='1.0.0')
+    assert app.latest_version == ''

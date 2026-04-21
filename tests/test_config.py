@@ -1,6 +1,8 @@
 import pytest
 import sys
+import json
 from pathlib import Path
+from unittest.mock import patch
 
 def test_system_config_migration(tmp_path, monkeypatch):
     from system_update import SystemConfig
@@ -174,3 +176,61 @@ def test_system_config_performance_settings(tmp_path, monkeypatch):
     config.load()
 
     assert 'max_workers' in config.settings['performance']
+
+
+def test_system_config_reinit_profile(tmp_path, monkeypatch):
+    from system_update import SystemConfig
+    with patch('pathlib.Path.home', return_value=tmp_path):
+        cfg = SystemConfig()
+        cfg.settings = cfg._get_default_settings()
+        cfg.reinit('test_profile')
+        assert cfg.current_profile == 'test_profile'
+
+
+def test_system_config_export_profile(tmp_path, monkeypatch):
+    from system_update import SystemConfig
+    with patch('pathlib.Path.home', return_value=tmp_path):
+        cfg = SystemConfig()
+        cfg.settings = cfg._get_default_settings()
+
+        output_file = tmp_path / 'exported_profile.json'
+        result = cfg.export_profile(str(output_file))
+        assert result is True
+        assert output_file.exists()
+
+
+def test_system_config_import_profile(tmp_path, monkeypatch):
+    from system_update import SystemConfig
+    with patch('pathlib.Path.home', return_value=tmp_path):
+        cfg = SystemConfig()
+        cfg.settings = cfg._get_default_settings()
+
+        import_file = tmp_path / 'import_profile.json'
+        import_data = {
+            'profile_name': 'imported',
+            'settings': cfg._get_default_settings(),
+        }
+        import_data['settings']['cache']['duration_hours'] = 5
+        with open(import_file, 'w', encoding='utf-8') as f:
+            json.dump(import_data, f)
+
+        result = cfg.import_profile(str(import_file))
+        assert result is True
+
+
+def test_system_config_get_default_settings():
+    from system_update import SystemConfig
+    cfg = SystemConfig()
+    settings = cfg._get_default_settings()
+    assert 'cache' in settings
+    assert 'performance' in settings
+    assert 'security' in settings
+    assert 'sources' in settings
+
+
+def test_system_config_validate_settings():
+    from system_update import SystemConfig
+    cfg = SystemConfig()
+    cfg.settings = cfg._get_default_settings()
+    result = cfg._validate_config()
+    assert result is None or isinstance(result, list)

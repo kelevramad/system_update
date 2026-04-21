@@ -1,7 +1,9 @@
 import sys
 import subprocess
 import functools
+import pytest
 from pathlib import Path
+from system_update import AppInfo, ThemeManager, DisplayFormatter
 
 SCRIPT = Path(__file__).parent.parent / 'system_update.py'
 PYTHON = sys.executable
@@ -46,3 +48,55 @@ def test_cli_formats_execution():
 def test_cli_icons_execution():
     res = run_cli(['--icons', '--source', 'chocolatey'], timeout=60)
     assert res['code'] == 0
+
+
+def test_display_formatter_diff():
+    apps = [
+        AppInfo(name='Test', source='npm', version='1.0.0'),
+        AppInfo(name='Test2', source='pip', version='2.0.0'),
+    ]
+    table = DisplayFormatter.format_table(apps, 'diff')
+    assert table is not None
+
+
+def test_display_formatter_html():
+    apps = [AppInfo(name='Test', source='npm', version='1.0.0')]
+    table = DisplayFormatter.format_table(apps, 'html')
+    assert table is not None
+
+
+def test_display_formatter_markdown():
+    apps = [AppInfo(name='Test', source='npm', version='1.0.0')]
+    table = DisplayFormatter.format_table(apps, 'markdown')
+    assert table is not None
+
+
+def test_display_formatter_xml():
+    apps = [AppInfo(name='Test', source='npm', version='1.0.0')]
+    table = DisplayFormatter.format_table(apps, 'xml')
+    assert table is not None
+
+
+@pytest.mark.parametrize('format', ['compact', 'verbose', 'json', 'auto', 'diff', 'html', 'markdown', 'xml'])
+def test_display_formatter_all_formats(format):
+    apps = [AppInfo(name='Test', source='npm', version='1.0.0')]
+    table = DisplayFormatter.format_table(apps, format)
+    assert table is not None
+
+
+def test_theme_manager_default():
+    theme = ThemeManager.get_theme('default')
+    assert theme is not None
+
+
+def test_theme_manager_all_themes():
+    themes = ['default', 'vibrant', 'minimal', 'dark', 'neon']
+    for theme_name in themes:
+        theme = ThemeManager.get_theme(theme_name)
+        assert theme is not None
+
+
+def test_theme_manager_status_colors():
+    for status in ['up_to_date', 'outdated', 'vulnerable', 'unknown']:
+        color = ThemeManager.get_status_color(status, 'default')
+        assert color is not None
