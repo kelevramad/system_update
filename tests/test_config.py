@@ -1,7 +1,5 @@
 import pytest
-import sys
 import json
-from pathlib import Path
 from unittest.mock import patch
 
 def test_system_config_migration(tmp_path, monkeypatch):

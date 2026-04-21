@@ -1,4 +1,3 @@
-import pytest
 from system_update import SystemConfig
 
 def test_env_vars_specific_shortcuts(monkeypatch, tmp_path):

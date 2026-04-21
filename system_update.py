@@ -3569,32 +3569,30 @@ class UpdateChecker:
 				)
 
 			for source_name, source_apps in active_sources:
-				source_updates = 0
-
 				if source_name == 'winget':
-					source_updates = UpdateChecker._check_winget_updates(source_apps)
+					UpdateChecker._check_winget_updates(source_apps)
 				elif source_name == 'chocolatey':
-					source_updates = UpdateChecker._check_choco_updates(source_apps)
+					UpdateChecker._check_choco_updates(source_apps)
 				elif source_name == 'npm':
-					source_updates = UpdateChecker._check_npm_updates(source_apps)
+					UpdateChecker._check_npm_updates(source_apps)
 				elif source_name == 'pnpm':
-					source_updates = UpdateChecker._check_pnpm_updates(source_apps)
+					UpdateChecker._check_pnpm_updates(source_apps)
 				elif source_name == 'bun':
-					source_updates = UpdateChecker._check_bun_updates(source_apps)
+					UpdateChecker._check_bun_updates(source_apps)
 				elif source_name == 'yarn':
-					source_updates = UpdateChecker._check_yarn_updates(source_apps)
+					UpdateChecker._check_yarn_updates(source_apps)
 				elif source_name == 'pip':
-					source_updates = UpdateChecker._check_pip_updates(source_apps)
+					UpdateChecker._check_pip_updates(source_apps)
 				elif source_name == 'path':
-					source_updates = UpdateChecker._check_path_updates(source_apps)
+					UpdateChecker._check_path_updates(source_apps)
 				elif source_name == 'registry':
-					source_updates = UpdateChecker._check_registry_updates(source_apps)
+					UpdateChecker._check_registry_updates(source_apps)
 				elif source_name == 'rust':
-					source_updates = UpdateChecker._check_rust_updates(source_apps)
+					UpdateChecker._check_rust_updates(source_apps)
 				elif source_name == 'scoop':
-					source_updates = UpdateChecker._check_scoop_updates(source_apps)
+					UpdateChecker._check_scoop_updates(source_apps)
 				elif source_name == 'dotnet':
-					source_updates = UpdateChecker._check_dotnet_updates(source_apps)
+					UpdateChecker._check_dotnet_updates(source_apps)
 
 				# Count each source properly: regular updates + security updates (vulnerable with update)
 				regular = sum(1 for a in source_apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE)
@@ -5223,8 +5221,8 @@ class SystemUpdateApp:
 				'',
 				'## 📈 Security Summary',
 				'',
-				f'| Total Vulns | Packages Affected | Critical | High | Medium | Low |',
-				f'|-------------|-------------------|----------|------|--------|-----|',
+				'| Total Vulns | Packages Affected | Critical | High | Medium | Low |',
+				'|-------------|-------------------|----------|------|--------|-----|',
 				f'| {vuln_count} | {packages_affected} | {sec_stats["critical"]} | {sec_stats["high"]} | {sec_stats["medium"]} | {sec_stats["low"]} |',
 			])
 
@@ -5966,7 +5964,6 @@ class SystemUpdateApp:
 
 	def _generate_report(self, format_type: str, output_file: Optional[str]):
 		"""Generate a history report in specified format."""
-		import sqlite3
 
 		scans = self.history_db.get_scans(limit=100)
 		trends = self.history_db.get_update_trends(days=30)

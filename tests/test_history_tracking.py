@@ -2,13 +2,11 @@
 
 import os
 import tempfile
-from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
-from system_update import AppInfo, HistoryDatabase, UpdateStatus
+from system_update import AppInfo, HistoryDatabase
 
 
 class TestHistoryDatabase:

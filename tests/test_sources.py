@@ -3,7 +3,6 @@ import subprocess
 import functools
 import pytest
 from pathlib import Path
-import pytest
 
 SCRIPT = Path(__file__).parent.parent / 'system_update.py'
 PYTHON = sys.executable

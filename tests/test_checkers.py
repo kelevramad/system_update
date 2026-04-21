@@ -1,7 +1,7 @@
 import pytest
 import json
 from unittest.mock import patch, MagicMock
-from system_update import UpdateChecker, UpdateExecutor, SystemUpdateApp, AppInfo, UpdateStatus
+from system_update import UpdateChecker, UpdateExecutor, SystemUpdateApp, AppInfo
 
 _CHECKER_MOCKS = [
     ('winget', '_check_winget_updates', 'Name Id Version Available Source\n--- --- --- --- ---\ntest ID 1.0 1.1 winget'),
