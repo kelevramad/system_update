@@ -3,7 +3,7 @@
 ================================================================================
                           SYSTEM UPDATE ENHANCED
 ================================================================================
-  Version: 5.1.0
+  Version: 5.2.0
  Author: Gemini (Redesigned)
 
 A sophisticated system update tool with enhanced UI architecture and modular design.
@@ -2391,7 +2391,7 @@ class UISystem:
 		def hr(ch='─', width=70):
 			return ch * width
 
-		title = '🚀 System Update Python v3.2.1'
+		title = '🚀 System Update Python v5.2.0'
 		sub = f'⚙️ Data dir: {config.config_dir}'
 
 		console.print(f'[cyan]┌{hr("─", 70)}┐[/cyan]')
@@ -4811,17 +4811,21 @@ class SystemUpdateApp:
 		Export scan results in various formats.
 
 		Exports the list of applications to a file in the specified format.
-		Supports JSON and CSV formats with optional custom output filename.
+		Supports JSON, CSV, HTML, XML, Markdown, and Diff formats.
 
 		Args:
 		    apps: List of AppInfo objects to export.
-		    format_type: Export format ("json" or "csv").
+		    format_type: Export format ("json", "csv", "html", "xml", "markdown", or "diff").
 		    output_file: Optional output filename. If None, generates filename
 		        with timestamp (e.g., "system_update_20240101_120000.json").
 
 		Formats:
 		    - json: Full application data with all fields in JSON format
 		    - csv: Tabular data with Name, Source, Version, Latest, Status columns
+		    - html: Styled HTML report with tables and status indicators
+		    - xml: Enterprise-compatible XML format
+		    - markdown: GitHub-compatible markdown tables
+		    - diff: Line-by-line version changes
 
 		Note:
 		    - JSON includes full app metadata via app.to_dict()
@@ -4829,19 +4833,44 @@ class SystemUpdateApp:
 		"""
 		if not output_file:
 			timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-			output_file = f'system_update_{timestamp}.{format_type}'
+			ext_map = {'markdown': 'md'}
+			ext = ext_map.get(format_type, format_type)
+			output_file = f'system_update_{timestamp}.{ext}'
 
 		try:
 			if format_type == 'json':
+				stats = self._get_export_stats(apps)
+				sec_stats = {
+					'critical': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'CRITICAL'),
+					'high': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'HIGH'),
+					'medium': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'MEDIUM'),
+					'low': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'LOW'),
+				}
 				data = {
 					'scan_time': datetime.now().isoformat(),
-					'total_apps': len(apps),
+					'summary': {
+						'total_apps': len(apps),
+						'up_to_date': stats['up_to_date'],
+						'update_available': stats['update_available'],
+						'vulnerable': stats['vulnerable'],
+						'unknown': stats['unknown'],
+					},
+					'security_summary': {
+						'total_vulns': sum(len(a.security_findings) for a in apps),
+						'packages_affected': len([a for a in apps if a.security_findings]),
+						'critical': sec_stats['critical'],
+						'high': sec_stats['high'],
+						'medium': sec_stats['medium'],
+						'low': sec_stats['low'],
+					},
+					'sources': stats['source_counts'],
 					'apps': [app.to_dict() for app in apps],
 				}
 				with open(output_file, 'w', encoding='utf-8') as f:
 					json.dump(data, f, indent=2)
 
 			elif format_type == 'csv':
+				stats = self._get_export_stats(apps)
 				with open(output_file, 'w', newline='', encoding='utf-8') as f:
 					writer = csv.writer(f)
 					writer.writerow(['Name', 'Source', 'Version', 'Latest', 'Status'])
@@ -4855,11 +4884,458 @@ class SystemUpdateApp:
 								app.update_status.value,
 							]
 						)
+					if [a for a in apps if a.security_findings]:
+						writer.writerow([])
+						writer.writerow(['Security Vulnerabilities Detected'])
+						writer.writerow(['Package', 'Source', 'Version', 'CVE', 'Severity'])
+						for app in apps:
+							for finding in app.security_findings:
+								writer.writerow([
+									app.name,
+									app.source,
+									app.version,
+									finding.get('cve', 'N/A'),
+									finding.get('severity', 'UNKNOWN'),
+								])
+					sec_stats = {
+						'critical': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'CRITICAL'),
+						'high': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'HIGH'),
+						'medium': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'MEDIUM'),
+						'low': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'LOW'),
+					}
+					if sec_stats['critical'] or sec_stats['high'] or sec_stats['medium'] or sec_stats['low']:
+						writer.writerow([])
+						writer.writerow(['Security Summary'])
+						writer.writerow(['Critical', sec_stats['critical']])
+						writer.writerow(['High', sec_stats['high']])
+						writer.writerow(['Medium', sec_stats['medium']])
+						writer.writerow(['Low', sec_stats['low']])
+					writer.writerow([])
+					writer.writerow(['Sources'])
+					for src, cnt in sorted(stats['source_counts'].items()):
+						writer.writerow([src, cnt])
+
+			elif format_type == 'html':
+				self._export_html(apps, output_file)
+
+			elif format_type == 'xml':
+				self._export_xml(apps, output_file)
+
+			elif format_type in ('markdown', 'md'):
+				self._export_markdown(apps, output_file)
+
+			elif format_type == 'diff':
+				self._export_diff(apps, output_file)
 
 			console.print(f'[green]✅ Exported to {output_file}[/green]')
 
 		except Exception as e:
 			console.print(f'[red]❌ Export failed: {e}[/red]')
+
+	def _export_html(self, apps: List[AppInfo], output_file: str):
+		"""Export results as styled HTML report."""
+		scan_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+		stats = self._get_export_stats(apps)
+
+		status_class_map = {
+			UpdateStatus.UP_TO_DATE: 'status-up-to-date',
+			UpdateStatus.UPDATE_AVAILABLE: 'status-update',
+			UpdateStatus.SECURITY_UPDATE_AVAILABLE: 'status-update',
+			UpdateStatus.VULNERABLE: 'status-vulnerable',
+			UpdateStatus.UNKNOWN: 'status-unknown',
+			UpdateStatus.ERROR: 'status-error',
+		}
+
+		html = [
+			'<!DOCTYPE html>',
+			'<html lang="en">',
+			'<head>',
+			'    <meta charset="UTF-8">',
+			'    <meta name="viewport" content="width=device-width, initial-scale=1.0">',
+			f'    <title>System Update Report - {scan_time}</title>',
+			'    <style>',
+			'        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; background: #f5f5f5; }',
+			'        h1 { color: #333; border-bottom: 2px solid #0066cc; padding-bottom: 10px; }',
+			'        .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin: 20px 0; }',
+			'        .stat { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }',
+			'        .stat-value { font-size: 24px; font-weight: bold; }',
+			'        .stat-label { color: #666; font-size: 14px; margin-top: 5px; }',
+			'        .up-to-date { color: #28a745; }',
+			'        .update-available { color: #ffc107; }',
+			'        .vulnerable { color: #dc3545; }',
+			'        .unknown { color: #6c757d; }',
+			'        table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }',
+			'        th { background: #0066cc; color: white; padding: 12px; text-align: left; }',
+			'        td { padding: 10px 12px; border-bottom: 1px solid #eee; }',
+			'        tr:hover { background: #f8f9fa; }',
+			'        .status { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }',
+			'        .status-up-to-date { background: #d4edda; color: #155724; }',
+			'        .status-update { background: #fff3cd; color: #856404; }',
+			'        .status-vulnerable { background: #f8d7da; color: #721c24; }',
+			'        .status-unknown { background: #e2e3e5; color: #383d41; }',
+			'        .status-error { background: #f8d7da; color: #721c24; }',
+			'        .footer { margin-top: 20px; color: #666; font-size: 12px; text-align: center; }',
+			'    </style>',
+			'</head>',
+			'<body>',
+			'    <h1>System Update Report</h1>',
+			f'    <p><strong>Generated:</strong> {scan_time}</p>',
+			'    <div class="summary">',
+			f'        <div class="stat"><div class="stat-value">{stats["total"]}</div><div class="stat-label">Total Packages</div></div>',
+			f'        <div class="stat"><div class="stat-value up-to-date">{stats["up_to_date"]}</div><div class="stat-label">Up to Date</div></div>',
+			f'        <div class="stat"><div class="stat-value update-available">{stats["update_available"]}</div><div class="stat-label">Updates Available</div></div>',
+			f'        <div class="stat"><div class="stat-value vulnerable">{stats["vulnerable"]}</div><div class="stat-label">Vulnerable</div></div>',
+			f'        <div class="stat"><div class="stat-value unknown">{stats["unknown"]}</div><div class="stat-label">Unknown</div></div>',
+			'    </div>',
+			'    <table>',
+			'        <thead>',
+			'            <tr>',
+			'                <th>Package</th><th>Source</th><th>Current Version</th><th>Latest Version</th><th>Status</th>',
+			'            </tr>',
+			'        </thead>',
+			'        <tbody>',
+		]
+
+		for app in apps:
+			status_class = status_class_map.get(app.update_status, 'status-unknown')
+			status_text = app.status_display.split(' ')[0] if ' ' in app.status_display else app.update_status.value
+			html.append(
+				f'            <tr>'
+				f'<td><strong>{app.name}</strong></td>'
+				f'<td>{app.source}</td>'
+				f'<td>{app.version or "-"}</td>'
+				f'<td>{app.latest_version or "-"}</td>'
+				f'<td><span class="status {status_class}">{status_text}</span></td>'
+				f'</tr>'
+			)
+
+		html.extend([
+			'        </tbody>',
+			'    </table>',
+		])
+
+		vuln_apps = [app for app in apps if app.security_findings]
+		if vuln_apps or stats['vulnerable'] > 0:
+			html.extend([
+				'',
+				'    <h2>🔥 Security Vulnerabilities Detected</h2>',
+				'    <table>',
+				'        <thead>',
+				'            <tr>',
+				'                <th>Package</th><th>Source</th><th>Version</th><th>CVE</th><th>Severity</th>',
+				'            </tr>',
+				'        </thead>',
+				'        <tbody>',
+			])
+			for app in vuln_apps:
+				for finding in app.security_findings:
+					html.append(
+						f'            <tr>'
+						f'<td><strong>{app.name}</strong></td>'
+						f'<td>{app.source}</td>'
+						f'<td>{app.version}</td>'
+						f'<td>{finding.get("cve", "N/A")}</td>'
+						f'<td><span class="status status-vulnerable">{finding.get("severity", "UNKNOWN")}</span></td>'
+						f'</tr>'
+					)
+			html.extend(['        </tbody>', '    </table>'])
+
+		sec_stats = {
+			'critical': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'CRITICAL'),
+			'high': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'HIGH'),
+			'medium': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'MEDIUM'),
+			'low': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'LOW'),
+		}
+		vuln_count = sum(len(a.security_findings) for a in apps)
+		packages_affected = len([a for a in apps if a.security_findings])
+
+		if sec_stats['critical'] or sec_stats['high'] or sec_stats['medium'] or sec_stats['low']:
+			html.extend([
+				'',
+				'    <h2>📈 Security Summary</h2>',
+				'    <div class="summary">',
+				f'        <div class="stat"><div class="stat-value">{vuln_count}</div><div class="stat-label">Total Vulns</div></div>',
+				f'        <div class="stat"><div class="stat-value">{packages_affected}</div><div class="stat-label">Packages Affected</div></div>',
+				f'        <div class="stat"><div class="stat-value">{sec_stats["critical"]}</div><div class="stat-label">Critical</div></div>',
+				f'        <div class="stat"><div class="stat-value vulnerable">{sec_stats["high"]}</div><div class="stat-label">High</div></div>',
+				f'        <div class="stat"><div class="stat-value update-available">{sec_stats["medium"]}</div><div class="stat-label">Medium</div></div>',
+				f'        <div class="stat"><div class="stat-value unknown">{sec_stats["low"]}</div><div class="stat-label">Low</div></div>',
+				'    </div>',
+			])
+
+		if stats['source_counts']:
+			source_parts = [f'{src}:{cnt}' for src, cnt in sorted(stats['source_counts'].items())]
+			html.extend([
+				'',
+				'    <h2>📦 Sources</h2>',
+				f'    <p><strong>Sources:</strong> {", ".join(source_parts)}</p>',
+			])
+
+		html.extend([
+			'    <div class="footer"><p>Generated by System Update CLI</p></div>',
+			'</body>',
+			'</html>',
+		])
+
+		with open(output_file, 'w', encoding='utf-8') as f:
+			f.write('\n'.join(html))
+
+	def _export_xml(self, apps: List[AppInfo], output_file: str):
+		"""Export results as XML format."""
+		scan_time = datetime.now().isoformat()
+		stats = self._get_export_stats(apps)
+
+		xml_lines = ['<?xml version="1.0" encoding="UTF-8"?>']
+		xml_lines.append('<system_update>')
+		xml_lines.append(f'  <scan_time>{scan_time}</scan_time>')
+		xml_lines.append(f'  <total_packages>{len(apps)}</total_packages>')
+		xml_lines.append('  <packages>')
+
+		for app in apps:
+			xml_lines.append('    <package>')
+			xml_lines.append(f'      <name>{self._xml_escape(app.name)}</name>')
+			xml_lines.append(f'      <source>{self._xml_escape(app.source)}</source>')
+			xml_lines.append(f'      <current_version>{self._xml_escape(app.version or "-")}</current_version>')
+			xml_lines.append(f'      <latest_version>{self._xml_escape(app.latest_version or "-")}</latest_version>')
+			xml_lines.append(f'      <status>{app.update_status.value}</status>')
+			if app.app_id:
+				xml_lines.append(f'      <app_id>{self._xml_escape(app.app_id)}</app_id>')
+			if app.security_findings:
+				xml_lines.append('      <vulnerabilities>')
+				for finding in app.security_findings:
+					xml_lines.append('        <vulnerability>')
+					xml_lines.append(f'          <cve>{self._xml_escape(finding.get("cve", "N/A"))}</cve>')
+					xml_lines.append(f'          <severity>{self._xml_escape(finding.get("severity", "UNKNOWN"))}</severity>')
+					xml_lines.append('        </vulnerability>')
+				xml_lines.append('      </vulnerabilities>')
+			xml_lines.append('    </package>')
+
+		xml_lines.append('  </packages>')
+
+		vuln_apps = [app for app in apps if app.security_findings]
+		if vuln_apps or stats['vulnerable'] > 0:
+			xml_lines.append('  <security_vulnerabilities>')
+			for app in vuln_apps:
+				for finding in app.security_findings:
+					xml_lines.append('    <vulnerability>')
+					xml_lines.append(f'      <package>{self._xml_escape(app.name)}</package>')
+					xml_lines.append(f'      <source>{self._xml_escape(app.source)}</source>')
+					xml_lines.append(f'      <version>{self._xml_escape(app.version)}</version>')
+					xml_lines.append(f'      <cve>{self._xml_escape(finding.get("cve", "N/A"))}</cve>')
+					xml_lines.append(f'      <severity>{self._xml_escape(finding.get("severity", "UNKNOWN"))}</severity>')
+					xml_lines.append('    </vulnerability>')
+			xml_lines.append('  </security_vulnerabilities>')
+
+		sec_stats = {
+			'critical': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'CRITICAL'),
+			'high': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'HIGH'),
+			'medium': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'MEDIUM'),
+			'low': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'LOW'),
+		}
+		vuln_count = sum(len(a.security_findings) for a in apps)
+		packages_affected = len([a for a in apps if a.security_findings])
+
+		if sec_stats['critical'] or sec_stats['high'] or sec_stats['medium'] or sec_stats['low']:
+			xml_lines.append('  <security_summary>')
+			xml_lines.append(f'    <total_vulns>{vuln_count}</total_vulns>')
+			xml_lines.append(f'    <packages_affected>{packages_affected}</packages_affected>')
+			xml_lines.append(f'    <critical>{sec_stats["critical"]}</critical>')
+			xml_lines.append(f'    <high>{sec_stats["high"]}</high>')
+			xml_lines.append(f'    <medium>{sec_stats["medium"]}</medium>')
+			xml_lines.append(f'    <low>{sec_stats["low"]}</low>')
+			xml_lines.append('  </security_summary>')
+
+		if stats['source_counts']:
+			xml_lines.append('  <sources>')
+			for src, cnt in sorted(stats['source_counts'].items()):
+				xml_lines.append(f'    <source name="{self._xml_escape(src)}">{cnt}</source>')
+			xml_lines.append('  </sources>')
+
+		xml_lines.append('</system_update>')
+
+		with open(output_file, 'w', encoding='utf-8') as f:
+			f.write('\n'.join(xml_lines))
+
+	def _export_markdown(self, apps: List[AppInfo], output_file: str):
+		"""Export results as GitHub-compatible markdown."""
+		scan_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+		stats = self._get_export_stats(apps)
+
+		md_lines = [
+			'# System Update Report',
+			'',
+			f'**Generated:** {scan_time}',
+			'',
+			'## Summary',
+			'',
+			'| Total | Up to Date | Updates | Vulnerable | Unknown |',
+			'|------:|----------:|-------:|----------:|--------:|',
+			f'| {stats["total"]} | {stats["up_to_date"]} | {stats["update_available"]} | {stats["vulnerable"]} | {stats["unknown"]} |',
+			'',
+			'## Packages',
+			'',
+			'| Package | Source | Version | Latest | Status |',
+			'|--------|--------|--------|--------|--------|',
+		]
+
+		for app in apps:
+			status_icon = {
+				UpdateStatus.UP_TO_DATE: '✅',
+				UpdateStatus.UPDATE_AVAILABLE: '🔄',
+				UpdateStatus.SECURITY_UPDATE_AVAILABLE: '🔒',
+				UpdateStatus.VULNERABLE: '🔥',
+				UpdateStatus.UNKNOWN: '❓',
+				UpdateStatus.ERROR: '❌',
+			}.get(app.update_status, '❓')
+
+			md_lines.append(
+				f'| {app.name} | {app.source} | {app.version or "-"} | '
+				f'{app.latest_version or "-"} | {status_icon} {app.update_status.value} |'
+			)
+
+		vuln_apps = [app for app in apps if app.security_findings]
+		if vuln_apps or stats['vulnerable'] > 0:
+			md_lines.extend([
+				'',
+				'## 🔥 Security Vulnerabilities Detected',
+				'',
+				'| Package | Source | Version | CVE | Severity |',
+				'|--------|--------|--------|-----|-----------|',
+			])
+			for app in vuln_apps:
+				for finding in app.security_findings:
+					md_lines.append(
+						f'| {app.name} | {app.source} | {app.version} | '
+						f'{finding.get("cve", "N/A")} | {finding.get("severity", "UNKNOWN")} |'
+					)
+
+		sec_stats = {
+			'critical': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'CRITICAL'),
+			'high': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'HIGH'),
+			'medium': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'MEDIUM'),
+			'low': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'LOW'),
+		}
+		vuln_count = sum(len(a.security_findings) for a in apps)
+		packages_affected = len([a for a in apps if a.security_findings])
+
+		if sec_stats['critical'] or sec_stats['high'] or sec_stats['medium'] or sec_stats['low']:
+			md_lines.extend([
+				'',
+				'## 📈 Security Summary',
+				'',
+				f'| Total Vulns | Packages Affected | Critical | High | Medium | Low |',
+				f'|-------------|-------------------|----------|------|--------|-----|',
+				f'| {vuln_count} | {packages_affected} | {sec_stats["critical"]} | {sec_stats["high"]} | {sec_stats["medium"]} | {sec_stats["low"]} |',
+			])
+
+		if stats['source_counts']:
+			md_lines.extend(['', '## 📦 Sources', ''])
+			for src, cnt in sorted(stats['source_counts'].items()):
+				md_lines.append(f'- {src}: {cnt}')
+
+		with open(output_file, 'w', encoding='utf-8') as f:
+			f.write('\n'.join(md_lines))
+
+	def _export_diff(self, apps: List[AppInfo], output_file: str):
+		"""Export results as version diff."""
+		scan_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+		stats = self._get_export_stats(apps)
+
+		diff_lines = [
+			f'System Update Diff - {scan_time}',
+			'=' * 50,
+			'',
+		]
+
+		updated = [a for a in apps if a.has_update]
+		vulnerable = [a for a in apps if a.is_vulnerable]
+		up_to_date = [a for a in apps if a.update_status == UpdateStatus.UP_TO_DATE]
+
+		if updated:
+			diff_lines.append('Updated Packages:')
+			diff_lines.append('-' * 30)
+			for app in updated:
+				diff_lines.append(f'{app.name} ({app.source})')
+				diff_lines.append(f'  {app.version} -> {app.latest_version}')
+				diff_lines.append('')
+			diff_lines.append('')
+
+		if vulnerable:
+			diff_lines.append('Vulnerable Packages:')
+			diff_lines.append('-' * 30)
+			for app in vulnerable:
+				diff_lines.append(f'{app.name} ({app.source})')
+				diff_lines.append(f'  Version: {app.version}')
+				for finding in app.security_findings:
+					diff_lines.append(f'  ! {finding.get("severity", "UNKNOWN")}: {finding.get("cve", "N/A")}')
+				diff_lines.append('')
+			diff_lines.append('')
+
+		if up_to_date:
+			diff_lines.append('Up to Date Packages:')
+			diff_lines.append('-' * 30)
+			for app in up_to_date:
+				diff_lines.append(f'  {app.name} ({app.source}) v{app.version}')
+			diff_lines.append('')
+
+		diff_lines.append(f'Summary: {len(updated)} updates, {len(vulnerable)} vulnerable, {len(up_to_date)} up to date')
+
+		sec_stats = {
+			'critical': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'CRITICAL'),
+			'high': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'HIGH'),
+			'medium': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'MEDIUM'),
+			'low': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'LOW'),
+		}
+		vuln_count = sum(len(a.security_findings) for a in apps)
+		packages_affected = len([a for a in apps if a.security_findings])
+
+		if sec_stats['critical'] or sec_stats['high'] or sec_stats['medium'] or sec_stats['low']:
+			diff_lines.extend(['', 'Security Summary:', '=' * 30])
+			diff_lines.append(f'  Total Vulns: {vuln_count}')
+			diff_lines.append(f'  Packages Affected: {packages_affected}')
+			diff_lines.append(f'  Critical: {sec_stats["critical"]}')
+			diff_lines.append(f'  High: {sec_stats["high"]}')
+			diff_lines.append(f'  Medium: {sec_stats["medium"]}')
+			diff_lines.append(f'  Low: {sec_stats["low"]}')
+
+		if stats['source_counts']:
+			diff_lines.extend(['', 'Sources:', '=' * 30])
+			for src, cnt in sorted(stats['source_counts'].items()):
+				diff_lines.append(f'  {src}: {cnt}')
+
+		with open(output_file, 'w', encoding='utf-8') as f:
+			f.write('\n'.join(diff_lines))
+
+	def _get_export_stats(self, apps: List[AppInfo]) -> Dict[str, int]:
+		"""Get export statistics."""
+		source_counts: Dict[str, int] = {}
+		for app in apps:
+			source_counts[app.source] = source_counts.get(app.source, 0) + 1
+
+		return {
+			'total': len(apps),
+			'up_to_date': sum(1 for a in apps if a.update_status == UpdateStatus.UP_TO_DATE),
+			'update_available': sum(
+				1 for a in apps
+				if a.update_status in (UpdateStatus.UPDATE_AVAILABLE, UpdateStatus.SECURITY_UPDATE_AVAILABLE)
+			),
+			'vulnerable': sum(1 for a in apps if a.update_status == UpdateStatus.VULNERABLE),
+			'unknown': sum(1 for a in apps if a.update_status == UpdateStatus.UNKNOWN),
+			'error': sum(1 for a in apps if a.update_status == UpdateStatus.ERROR),
+			'security_vulns': sum(len(a.security_findings) for a in apps),
+			'source_counts': source_counts,
+		}
+
+	@staticmethod
+	def _xml_escape(text: str) -> str:
+		"""Escape XML special characters."""
+		return (
+			text.replace('&', '&amp;')
+			.replace('<', '&lt;')
+			.replace('>', '&gt;')
+			.replace('"', '&quot;')
+			.replace("'", '&apos;')
+		)
 
 	OSV_ECOSYSTEM_MAP = {
 		'npm': 'npm',
@@ -6398,7 +6874,11 @@ Examples:
 	parser.add_argument('--profile-import', help='Import profile from a JSON file')
 
 	# Export options
-	parser.add_argument('--export', choices=['json', 'csv'], help='Export results format')
+	parser.add_argument(
+		'--export',
+		choices=['json', 'csv', 'html', 'xml', 'markdown', 'md', 'diff'],
+		help='Export results format',
+	)
 	parser.add_argument('--output', help='Output file for export')
 
 	# Package options

@@ -15,6 +15,14 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v5.2.0 (April 2026)
+- **Export Formats**: Added multiple export format support beyond JSON and CSV
+  - HTML Export: Styled HTML report with summary stats, tables, and color-coded status badges
+  - XML Export: Enterprise-compatible XML format with full package data
+  - Markdown Export: GitHub-compatible markdown tables with emoji status icons
+  - Diff Export: Line-by-line version diff showing updates, vulnerabilities, and up-to-date packages
+  - New CLI flag `--export` now supports: `json`, `csv`, `html`, `xml`, `markdown`, `diff`
+
 ### v5.1.0 (April 2026)
 - **Historical Tracking**: SQLite database for scan history and package version tracking
   - Added `HistoryDatabase` class with tables for scans, package_snapshots, and version_history

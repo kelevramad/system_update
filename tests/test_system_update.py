@@ -125,6 +125,30 @@ def test_export_csv():
         res = run_cli(['--export', 'csv', '--output', output_file, '--source', 'chocolatey'], timeout=120)
         assert os.path.exists(output_file) or res['code'] == 0
 
+def test_export_html():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_file = os.path.join(tmpdir, 'export.html')
+        res = run_cli(['--export', 'html', '--output', output_file, '--source', 'chocolatey'], timeout=120)
+        assert os.path.exists(output_file) or res['code'] == 0
+
+def test_export_xml():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_file = os.path.join(tmpdir, 'export.xml')
+        res = run_cli(['--export', 'xml', '--output', output_file, '--source', 'chocolatey'], timeout=120)
+        assert os.path.exists(output_file) or res['code'] == 0
+
+def test_export_markdown():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_file = os.path.join(tmpdir, 'export.md')
+        res = run_cli(['--export', 'md', '--output', output_file, '--source', 'chocolatey'], timeout=120)
+        assert os.path.exists(output_file) or res['code'] == 0
+
+def test_export_diff():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_file = os.path.join(tmpdir, 'export.diff')
+        res = run_cli(['--export', 'diff', '--output', output_file, '--source', 'chocolatey'], timeout=120)
+        assert os.path.exists(output_file) or res['code'] == 0
+
 # ─── Segurança ─────────────────────────────────────────────────────────────────
 # FIX: test_security_osv_source e test_security_github_advisory foram fundidos
 #      em test_security_scan_coverage — evita 2 subprocess duplicados que
