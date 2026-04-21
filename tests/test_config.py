@@ -98,3 +98,79 @@ def test_system_config_yaml_support(tmp_path, monkeypatch):
     config.load()
 
     assert config.settings['cache']['duration_hours'] == 10
+
+
+def test_system_config_sources_default(tmp_path, monkeypatch):
+    from system_update import SystemConfig
+
+    config_dir = tmp_path / '.system_update'
+    config_dir.mkdir()
+
+    monkeypatch.setattr(SystemConfig, '__init__', lambda self: None)
+    config = SystemConfig()
+    config.config_dir = config_dir
+    config.config_file = config_dir / 'config.json'
+    config.yaml_config_file = config_dir / 'config.yaml'
+    config.yml_config_file = config_dir / 'config.yml'
+    config.settings = {
+        'version': 1,
+        'sources': {
+            'winget': True,
+            'npm': True,
+            'pip': True,
+        },
+        'cache': {'duration_hours': 2, 'enabled': True},
+        'performance': {'max_workers': 6, 'timeout_seconds': 45},
+        'security': {'severity_threshold': 'medium', 'enabled': True},
+    }
+    config.load()
+
+    assert config.settings['sources']['winget'] is True
+
+
+def test_system_config_security_threshold(tmp_path, monkeypatch):
+    from system_update import SystemConfig
+
+    config_dir = tmp_path / '.system_update'
+    config_dir.mkdir()
+
+    monkeypatch.setattr(SystemConfig, '__init__', lambda self: None)
+    config = SystemConfig()
+    config.config_dir = config_dir
+    config.config_file = config_dir / 'config.json'
+    config.yaml_config_file = config_dir / 'config.yaml'
+    config.yml_config_file = config_dir / 'config.yml'
+    config.settings = {
+        'version': 1,
+        'sources': {'winget': True},
+        'cache': {'duration_hours': 2, 'enabled': True},
+        'performance': {'max_workers': 6, 'timeout_seconds': 45},
+        'security': {'severity_threshold': 'medium', 'enabled': True},
+    }
+    config.load()
+
+    assert 'severity_threshold' in config.settings['security']
+
+
+def test_system_config_performance_settings(tmp_path, monkeypatch):
+    from system_update import SystemConfig
+
+    config_dir = tmp_path / '.system_update'
+    config_dir.mkdir()
+
+    monkeypatch.setattr(SystemConfig, '__init__', lambda self: None)
+    config = SystemConfig()
+    config.config_dir = config_dir
+    config.config_file = config_dir / 'config.json'
+    config.yaml_config_file = config_dir / 'config.yaml'
+    config.yml_config_file = config_dir / 'config.yml'
+    config.settings = {
+        'version': 1,
+        'sources': {'winget': True},
+        'cache': {'duration_hours': 2, 'enabled': True},
+        'performance': {'max_workers': 6, 'timeout_seconds': 45},
+        'security': {'severity_threshold': 'medium', 'enabled': True},
+    }
+    config.load()
+
+    assert 'max_workers' in config.settings['performance']
