@@ -76,3 +76,12 @@ def test_format_flag(help_output):
 def test_icons_flag(help_output):
     output = help_output['stdout'] + help_output['stderr']
     assert '--icons' in output
+
+
+def test_main_with_invalid_args():
+    import sys
+    from system_update import main
+    sys.argv = ['system_update.py', '--invalid-arg-xyz']
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    assert exc_info.value.code != 0

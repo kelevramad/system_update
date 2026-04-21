@@ -10,6 +10,45 @@ from system_update import (
     SOURCE_ICONS, CommandError, ErrorCategory
 )
 
+
+def test_command_error_called_process():
+    exc = sp.CalledProcessError(1, 'test_cmd', output='error')
+    ce = CommandError.classify(exc, 'test_cmd')
+    assert ce.category == ErrorCategory.COMMAND_FAILED
+
+
+def test_command_error_json_decode():
+    import json
+    exc = json.JSONDecodeError('invalid', 'doc', 0)
+    ce = CommandError.classify(exc, 'test_cmd')
+    assert ce.category == ErrorCategory.PARSE_ERROR
+
+
+def test_vulnerability_history_mark_resolved(tmp_path):
+    from system_update import VulnerabilityHistory, AppInfo
+    history_file = tmp_path / 'vuln.json'
+    vh = VulnerabilityHistory(history_file)
+
+    app = AppInfo(name='Test', source='npm', version='1.0')
+    vuln = {'cve': 'CVE-2023-1', 'severity': 'HIGH'}
+    vh.record_vulnerability(app, vuln, 'scan-1')
+
+    vh.mark_resolved('Test', 'CVE-2023-1')
+    stats = vh.get_statistics()
+    assert stats['resolved_vulnerabilities'] == 1
+
+
+def test_vulnerability_history_record_vulnerability(tmp_path):
+    from system_update import VulnerabilityHistory, AppInfo
+    history_file = tmp_path / 'vuln.json'
+    vh = VulnerabilityHistory(history_file)
+
+    app = AppInfo(name='Test', source='npm', version='1.0')
+    vuln = {'cve': 'CVE-2023-1', 'severity': 'HIGH'}
+    vh.record_vulnerability(app, vuln, 'scan-1')
+    stats = vh.get_statistics()
+    assert stats['total_vulnerabilities'] >= 1
+
 def test_all_source_icons():
     for source, expected_icon in SOURCE_ICONS.items():
         assert ThemeManager.get_source_icon(source) == expected_icon

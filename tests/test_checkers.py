@@ -462,3 +462,42 @@ def test_checker_check_npm_none():
 def test_checker_check_pip_none():
     result = UpdateChecker._check_pip_updates([])
     assert result == 0
+
+
+def test_app_get_export_stats():
+    from system_update import SystemUpdateApp
+    app = SystemUpdateApp()
+    apps = [
+        AppInfo(name='Git', source='Winget', version='1.0', latest_version='2.0'),
+        AppInfo(name='Node', source='npm', version='1.0'),
+    ]
+    stats = app._get_export_stats(apps)
+    assert 'total' in stats
+    assert stats['total'] == 2
+
+
+def test_app_export_results_json(tmp_path):
+    from system_update import SystemUpdateApp
+    app = SystemUpdateApp()
+    apps = [AppInfo(name='Git', source='Winget', version='1.0')]
+    output_file = tmp_path / 'test.json'
+    app.export_results(apps, 'json', str(output_file))
+    assert output_file.exists()
+
+
+def test_app_export_results_csv(tmp_path):
+    from system_update import SystemUpdateApp
+    app = SystemUpdateApp()
+    apps = [AppInfo(name='Git', source='Winget', version='1.0')]
+    output_file = tmp_path / 'test.csv'
+    app.export_results(apps, 'csv', str(output_file))
+    assert output_file.exists()
+
+
+def test_app_export_results_markdown(tmp_path):
+    from system_update import SystemUpdateApp
+    app = SystemUpdateApp()
+    apps = [AppInfo(name='Git', source='Winget', version='1.0')]
+    output_file = tmp_path / 'test.md'
+    app.export_results(apps, 'markdown', str(output_file))
+    assert output_file.exists()
