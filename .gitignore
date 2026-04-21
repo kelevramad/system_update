@@ -9,6 +9,9 @@ pip-log.txt
 pip-delete-this-directory.txt
 .python-version
 
+# Backups
+*.bak
+
 # Cache directories
 .ruff_cache/
 .crush/
