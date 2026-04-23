@@ -26,6 +26,7 @@ from system_update.ui import DisplayFormatter, ThemeManager, UISystem
 from system_update.utils import (
 	SOURCE_ICONS,
 	THEMES,
+	console,
 	run_command,
 	source_badge,
 )
@@ -52,6 +53,7 @@ __all__ = [
 	'UpdateStatus',
 	'VulnerabilityHistory',
 	'WarningFileHandler',
+	'console',
 	'export',
 	'main',
 	'run_command',

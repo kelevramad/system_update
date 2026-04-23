@@ -360,10 +360,14 @@ class SystemUpdateApp:
 		if vulnerable:
 			self._display_security_table(vulnerable)
 
-		if getattr(args, 'export', None):
+		export_format = getattr(args, 'export', None)
+		output_path = getattr(args, 'output', None)
+		if isinstance(export_format, str) and export_format:
 			from system_update import export as export_module
 
-			path = export_module.export(apps, args.export, getattr(args, 'output', None))
+			path = export_module.export(
+				apps, export_format, output_path if isinstance(output_path, str) else None
+			)
 			console.print(f'[green]✓[/green] Exported to {path}')
 
 	# ── helpers ────────────────────────────────────────────────────────────
@@ -436,6 +440,38 @@ class SystemUpdateApp:
 			'[yellow]--package is not yet available in the modular CLI. '
 			'Run the legacy system_update.py for now.[/yellow]'
 		)
+
+	# ── security helpers (test-surface, delegate to SecurityChecker) ──────
+
+	def _check_npm_vulns(self, apps: List[AppInfo]) -> List[Dict]:
+		"""Return npm audit findings for ``apps`` (empty list on failure)."""
+		try:
+			return SecurityChecker.check_npm(apps)
+		except Exception:
+			return []
+
+	def _check_pip_vulns(self, apps: List[AppInfo]) -> List[Dict]:
+		"""Return pip-audit findings for ``apps`` (empty list on failure)."""
+		try:
+			return SecurityChecker.check_pip(apps)
+		except Exception:
+			return []
+
+	# ── export surface ─────────────────────────────────────────────────────
+
+	def _get_export_stats(self, apps: List[AppInfo]) -> Dict:
+		"""Delegate to :func:`system_update.export.get_export_stats`."""
+		from system_update import export as export_module
+
+		return export_module.get_export_stats(apps)
+
+	def export_results(
+		self, apps: List[AppInfo], format_type: str, output_file: Optional[str] = None
+	) -> str:
+		"""Write ``apps`` to ``output_file`` in the given format and return the path."""
+		from system_update import export as export_module
+
+		return export_module.export(apps, format_type, output_file)
 
 	# ── Step 11 placeholders ───────────────────────────────────────────────
 

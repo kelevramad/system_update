@@ -258,7 +258,7 @@ def test_cache_manager_expired(tmp_path):
 	apps = [AppInfo(name='App1', source='Winget', version='1.0')]
 	mgr.save(apps)
 
-	with patch('system_update.datetime') as mock_dt:
+	with patch('system_update.cache.datetime') as mock_dt:
 		mock_dt.now.return_value = datetime.now() + timedelta(hours=3)
 		mock_dt.fromisoformat.side_effect = datetime.fromisoformat
 		assert mgr.is_valid() is False

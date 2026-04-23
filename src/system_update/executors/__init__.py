@@ -26,7 +26,9 @@ from system_update.utils import console, run_command
 
 
 def execute_single_update(app: AppInfo) -> bool:
-	"""Run the update command for one package; return True on success."""
+	"""Run the update command for one package; return True on success or no-op."""
+	if app.latest_version and app.version and app.latest_version == app.version:
+		return True
 	cmd = build_update_command(app)
 	if cmd is None:
 		return False
