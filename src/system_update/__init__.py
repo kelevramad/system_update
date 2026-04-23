@@ -18,6 +18,7 @@ from system_update.models import (
 from system_update.notifications import NotificationManager
 from system_update.checkers import UpdateChecker
 from system_update.executors import UpdateExecutor
+from system_update.app import SystemUpdateApp
 from system_update.scanners import PackageScanner
 from system_update.security import SecurityChecker
 from system_update.ui import DisplayFormatter, ThemeManager, UISystem
@@ -41,6 +42,7 @@ __all__ = [
 	'SecurityChecker',
 	'SecurityInfo',
 	'SystemConfig',
+	'SystemUpdateApp',
 	'THEMES',
 	'ThemeManager',
 	'UISystem',

@@ -1,9 +1,8 @@
 """Typer-based CLI entry point.
 
-Thin wrapper over the legacy :class:`SystemUpdateApp` orchestrator defined in
-the flat ``system_update.py`` module. Typer replaces argparse for option
-parsing; feature parity is preserved by building an ``argparse.Namespace``
-with the exact field names the legacy ``run(args)`` expects.
+Translates the CLI flags into an :class:`argparse.Namespace` and delegates
+to :class:`system_update.app.SystemUpdateApp`, which drives the whole
+scan → check → security → display → export → update workflow.
 """
 
 from __future__ import annotations
@@ -54,13 +53,7 @@ def main(
 	log: bool = typer.Option(False, '--log', help='Write INFO logs to system.log.'),
 ) -> None:
 	"""Scan the system, show available updates, and optionally apply them."""
-	# Import the legacy orchestrator lazily so importing this module stays cheap.
-	# The flat ``system_update.py`` is shipped inside the wheel under the
-	# ``_system_update_legacy`` module name to avoid shadowing the package.
-	try:
-		from _system_update_legacy import SystemUpdateApp  # type: ignore[import-not-found]
-	except ModuleNotFoundError:
-		from system_update import SystemUpdateApp  # type: ignore[attr-defined]
+	from system_update.app import SystemUpdateApp
 
 	args = Namespace(
 		source=source,
