@@ -1,6 +1,7 @@
 """Tests for 5.1 Historical Tracking feature (SQLite database)."""
 
 import os
+import sys
 import tempfile
 from pathlib import Path
 
@@ -143,7 +144,7 @@ class TestHistoryCLIFlags:
 		import subprocess
 
 		result = subprocess.run(
-			['python', 'system_update.py', '--help'],
+			[sys.executable, '-m', 'system_update', '--help'],
 			capture_output=True,
 			text=True,
 		)
@@ -154,7 +155,7 @@ class TestHistoryCLIFlags:
 		import subprocess
 
 		result = subprocess.run(
-			['python', 'system_update.py', '--history'],
+			[sys.executable, '-m', 'system_update', '--history'],
 			capture_output=True,
 			text=True,
 		)
@@ -167,7 +168,7 @@ class TestHistoryCLIFlags:
 		import subprocess
 
 		result = subprocess.run(
-			['python', 'system_update.py', '--history-package', 'git'],
+			[sys.executable, '-m', 'system_update', '--history-package', 'git'],
 			capture_output=True,
 			text=True,
 		)
@@ -179,7 +180,7 @@ class TestHistoryCLIFlags:
 		import subprocess
 
 		result = subprocess.run(
-			['python', 'system_update.py', '--history-trends'],
+			[sys.executable, '-m', 'system_update', '--history-trends'],
 			capture_output=True,
 			text=True,
 		)
@@ -196,7 +197,7 @@ class TestHistoryCLIFlags:
 			output_file = f.name
 		try:
 			result = subprocess.run(
-				['python', 'system_update.py', '--report', 'html', '--report-output', output_file],
+				[sys.executable, '-m', 'system_update', '--report', 'html', '--report-output', output_file],
 				capture_output=True,
 				text=True,
 			)

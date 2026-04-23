@@ -17,6 +17,7 @@ from system_update.models import (
 )
 from system_update.notifications import NotificationManager
 from system_update.checkers import UpdateChecker
+from system_update.cli import main
 from system_update.executors import UpdateExecutor
 from system_update.app import SystemUpdateApp
 from system_update.scanners import PackageScanner
@@ -52,6 +53,7 @@ __all__ = [
 	'VulnerabilityHistory',
 	'WarningFileHandler',
 	'export',
+	'main',
 	'run_command',
 	'setup_logging',
 	'source_badge',

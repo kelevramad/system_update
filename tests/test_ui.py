@@ -5,7 +5,6 @@ import pytest
 from pathlib import Path
 from system_update import AppInfo, ThemeManager, DisplayFormatter
 
-SCRIPT = Path(__file__).parent.parent / 'system_update.py'
 PYTHON = sys.executable
 
 
@@ -13,7 +12,7 @@ PYTHON = sys.executable
 def run_cli_cached(args_tuple, timeout=60):
 	args = list(args_tuple)
 	result = subprocess.run(
-		[PYTHON, str(SCRIPT)] + args,
+		[PYTHON, '-m', 'system_update'] + args,
 		capture_output=True,
 		text=True,
 		timeout=timeout,

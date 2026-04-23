@@ -4,7 +4,6 @@ import functools
 import pytest
 from pathlib import Path
 
-SCRIPT = Path(__file__).parent.parent / 'system_update.py'
 PYTHON = sys.executable
 
 
@@ -12,7 +11,7 @@ PYTHON = sys.executable
 def run_cli_cached(args_tuple, timeout=60):
 	args = list(args_tuple)
 	result = subprocess.run(
-		[PYTHON, str(SCRIPT)] + args,
+		[PYTHON, '-m', 'system_update'] + args,
 		capture_output=True,
 		text=True,
 		timeout=timeout,
@@ -94,10 +93,8 @@ def test_icons_flag(help_output):
 
 
 def test_main_with_invalid_args():
-	import sys
-	from system_update import main
+	from system_update.cli import app
 
-	sys.argv = ['system_update.py', '--invalid-arg-xyz']
 	with pytest.raises(SystemExit) as exc_info:
-		main()
+		app(['--invalid-arg-xyz'], standalone_mode=True)
 	assert exc_info.value.code != 0
