@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 5.1.0
-**Last Updated:** April 18, 2026
+**Document Version:** 5.3.0
+**Last Updated:** April 23, 2026
 **Author:** Qwen Code
-**Based On:** `system_update.py` v4.2.0
+**Based On:** `src/system_update/` package (v5.3.0)
 
 ---
 
@@ -75,13 +75,13 @@ A single CLI tool that:
 
 ### 2.4 Implementation
 
-The tool is available in Python implementation:
+The tool ships as a modular Python package (since v5.3.0):
 
-| Implementation | File | Requirements | Dependencies |
-|--------------|------|-------------|--------------|
-| Python | `system_update.py` | Python 3.8+ | `rich` library |
+| Implementation | Entry | Requirements | Dependencies |
+|--------------|-------|-------------|--------------|
+| Python | `python -m system_update` (package at `src/system_update/`) | Python 3.8+ | `rich`, `typer` |
 
-All features and CLI options are implemented in the Python version.
+All features and CLI options are implemented in the Python version. The legacy monolithic `system_update.py` was removed in v5.3.0; public API names remain importable from `system_update`.
 
 ---
 
@@ -617,8 +617,10 @@ const DEFAULT_CONFIG = {
 ### 12.1 Command Syntax
 
 ```bash
-python system_update.py [options]
+python -m system_update [options]
 ```
+
+> Prior to v5.3.0 the entry point was `python -m system_update [options]` (flat-file layout). The CLI flags are unchanged; only the invocation differs.
 
 ### 12.2 Options Reference
 
@@ -659,50 +661,50 @@ python system_update.py [options]
 
 ```bash
 # Basic scan
-python system_update.py
+python -m system_update
 
 # Update everything (with confirmation)
-python system_update.py --update-all
+python -m system_update --update-all
 
 # Update everything (no prompts)
-python system_update.py --update-all --yes
+python -m system_update --update-all --yes
 
 # Update all from specific source
-python system_update.py --update-source rust --yes
+python -m system_update --update-source rust --yes
 
 # Update all Winget packages (dry-run)
-python system_update.py --update-source winget --dry-run
+python -m system_update --update-source winget --dry-run
 
 # Update specific package
-python system_update.py --package git --source chocolatey
+python -m system_update --package git --source chocolatey
 
 # Update all Rust packages only
-python system_update.py --source rust --yes
+python -m system_update --source rust --yes
 
 # Update all Winget packages only
-python system_update.py --source winget --dry-run
+python -m system_update --source winget --dry-run
 
 # Export results
-python system_update.py --export json --output report.json
-python system_update.py --export csv --output updates.csv
+python -m system_update --export json --output report.json
+python -m system_update --export csv --output updates.csv
 
 # Scan specific sources only
-python system_update.py --source winget,npm,pip
+python -m system_update --source winget,npm,pip
 
 # Force fresh scan
-python system_update.py --no-cache
+python -m system_update --no-cache
 
 # Clear cache
-python system_update.py --clear-cache
+python -m system_update --clear-cache
 
 # Enable logging for debugging
-python system_update.py --log
+python -m system_update --log
 
 # Show all executed commands
-python system_update.py --debug
+python -m system_update --debug
 
 # Show all packages (including up-to-date)
-python system_update.py --show-all
+python -m system_update --show-all
 ```
 
 ---
@@ -715,10 +717,10 @@ python system_update.py --show-all
 **Goal:** Keep development tools updated
 
 **Steps:**
-1. Run `python system_update.py` (uses cache if valid)
+1. Run `python -m system_update` (uses cache if valid)
 2. Review displayed package table
 3. Note packages with ⚠️ update badge
-4. Run `python system_update.py --update-all --yes`
+4. Run `python -m system_update --update-all --yes`
 5. Verify completion message
 
 **Expected Output:** Summary of updated packages
@@ -729,7 +731,7 @@ python system_update.py --show-all
 **Goal:** Identify vulnerable packages
 
 **Steps:**
-1. Run `python system_update.py --no-cache`
+1. Run `python -m system_update --no-cache`
 2. Review security vulnerability table
 3. Note CVEs and severity levels
 4. Export report: `--export json --output security-report.json`
@@ -743,7 +745,7 @@ python system_update.py --show-all
 **Goal:** Update specific package to specific version
 
 **Steps:**
-1. Run `python system_update.py --package node --source path --version 22.0.0`
+1. Run `python -m system_update --package node --source path --version 22.0.0`
 2. Confirm update when prompted
 3. Verify success message
 
@@ -755,7 +757,7 @@ python system_update.py --show-all
 **Goal:** Check for updates in pipeline
 
 **Steps:**
-1. Run `python system_update.py --export json --output $BUILD_DIR/updates.json`
+1. Run `python -m system_update --export json --output $BUILD_DIR/updates.json`
 2. Parse JSON in subsequent pipeline step
 3. Fail build if critical vulnerabilities found
 
@@ -767,7 +769,7 @@ python system_update.py --show-all
 **Goal:** Check only Winget-managed software
 
 **Steps:**
-1. Run `python system_update.py --source winget`
+1. Run `python -m system_update --source winget`
 2. Review Winget-specific results
 
 **Expected Output:** Filtered package list
@@ -901,6 +903,9 @@ Errors are displayed with appropriate styling:
 | 3.5.0 | April 2026 | UI Improvements (Themes, Formats, Icons), Column layout adjustments |
 | 4.1.0 | April 2026 | Configuration System (JSON/YAML configs, validation, migration, smart filtering) |
 | 4.2.0 | April 2026 | Advanced Environment Variable System (Dynamic double-underscore nested overrides, auto type-casting, explicit excludes) |
+| 5.1.0 | April 2026 | Historical Tracking (SQLite scan history, trends, stale-package detection, report generation) |
+| 5.2.0 | April 2026 | Export Formats (HTML, XML, Markdown, diff in addition to JSON/CSV) |
+| 5.3.0 | April 2026 | Modular refactor: `src/system_update/` package, Typer CLI, `python -m system_update` entry; monolithic `system_update.py` removed |
 
 ## Appendix B: Glossary
 

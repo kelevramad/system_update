@@ -4,9 +4,10 @@
 
 A comprehensive Python-based system package management tool that scans, checks, and updates software from multiple sources.
 
-**Version:** 5.2.0
+**Version:** 5.3.0
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
+**Layout:** Modular package at `src/system_update/` (typer CLI)
 
 ---
 
@@ -48,29 +49,32 @@ A comprehensive Python-based system package management tool that scans, checks, 
 ### Installation
 
 ```bash
-# Navigate to the script directory
+# Clone + enter
 cd C:\Git\System_Update
 
-# Optional: Install dependencies manually
-pip install rich
-```
+# Install via uv (recommended — reads pyproject.toml)
+uv sync --all-extras --dev
 
-The script will automatically prompt to install the `rich` library if missing.
+# Or plain pip
+pip install -e .
+```
 
 ### Basic Usage
 
+All invocations go through `python -m system_update` (the module's `__main__` entry). The old `python -m system_update` flat-file layout was removed in 5.3.0.
+
 ```bash
 # Run a full system scan
-python system_update.py
+python -m system_update
 
 # Update all packages automatically
-python system_update.py --update-all --yes
+python -m system_update --update-all --yes
 
 # Check for updates without installing
-python system_update.py --dry-run
+python -m system_update --dry-run
 
 # Export scan results to JSON
-python system_update.py --export json --output report.json
+python -m system_update --export json --output report.json
 ```
 
 ---
@@ -103,58 +107,58 @@ python system_update.py --export json --output report.json
 
 ```bash
 # Full system scan with interactive updates
-python system_update.py
+python -m system_update
 
 # Update all packages without confirmation
-python system_update.py --update-all --yes
+python -m system_update --update-all --yes
 
 # Update only Winget packages
-python system_update.py --source winget --yes
+python -m system_update --source winget --yes
 
 # Update only Rust packages
-python system_update.py --source rust --yes
+python -m system_update --source rust --yes
 
 # Update all packages from a specific source
-python system_update.py --update-source rust --yes
+python -m system_update --update-source rust --yes
 
 # Update all Winget packages
-python system_update.py --update-source winget --dry-run
+python -m system_update --update-source winget --dry-run
 
 # Update a specific package
-python system_update.py --package git --source chocolatey
+python -m system_update --package git --source chocolatey
 
 # Dry run to preview updates
-python system_update.py --dry-run
+python -m system_update --dry-run
 
 # Scan only specific sources
-python system_update.py --source winget,npm,pip
+python -m system_update --source winget,npm,pip
 
 # Export results to JSON
-python system_update.py --export json --output updates.json
+python -m system_update --export json --output updates.json
 
 # Export results to CSV
-python system_update.py --export csv --output updates.csv
+python -m system_update --export csv --output updates.csv
 
 # Export results to HTML
-python system_update.py --export html --output updates.html
+python -m system_update --export html --output updates.html
 
 # Export results to XML
-python system_update.py --export xml --output updates.xml
+python -m system_update --export xml --output updates.xml
 
 # Export results to Markdown
-python system_update.py --export md --output updates.md
+python -m system_update --export md --output updates.md
 
 # Export results to Diff
-python system_update.py --export diff --output updates.diff
+python -m system_update --export diff --output updates.diff
 
 # Force fresh scan and export
-python system_update.py --no-cache --export json
+python -m system_update --no-cache --export json
 
 # Show all packages (including up-to-date)
-python system_update.py --show-all
+python -m system_update --show-all
 
 # Interactive package selection
-python system_update.py --interactive
+python -m system_update --interactive
 ```
 
 ---
@@ -352,21 +356,48 @@ Line-by-line diff showing:
 
 ## 🏗️ Architecture
 
+Since 5.3.0 the code lives in a modular package under `src/system_update/`.
+
+### Package Layout
+
+```
+src/system_update/
+├── __init__.py              # Public re-exports (AppInfo, SystemUpdateApp, ...)
+├── __main__.py              # `python -m system_update` entry
+├── cli.py                   # Typer app (argparse replaced)
+├── app.py                   # SystemUpdateApp orchestrator
+├── models.py                # AppInfo, SecurityInfo, UpdateStatus, CommandError
+├── config.py                # SystemConfig, setup_logging
+├── cache.py                 # CacheManager
+├── history.py               # HistoryDatabase, VulnerabilityHistory (SQLite + JSON)
+├── notifications.py         # NotificationManager
+├── export.py                # JSON/CSV/HTML/XML/MD/diff exporters
+├── utils.py                 # run_command, console, SOURCE_ICONS, THEMES
+├── scanners/                # One module per source (winget, npm, pip, ...)
+├── checkers/                # Per-source update-check logic
+├── executors/               # execute_single_update, execute_updates + commands.py
+├── security/                # Per-source vuln scanners (npm, pip, pypi, osv, github, local)
+└── ui/                      # ThemeManager, DisplayFormatter, UISystem
+```
+
 ### Core Components
 
 ```
-SystemUpdateApp          - Main application controller
-├── UISystem             - User interface (Rich-based)
-├── PackageScanner       - Multi-source package discovery
-├── UpdateChecker        - Update detection system
-├── UpdateExecutor       - Update execution engine
-└── CacheManager         - Intelligent caching
-
-Data Models:
-├── AppInfo              - Package metadata (dataclass)
-├── SecurityInfo         - Vulnerability data (dataclass)
-└── UpdateStatus         - Status enumeration
+SystemUpdateApp          - Orchestrator (scan → check → security → display → export → update)
+├── UISystem             - Rich-based UI
+├── PackageScanner       - Multi-source package discovery (parallel)
+├── UpdateChecker        - Update detection
+├── UpdateExecutor       - Update execution
+├── SecurityChecker      - Facade over security/* per-source checkers
+├── CacheManager         - 2-hour JSON cache
+├── HistoryDatabase      - SQLite history (scans, package_snapshots, version_history)
+├── VulnerabilityHistory - Persistent CVE tracking (JSON)
+└── NotificationManager  - Toast/email/webhook/hook dispatch
 ```
+
+### Backward compatibility
+
+Every name from the old flat `system_update.py` is re-exported from the package root, so existing scripts using `from system_update import AppInfo, SystemUpdateApp, run_command, ...` keep working. The monolithic file itself was removed.
 
 ---
 
@@ -431,8 +462,15 @@ uv sync --all-extras --dev
 # Run tests
 uv run pytest
 
-# Run with coverage
-uv run pytest --cov=system_update --cov-report=term-missing
+# Single file
+uv run pytest tests/test_checkers.py -v
+
+# Coverage
+uv run task test-cov
+
+# Lint / format
+uv run task check
+uv run task format
 ```
 
 ---

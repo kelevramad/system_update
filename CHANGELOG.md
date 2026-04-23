@@ -15,6 +15,16 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v5.3.0 (April 2026)
+- **Modular Refactor**: Split monolithic `system_update.py` (~7100 LOC) into `src/system_update/` package
+  - Subpackages: `scanners/`, `checkers/`, `executors/`, `security/`, `ui/` — one module per source
+  - `security/` split into per-source checkers: `npm`, `pip`, `pypi`, `osv`, `github`, `local`
+  - `SystemUpdateApp` orchestrator lives in `app.py`; data models in `models.py`; config/cache/history/notifications as dedicated modules
+  - Typer CLI at `system_update.cli` replaces argparse; entry point via `python -m system_update` (`__main__.py`)
+  - Public API preserved: every class from the old flat layout still importable as `from system_update import X`
+  - Build: `hatchling` packages `src/system_update` as a wheel (see `pyproject.toml`)
+  - Tests: 267 green, migrated to invoke `python -m system_update` via `sys.executable`
+
 ### v5.2.0 (April 2026)
 - **Export Formats**: Added multiple export format support beyond JSON and CSV
   - HTML Export: Styled HTML report with summary stats, tables, and color-coded status badges
