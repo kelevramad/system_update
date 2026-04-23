@@ -1401,7 +1401,7 @@ class HistoryDatabase:
 
 	def _create_schema(self):
 		"""Create database tables if they don't exist."""
-		self.conn.executescript('''
+		self.conn.executescript("""
 			CREATE TABLE IF NOT EXISTS scans (
 				id TEXT PRIMARY KEY,
 				timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -1436,7 +1436,7 @@ class HistoryDatabase:
 			);
 
 			CREATE INDEX IF NOT EXISTS idx_version_name ON version_history(package_name, source);
-		''')
+		""")
 		self.conn.commit()
 
 	def _ensure_connection(self):
@@ -1465,16 +1465,16 @@ class HistoryDatabase:
 		vuln_count = sum(1 for a in apps if a.is_vulnerable)
 
 		self.conn.execute(
-			'''INSERT INTO scans (id, source, package_count, update_count, vulnerability_count, duration_seconds)
-			   VALUES (?, ?, ?, ?, ?, ?)''',
+			"""INSERT INTO scans (id, source, package_count, update_count, vulnerability_count, duration_seconds)
+			   VALUES (?, ?, ?, ?, ?, ?)""",
 			(scan_id, source, len(apps), update_count, vuln_count, duration_seconds),
 		)
 
 		for app in apps:
 			self.conn.execute(
-				'''INSERT INTO package_snapshots
+				"""INSERT INTO package_snapshots
 				   (scan_id, name, source, version, latest_version, update_status, has_vulnerability)
-				   VALUES (?, ?, ?, ?, ?, ?, ?)''',
+				   VALUES (?, ?, ?, ?, ?, ?, ?)""",
 				(
 					scan_id,
 					app.name,
@@ -1487,8 +1487,8 @@ class HistoryDatabase:
 			)
 
 			self.conn.execute(
-				'''INSERT OR IGNORE INTO version_history (package_name, source, version, change_type)
-				   VALUES (?, ?, ?, 'seen')''',
+				"""INSERT OR IGNORE INTO version_history (package_name, source, version, change_type)
+				   VALUES (?, ?, ?, 'seen')""",
 				(app.name, app.source, app.version),
 			)
 
@@ -1505,14 +1505,10 @@ class HistoryDatabase:
 		    List of scan records as dictionaries.
 		"""
 		self._ensure_connection()
-		cursor = self.conn.execute(
-			'SELECT * FROM scans ORDER BY timestamp DESC LIMIT ?', (limit,)
-		)
+		cursor = self.conn.execute('SELECT * FROM scans ORDER BY timestamp DESC LIMIT ?', (limit,))
 		return [dict(row) for row in cursor.fetchall()]
 
-	def get_package_history(
-		self, package_name: str, source: Optional[str] = None
-	) -> List[Dict]:
+	def get_package_history(self, package_name: str, source: Optional[str] = None) -> List[Dict]:
 		"""
 		Get version history for a specific package.
 
@@ -1526,16 +1522,16 @@ class HistoryDatabase:
 		self._ensure_connection()
 		if source:
 			cursor = self.conn.execute(
-				'''SELECT * FROM version_history
+				"""SELECT * FROM version_history
 				   WHERE package_name = ? AND source = ?
-				   ORDER BY timestamp DESC''',
+				   ORDER BY timestamp DESC""",
 				(package_name, source),
 			)
 		else:
 			cursor = self.conn.execute(
-				'''SELECT * FROM version_history
+				"""SELECT * FROM version_history
 				   WHERE package_name = ?
-				   ORDER BY timestamp DESC''',
+				   ORDER BY timestamp DESC""",
 				(package_name,),
 			)
 		return [dict(row) for row in cursor.fetchall()]
@@ -1552,21 +1548,21 @@ class HistoryDatabase:
 		"""
 		self._ensure_connection()
 		cursor = self.conn.execute(
-			'''SELECT source,
+			"""SELECT source,
 					  COUNT(*) as total_scans,
 					  SUM(package_count) as total_packages,
 					  SUM(update_count) as total_updates
 			   FROM scans
 			   WHERE timestamp >= datetime('now', '-' || ? || ' days')
-			   GROUP BY source''',
+			   GROUP BY source""",
 			(days,),
 		)
 		sources = [dict(row) for row in cursor.fetchall()]
 
 		cursor = self.conn.execute(
-			'''SELECT COUNT(DISTINCT package_name) as package_count
+			"""SELECT COUNT(DISTINCT package_name) as package_count
 			   FROM version_history
-			   WHERE timestamp >= datetime('now', '-' || ? || ' days')''',
+			   WHERE timestamp >= datetime('now', '-' || ? || ' days')""",
 			(days,),
 		)
 		unique_packages = cursor.fetchone()[0]
@@ -1589,11 +1585,11 @@ class HistoryDatabase:
 		"""
 		self._ensure_connection()
 		cursor = self.conn.execute(
-			'''SELECT package_name, source, MAX(timestamp) as last_seen
+			"""SELECT package_name, source, MAX(timestamp) as last_seen
 			   FROM version_history
 			   WHERE timestamp < datetime('now', '-' || ? || ' days')
 			   GROUP BY package_name, source
-			   ORDER BY last_seen''',
+			   ORDER BY last_seen""",
 			(days,),
 		)
 		return [dict(row) for row in cursor.fetchall()]
@@ -1607,10 +1603,10 @@ class HistoryDatabase:
 		"""
 		self._ensure_connection()
 		cursor = self.conn.execute(
-			'''SELECT source, COUNT(*) as count
+			"""SELECT source, COUNT(*) as count
 			   FROM package_snapshots
 			   WHERE scan_id = (SELECT id FROM scans ORDER BY timestamp DESC LIMIT 1)
-			   GROUP BY source''',
+			   GROUP BY source""",
 		)
 		return {row['source']: row['count'] for row in cursor.fetchall()}
 
@@ -3595,8 +3591,14 @@ class UpdateChecker:
 					UpdateChecker._check_dotnet_updates(source_apps)
 
 				# Count each source properly: regular updates + security updates (vulnerable with update)
-				regular = sum(1 for a in source_apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE)
-				security = sum(1 for a in source_apps if a.update_status == UpdateStatus.VULNERABLE and a.latest_version)
+				regular = sum(
+					1 for a in source_apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE
+				)
+				security = sum(
+					1
+					for a in source_apps
+					if a.update_status == UpdateStatus.VULNERABLE and a.latest_version
+				)
 				source_total = regular + security
 				total_updates += source_total
 
@@ -3998,6 +4000,7 @@ class UpdateChecker:
 			if app.is_vulnerable and not app.latest_version:
 				try:
 					import urllib.request
+
 					url = f'https://pypi.org/pypi/{app.name}/json'
 					req = urllib.request.Request(url, headers={'User-Agent': 'SystemUpdateCLI'})
 					with urllib.request.urlopen(req, timeout=10) as response:
@@ -4676,9 +4679,7 @@ class SystemUpdateApp:
 		self.executor = UpdateExecutor()
 		self.cache_mgr = CacheManager(config.cache_file, config.settings['cache']['duration_hours'])
 		self.notifier = NotificationManager()
-		self.history_db = HistoryDatabase(
-			Path(config.config_dir) / 'history.db'
-		)
+		self.history_db = HistoryDatabase(Path(config.config_dir) / 'history.db')
 
 		self.vuln_history = VulnerabilityHistory(
 			Path(config.config_dir) / 'vulnerability_history.json'
@@ -4839,10 +4840,24 @@ class SystemUpdateApp:
 			if format_type == 'json':
 				stats = self._get_export_stats(apps)
 				sec_stats = {
-					'critical': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'CRITICAL'),
-					'high': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'HIGH'),
-					'medium': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'MEDIUM'),
-					'low': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'LOW'),
+					'critical': sum(
+						1
+						for a in apps
+						for f in a.security_findings
+						if f.get('severity') == 'CRITICAL'
+					),
+					'high': sum(
+						1 for a in apps for f in a.security_findings if f.get('severity') == 'HIGH'
+					),
+					'medium': sum(
+						1
+						for a in apps
+						for f in a.security_findings
+						if f.get('severity') == 'MEDIUM'
+					),
+					'low': sum(
+						1 for a in apps for f in a.security_findings if f.get('severity') == 'LOW'
+					),
 				}
 				data = {
 					'scan_time': datetime.now().isoformat(),
@@ -4888,20 +4903,47 @@ class SystemUpdateApp:
 						writer.writerow(['Package', 'Source', 'Version', 'CVE', 'Severity'])
 						for app in apps:
 							for finding in app.security_findings:
-								writer.writerow([
-									app.name,
-									app.source,
-									app.version,
-									finding.get('cve', 'N/A'),
-									finding.get('severity', 'UNKNOWN'),
-								])
+								writer.writerow(
+									[
+										app.name,
+										app.source,
+										app.version,
+										finding.get('cve', 'N/A'),
+										finding.get('severity', 'UNKNOWN'),
+									]
+								)
 					sec_stats = {
-						'critical': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'CRITICAL'),
-						'high': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'HIGH'),
-						'medium': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'MEDIUM'),
-						'low': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'LOW'),
+						'critical': sum(
+							1
+							for a in apps
+							for f in a.security_findings
+							if f.get('severity') == 'CRITICAL'
+						),
+						'high': sum(
+							1
+							for a in apps
+							for f in a.security_findings
+							if f.get('severity') == 'HIGH'
+						),
+						'medium': sum(
+							1
+							for a in apps
+							for f in a.security_findings
+							if f.get('severity') == 'MEDIUM'
+						),
+						'low': sum(
+							1
+							for a in apps
+							for f in a.security_findings
+							if f.get('severity') == 'LOW'
+						),
 					}
-					if sec_stats['critical'] or sec_stats['high'] or sec_stats['medium'] or sec_stats['low']:
+					if (
+						sec_stats['critical']
+						or sec_stats['high']
+						or sec_stats['medium']
+						or sec_stats['low']
+					):
 						writer.writerow([])
 						writer.writerow(['Security Summary'])
 						writer.writerow(['Critical', sec_stats['critical']])
@@ -4996,7 +5038,11 @@ class SystemUpdateApp:
 
 		for app in apps:
 			status_class = status_class_map.get(app.update_status, 'status-unknown')
-			status_text = app.status_display.split(' ')[0] if ' ' in app.status_display else app.update_status.value
+			status_text = (
+				app.status_display.split(' ')[0]
+				if ' ' in app.status_display
+				else app.update_status.value
+			)
 			html.append(
 				f'            <tr>'
 				f'<td><strong>{app.name}</strong></td>'
@@ -5007,24 +5053,28 @@ class SystemUpdateApp:
 				f'</tr>'
 			)
 
-		html.extend([
-			'        </tbody>',
-			'    </table>',
-		])
+		html.extend(
+			[
+				'        </tbody>',
+				'    </table>',
+			]
+		)
 
 		vuln_apps = [app for app in apps if app.security_findings]
 		if vuln_apps or stats['vulnerable'] > 0:
-			html.extend([
-				'',
-				'    <h2>🔥 Security Vulnerabilities Detected</h2>',
-				'    <table>',
-				'        <thead>',
-				'            <tr>',
-				'                <th>Package</th><th>Source</th><th>Version</th><th>CVE</th><th>Severity</th>',
-				'            </tr>',
-				'        </thead>',
-				'        <tbody>',
-			])
+			html.extend(
+				[
+					'',
+					'    <h2>🔥 Security Vulnerabilities Detected</h2>',
+					'    <table>',
+					'        <thead>',
+					'            <tr>',
+					'                <th>Package</th><th>Source</th><th>Version</th><th>CVE</th><th>Severity</th>',
+					'            </tr>',
+					'        </thead>',
+					'        <tbody>',
+				]
+			)
 			for app in vuln_apps:
 				for finding in app.security_findings:
 					html.append(
@@ -5039,41 +5089,53 @@ class SystemUpdateApp:
 			html.extend(['        </tbody>', '    </table>'])
 
 		sec_stats = {
-			'critical': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'CRITICAL'),
-			'high': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'HIGH'),
-			'medium': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'MEDIUM'),
+			'critical': sum(
+				1 for a in apps for f in a.security_findings if f.get('severity') == 'CRITICAL'
+			),
+			'high': sum(
+				1 for a in apps for f in a.security_findings if f.get('severity') == 'HIGH'
+			),
+			'medium': sum(
+				1 for a in apps for f in a.security_findings if f.get('severity') == 'MEDIUM'
+			),
 			'low': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'LOW'),
 		}
 		vuln_count = sum(len(a.security_findings) for a in apps)
 		packages_affected = len([a for a in apps if a.security_findings])
 
 		if sec_stats['critical'] or sec_stats['high'] or sec_stats['medium'] or sec_stats['low']:
-			html.extend([
-				'',
-				'    <h2>📈 Security Summary</h2>',
-				'    <div class="summary">',
-				f'        <div class="stat"><div class="stat-value">{vuln_count}</div><div class="stat-label">Total Vulns</div></div>',
-				f'        <div class="stat"><div class="stat-value">{packages_affected}</div><div class="stat-label">Packages Affected</div></div>',
-				f'        <div class="stat"><div class="stat-value">{sec_stats["critical"]}</div><div class="stat-label">Critical</div></div>',
-				f'        <div class="stat"><div class="stat-value vulnerable">{sec_stats["high"]}</div><div class="stat-label">High</div></div>',
-				f'        <div class="stat"><div class="stat-value update-available">{sec_stats["medium"]}</div><div class="stat-label">Medium</div></div>',
-				f'        <div class="stat"><div class="stat-value unknown">{sec_stats["low"]}</div><div class="stat-label">Low</div></div>',
-				'    </div>',
-			])
+			html.extend(
+				[
+					'',
+					'    <h2>📈 Security Summary</h2>',
+					'    <div class="summary">',
+					f'        <div class="stat"><div class="stat-value">{vuln_count}</div><div class="stat-label">Total Vulns</div></div>',
+					f'        <div class="stat"><div class="stat-value">{packages_affected}</div><div class="stat-label">Packages Affected</div></div>',
+					f'        <div class="stat"><div class="stat-value">{sec_stats["critical"]}</div><div class="stat-label">Critical</div></div>',
+					f'        <div class="stat"><div class="stat-value vulnerable">{sec_stats["high"]}</div><div class="stat-label">High</div></div>',
+					f'        <div class="stat"><div class="stat-value update-available">{sec_stats["medium"]}</div><div class="stat-label">Medium</div></div>',
+					f'        <div class="stat"><div class="stat-value unknown">{sec_stats["low"]}</div><div class="stat-label">Low</div></div>',
+					'    </div>',
+				]
+			)
 
 		if stats['source_counts']:
 			source_parts = [f'{src}:{cnt}' for src, cnt in sorted(stats['source_counts'].items())]
-			html.extend([
-				'',
-				'    <h2>📦 Sources</h2>',
-				f'    <p><strong>Sources:</strong> {", ".join(source_parts)}</p>',
-			])
+			html.extend(
+				[
+					'',
+					'    <h2>📦 Sources</h2>',
+					f'    <p><strong>Sources:</strong> {", ".join(source_parts)}</p>',
+				]
+			)
 
-		html.extend([
-			'    <div class="footer"><p>Generated by System Update CLI</p></div>',
-			'</body>',
-			'</html>',
-		])
+		html.extend(
+			[
+				'    <div class="footer"><p>Generated by System Update CLI</p></div>',
+				'</body>',
+				'</html>',
+			]
+		)
 
 		with open(output_file, 'w', encoding='utf-8') as f:
 			f.write('\n'.join(html))
@@ -5093,8 +5155,12 @@ class SystemUpdateApp:
 			xml_lines.append('    <package>')
 			xml_lines.append(f'      <name>{self._xml_escape(app.name)}</name>')
 			xml_lines.append(f'      <source>{self._xml_escape(app.source)}</source>')
-			xml_lines.append(f'      <current_version>{self._xml_escape(app.version or "-")}</current_version>')
-			xml_lines.append(f'      <latest_version>{self._xml_escape(app.latest_version or "-")}</latest_version>')
+			xml_lines.append(
+				f'      <current_version>{self._xml_escape(app.version or "-")}</current_version>'
+			)
+			xml_lines.append(
+				f'      <latest_version>{self._xml_escape(app.latest_version or "-")}</latest_version>'
+			)
 			xml_lines.append(f'      <status>{app.update_status.value}</status>')
 			if app.app_id:
 				xml_lines.append(f'      <app_id>{self._xml_escape(app.app_id)}</app_id>')
@@ -5102,8 +5168,12 @@ class SystemUpdateApp:
 				xml_lines.append('      <vulnerabilities>')
 				for finding in app.security_findings:
 					xml_lines.append('        <vulnerability>')
-					xml_lines.append(f'          <cve>{self._xml_escape(finding.get("cve", "N/A"))}</cve>')
-					xml_lines.append(f'          <severity>{self._xml_escape(finding.get("severity", "UNKNOWN"))}</severity>')
+					xml_lines.append(
+						f'          <cve>{self._xml_escape(finding.get("cve", "N/A"))}</cve>'
+					)
+					xml_lines.append(
+						f'          <severity>{self._xml_escape(finding.get("severity", "UNKNOWN"))}</severity>'
+					)
 					xml_lines.append('        </vulnerability>')
 				xml_lines.append('      </vulnerabilities>')
 			xml_lines.append('    </package>')
@@ -5119,15 +5189,25 @@ class SystemUpdateApp:
 					xml_lines.append(f'      <package>{self._xml_escape(app.name)}</package>')
 					xml_lines.append(f'      <source>{self._xml_escape(app.source)}</source>')
 					xml_lines.append(f'      <version>{self._xml_escape(app.version)}</version>')
-					xml_lines.append(f'      <cve>{self._xml_escape(finding.get("cve", "N/A"))}</cve>')
-					xml_lines.append(f'      <severity>{self._xml_escape(finding.get("severity", "UNKNOWN"))}</severity>')
+					xml_lines.append(
+						f'      <cve>{self._xml_escape(finding.get("cve", "N/A"))}</cve>'
+					)
+					xml_lines.append(
+						f'      <severity>{self._xml_escape(finding.get("severity", "UNKNOWN"))}</severity>'
+					)
 					xml_lines.append('    </vulnerability>')
 			xml_lines.append('  </security_vulnerabilities>')
 
 		sec_stats = {
-			'critical': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'CRITICAL'),
-			'high': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'HIGH'),
-			'medium': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'MEDIUM'),
+			'critical': sum(
+				1 for a in apps for f in a.security_findings if f.get('severity') == 'CRITICAL'
+			),
+			'high': sum(
+				1 for a in apps for f in a.security_findings if f.get('severity') == 'HIGH'
+			),
+			'medium': sum(
+				1 for a in apps for f in a.security_findings if f.get('severity') == 'MEDIUM'
+			),
 			'low': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'LOW'),
 		}
 		vuln_count = sum(len(a.security_findings) for a in apps)
@@ -5193,13 +5273,15 @@ class SystemUpdateApp:
 
 		vuln_apps = [app for app in apps if app.security_findings]
 		if vuln_apps or stats['vulnerable'] > 0:
-			md_lines.extend([
-				'',
-				'## 🔥 Security Vulnerabilities Detected',
-				'',
-				'| Package | Source | Version | CVE | Severity |',
-				'|--------|--------|--------|-----|-----------|',
-			])
+			md_lines.extend(
+				[
+					'',
+					'## 🔥 Security Vulnerabilities Detected',
+					'',
+					'| Package | Source | Version | CVE | Severity |',
+					'|--------|--------|--------|-----|-----------|',
+				]
+			)
 			for app in vuln_apps:
 				for finding in app.security_findings:
 					md_lines.append(
@@ -5208,23 +5290,31 @@ class SystemUpdateApp:
 					)
 
 		sec_stats = {
-			'critical': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'CRITICAL'),
-			'high': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'HIGH'),
-			'medium': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'MEDIUM'),
+			'critical': sum(
+				1 for a in apps for f in a.security_findings if f.get('severity') == 'CRITICAL'
+			),
+			'high': sum(
+				1 for a in apps for f in a.security_findings if f.get('severity') == 'HIGH'
+			),
+			'medium': sum(
+				1 for a in apps for f in a.security_findings if f.get('severity') == 'MEDIUM'
+			),
 			'low': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'LOW'),
 		}
 		vuln_count = sum(len(a.security_findings) for a in apps)
 		packages_affected = len([a for a in apps if a.security_findings])
 
 		if sec_stats['critical'] or sec_stats['high'] or sec_stats['medium'] or sec_stats['low']:
-			md_lines.extend([
-				'',
-				'## 📈 Security Summary',
-				'',
-				'| Total Vulns | Packages Affected | Critical | High | Medium | Low |',
-				'|-------------|-------------------|----------|------|--------|-----|',
-				f'| {vuln_count} | {packages_affected} | {sec_stats["critical"]} | {sec_stats["high"]} | {sec_stats["medium"]} | {sec_stats["low"]} |',
-			])
+			md_lines.extend(
+				[
+					'',
+					'## 📈 Security Summary',
+					'',
+					'| Total Vulns | Packages Affected | Critical | High | Medium | Low |',
+					'|-------------|-------------------|----------|------|--------|-----|',
+					f'| {vuln_count} | {packages_affected} | {sec_stats["critical"]} | {sec_stats["high"]} | {sec_stats["medium"]} | {sec_stats["low"]} |',
+				]
+			)
 
 		if stats['source_counts']:
 			md_lines.extend(['', '## 📦 Sources', ''])
@@ -5265,7 +5355,9 @@ class SystemUpdateApp:
 				diff_lines.append(f'{app.name} ({app.source})')
 				diff_lines.append(f'  Version: {app.version}')
 				for finding in app.security_findings:
-					diff_lines.append(f'  ! {finding.get("severity", "UNKNOWN")}: {finding.get("cve", "N/A")}')
+					diff_lines.append(
+						f'  ! {finding.get("severity", "UNKNOWN")}: {finding.get("cve", "N/A")}'
+					)
 				diff_lines.append('')
 			diff_lines.append('')
 
@@ -5276,12 +5368,20 @@ class SystemUpdateApp:
 				diff_lines.append(f'  {app.name} ({app.source}) v{app.version}')
 			diff_lines.append('')
 
-		diff_lines.append(f'Summary: {len(updated)} updates, {len(vulnerable)} vulnerable, {len(up_to_date)} up to date')
+		diff_lines.append(
+			f'Summary: {len(updated)} updates, {len(vulnerable)} vulnerable, {len(up_to_date)} up to date'
+		)
 
 		sec_stats = {
-			'critical': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'CRITICAL'),
-			'high': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'HIGH'),
-			'medium': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'MEDIUM'),
+			'critical': sum(
+				1 for a in apps for f in a.security_findings if f.get('severity') == 'CRITICAL'
+			),
+			'high': sum(
+				1 for a in apps for f in a.security_findings if f.get('severity') == 'HIGH'
+			),
+			'medium': sum(
+				1 for a in apps for f in a.security_findings if f.get('severity') == 'MEDIUM'
+			),
 			'low': sum(1 for a in apps for f in a.security_findings if f.get('severity') == 'LOW'),
 		}
 		vuln_count = sum(len(a.security_findings) for a in apps)
@@ -5314,8 +5414,10 @@ class SystemUpdateApp:
 			'total': len(apps),
 			'up_to_date': sum(1 for a in apps if a.update_status == UpdateStatus.UP_TO_DATE),
 			'update_available': sum(
-				1 for a in apps
-				if a.update_status in (UpdateStatus.UPDATE_AVAILABLE, UpdateStatus.SECURITY_UPDATE_AVAILABLE)
+				1
+				for a in apps
+				if a.update_status
+				in (UpdateStatus.UPDATE_AVAILABLE, UpdateStatus.SECURITY_UPDATE_AVAILABLE)
 			),
 			'vulnerable': sum(1 for a in apps if a.update_status == UpdateStatus.VULNERABLE),
 			'unknown': sum(1 for a in apps if a.update_status == UpdateStatus.UNKNOWN),
@@ -5908,11 +6010,11 @@ class SystemUpdateApp:
 		console.print('─' * 60)
 		for scan in scans:
 			console.print(
-				f"[dim]{scan['timestamp']}[/dim] | "
-				f"[bold]{scan['package_count']}[/bold] packages | "
-				f"[cyan]{scan['update_count']}[/cyan] updates | "
-				f"[red]{scan['vulnerability_count']}[/red] vulns | "
-				f"[dim]{scan['source']}[/dim]"
+				f'[dim]{scan["timestamp"]}[/dim] | '
+				f'[bold]{scan["package_count"]}[/bold] packages | '
+				f'[cyan]{scan["update_count"]}[/cyan] updates | '
+				f'[red]{scan["vulnerability_count"]}[/red] vulns | '
+				f'[dim]{scan["source"]}[/dim]'
 			)
 
 	def _show_package_history(self, package_name: str):
@@ -5926,9 +6028,9 @@ class SystemUpdateApp:
 		console.print('─' * 60)
 		for record in history[:20]:
 			console.print(
-				f"[dim]{record['timestamp']}[/dim] | "
-				f"[bold]{record['version']}[/bold] | "
-				f"[dim]{record['source']}[/dim]"
+				f'[dim]{record["timestamp"]}[/dim] | '
+				f'[bold]{record["version"]}[/bold] | '
+				f'[dim]{record["source"]}[/dim]'
 			)
 
 	def _show_trends(self):
@@ -5939,10 +6041,10 @@ class SystemUpdateApp:
 
 		for stat in trends['source_stats']:
 			console.print(
-				f"[bold cyan]{stat['source']}[/bold cyan]: "
-				f"[bold]{stat['total_scans']}[/bold] scans, "
-				f"[bold]{stat['total_packages']}[/bold] packages, "
-				f"[green]{stat['total_updates']}[/green] updates"
+				f'[bold cyan]{stat["source"]}[/bold cyan]: '
+				f'[bold]{stat["total_scans"]}[/bold] scans, '
+				f'[bold]{stat["total_packages"]}[/bold] packages, '
+				f'[green]{stat["total_updates"]}[/green] updates'
 			)
 		console.print(f'\n[bold]Unique packages tracked:[/bold] {trends["unique_packages"]}')
 
@@ -5957,9 +6059,9 @@ class SystemUpdateApp:
 		console.print('─' * 60)
 		for pkg in stale:
 			console.print(
-				f"[bold]{pkg['package_name']}[/bold] | "
-				f"[dim]{pkg['source']}[/dim] | "
-				f"[yellow]last seen: {pkg['last_seen']}[/yellow]"
+				f'[bold]{pkg["package_name"]}[/bold] | '
+				f'[dim]{pkg["source"]}[/dim] | '
+				f'[yellow]last seen: {pkg["last_seen"]}[/yellow]'
 			)
 
 	def _generate_report(self, format_type: str, output_file: Optional[str]):
@@ -5994,8 +6096,8 @@ class SystemUpdateApp:
 			lines.append('-' * 60)
 			for scan in scans[:10]:
 				lines.append(
-					f"{scan['timestamp']} | {scan['package_count']} packages | "
-					f"{scan['update_count']} updates | {scan['vulnerability_count']} vulns"
+					f'{scan["timestamp"]} | {scan["package_count"]} packages | '
+					f'{scan["update_count"]} updates | {scan["vulnerability_count"]} vulns'
 				)
 			lines.append('')
 			lines.append('SOURCE DISTRIBUTION')
@@ -6007,8 +6109,8 @@ class SystemUpdateApp:
 			lines.append('-' * 60)
 			for stat in trends['source_stats']:
 				lines.append(
-					f"{stat['source']}: {stat['total_scans']} scans, "
-					f"{stat['total_packages']} packages"
+					f'{stat["source"]}: {stat["total_scans"]} scans, '
+					f'{stat["total_packages"]} packages'
 				)
 			lines.append(f'Unique packages: {trends["unique_packages"]}')
 			lines.append('=' * 60)
@@ -6017,7 +6119,7 @@ class SystemUpdateApp:
 				f.write('\n'.join(lines))
 
 		elif format_type == 'html':
-			html = f'''<!DOCTYPE html>
+			html = f"""<!DOCTYPE html>
 <html>
 <head>
 	<title>System Update - History Report</title>
@@ -6033,13 +6135,13 @@ class SystemUpdateApp:
 </head>
 <body>
 	<h1>System Update - History Report</h1>
-	<p>Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
+	<p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
 
 	<div class="section">
 		<h2>Recent Scans</h2>
 		<table>
 			<tr><th>Timestamp</th><th>Packages</th><th>Updates</th><th>Vulnerabilities</th><th>Sources</th></tr>
-			{chr(10).join(f"<tr><td>{s['timestamp']}</td><td>{s['package_count']}</td><td>{s['update_count']}</td><td>{s['vulnerability_count']}</td><td>{s['source']}</td></tr>" for s in scans[:10])}
+			{chr(10).join(f'<tr><td>{s['timestamp']}</td><td>{s['package_count']}</td><td>{s['update_count']}</td><td>{s['vulnerability_count']}</td><td>{s['source']}</td></tr>' for s in scans[:10])}
 		</table>
 	</div>
 
@@ -6047,7 +6149,7 @@ class SystemUpdateApp:
 		<h2>Source Distribution</h2>
 		<table>
 			<tr><th>Source</th><th>Count</th></tr>
-			{chr(10).join(f"<tr><td>{src}</td><td>{cnt}</td></tr>" for src, cnt in dist.items())}
+			{chr(10).join(f'<tr><td>{src}</td><td>{cnt}</td></tr>' for src, cnt in dist.items())}
 		</table>
 	</div>
 
@@ -6055,11 +6157,11 @@ class SystemUpdateApp:
 		<h2>Trends (30 days)</h2>
 		<table>
 			<tr><th>Source</th><th>Scans</th><th>Packages</th></tr>
-			{chr(10).join(f"<tr><td>{t['source']}</td><td>{t['total_scans']}</td><td>{t['total_packages']}</td></tr>" for t in trends['source_stats'])}
+			{chr(10).join(f'<tr><td>{t['source']}</td><td>{t['total_scans']}</td><td>{t['total_packages']}</td></tr>' for t in trends['source_stats'])}
 		</table>
 	</div>
 </body>
-</html>'''
+</html>"""
 			with open(output_file, 'w', encoding='utf-8') as f:
 				f.write(html)
 
@@ -6189,15 +6291,23 @@ class SystemUpdateApp:
 			self.checker.check_all_updates(apps)
 
 			# Count updates properly: regular + security (vulnerable with update available)
-			regular_updates = sum(1 for a in apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE)
-			security_updates = sum(1 for a in apps if a.update_status == UpdateStatus.VULNERABLE and a.latest_version)
+			regular_updates = sum(
+				1 for a in apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE
+			)
+			security_updates = sum(
+				1 for a in apps if a.update_status == UpdateStatus.VULNERABLE and a.latest_version
+			)
 			total_updates = regular_updates + security_updates
 
 			# Only show brief message here - full breakdown shown after security check
 			if security_updates > 0:
-				console.print(f'[bold magenta]📊 Detected {security_updates} security updates (urgent).[/bold magenta]')
+				console.print(
+					f'[bold magenta]📊 Detected {security_updates} security updates (urgent).[/bold magenta]'
+				)
 			else:
-				console.print(f'[bold magenta]📊 Detected {total_updates} update candidates.[/bold magenta]\n')
+				console.print(
+					f'[bold magenta]📊 Detected {total_updates} update candidates.[/bold magenta]\n'
+				)
 
 			# --- PHASE 3: SECURITY CHECK with progress bar ---
 			console.print('[bold magenta]🔒 Checking security vulnerabilities...[/bold magenta]')
@@ -6313,6 +6423,7 @@ class SystemUpdateApp:
 				if app.is_vulnerable and not app.latest_version:
 					try:
 						import urllib.request
+
 						url = f'https://pypi.org/pypi/{app.name}/json'
 						req = urllib.request.Request(url, headers={'User-Agent': 'SystemUpdateCLI'})
 						with urllib.request.urlopen(req, timeout=10) as response:
@@ -6330,9 +6441,29 @@ class SystemUpdateApp:
 						self.vuln_history.record_vulnerability(app, finding, scan_id)
 
 			# Record scan to SQLite history database
-			scanned_sources = args.source if args.source else ','.join(
-				s for s in ['winget', 'chocolatey', 'npm', 'pnpm', 'bun', 'yarn', 'pip', 'path', 'registry', 'rust', 'scoop', 'dotnet', 'appx', 'msix']
-				if config.settings['sources'].get(s, True)
+			scanned_sources = (
+				args.source
+				if args.source
+				else ','.join(
+					s
+					for s in [
+						'winget',
+						'chocolatey',
+						'npm',
+						'pnpm',
+						'bun',
+						'yarn',
+						'pip',
+						'path',
+						'registry',
+						'rust',
+						'scoop',
+						'dotnet',
+						'appx',
+						'msix',
+					]
+					if config.settings['sources'].get(s, True)
+				)
 			)
 			scan_time = time.time() - start_time
 			self.history_db.record_scan(apps, scan_id, scanned_sources, scan_time)
@@ -6343,7 +6474,9 @@ class SystemUpdateApp:
 
 			# Recalculate total_updates to include security updates after security check
 			regular = sum(1 for a in apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE)
-			security = sum(1 for a in apps if a.update_status == UpdateStatus.VULNERABLE and a.latest_version)
+			security = sum(
+				1 for a in apps if a.update_status == UpdateStatus.VULNERABLE and a.latest_version
+			)
 			total_updates = regular + security
 
 			# Save to cache
@@ -6352,7 +6485,9 @@ class SystemUpdateApp:
 			# For cached results, calculate updates count and set scan time to 0
 			# Include both regular updates and vulnerable packages with update available
 			regular = sum(1 for a in apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE)
-			security = sum(1 for a in apps if a.update_status == UpdateStatus.VULNERABLE and a.latest_version)
+			security = sum(
+				1 for a in apps if a.update_status == UpdateStatus.VULNERABLE and a.latest_version
+			)
 			total_updates = regular + security
 			scan_time = 0.0
 
