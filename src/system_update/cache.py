@@ -6,7 +6,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Set
 
 from system_update.models import AppInfo, UpdateStatus
 
@@ -55,31 +55,53 @@ class CacheManager:
 					latest = item.get('latestVersion', '')
 					if latest == '-':
 						latest = ''
-					apps.append(
-						AppInfo(
-							name=item.get('name'),
-							source=source_normalized,
-							version=item.get('version'),
-							latest_version=latest,
-							app_id=item.get('appId'),
-							update_status=UpdateStatus(item.get('status', 'unknown')),
-							scan_time=datetime.fromisoformat(
-								item.get('scanTime', datetime.now().isoformat()).replace('Z', '')
-							),
-						)
+					app = AppInfo(
+						name=item.get('name'),
+						source=source_normalized,
+						version=item.get('version'),
+						latest_version=latest,
+						app_id=item.get('appId'),
+						update_status=UpdateStatus(item.get('status', 'unknown')),
+						scan_time=datetime.fromisoformat(
+							item.get('scanTime', datetime.now().isoformat()).replace('Z', '')
+						),
+						error_msg=item.get('errorMsg'),
+						install_path=item.get('installPath'),
+						security_findings=list(item.get('securityFindings') or []),
 					)
+					apps.append(app)
 				return apps
 		except Exception as e:
 			logger.warning(f'Failed to load cache: {e}')
 			return None
 
-	def save(self, apps: List[AppInfo]) -> None:
-		"""Serialize ``apps`` to disk with a current-time ``timestamp`` header."""
+	def load_sources(self) -> List[str]:
+		"""Return the ``sources`` array stored at the top of the cache, or []."""
+		if not self.is_valid():
+			return []
 		try:
+			with open(self.cache_file, 'r', encoding='utf-8') as f:
+				data = json.load(f)
+				return list(data.get('sources') or [])
+		except Exception:
+			return []
+
+	def save(self, apps: List[AppInfo]) -> None:
+		"""Serialize ``apps`` to disk with timestamp + deduplicated ``sources`` header."""
+		try:
+			sources_seen: List[str] = []
+			seen: Set[str] = set()
+			for app in apps:
+				key = app.source.lower()
+				if key and key not in seen:
+					seen.add(key)
+					sources_seen.append(key)
+
 			data = {
 				'timestamp': datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z',
-				'version': '1.0.1',
+				'version': '1.0.2',
 				'totalApps': len(apps),
+				'sources': sorted(sources_seen),
 				'apps': [app.to_dict() for app in apps],
 			}
 			with open(self.cache_file, 'w', encoding='utf-8') as f:

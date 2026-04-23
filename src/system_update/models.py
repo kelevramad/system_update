@@ -147,6 +147,9 @@ class AppInfo:
 			'appId': self.app_id,
 			'status': self.update_status.value,
 			'scanTime': self.scan_time.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z',
+			'errorMsg': self.error_msg,
+			'installPath': self.install_path,
+			'securityFindings': list(self.security_findings),
 		}
 
 

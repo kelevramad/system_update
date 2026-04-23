@@ -236,9 +236,27 @@ class SystemUpdateApp:
 		if not getattr(args, 'no_cache', False) and self.settings.get('cache', {}).get(
 			'enabled', True
 		):
-			apps = self.cache_mgr.load()
-			if apps:
-				console.print(f'[dim]💾 Loaded {len(apps)} items from cache[/dim]\n')
+			cached = self.cache_mgr.load()
+			if cached:
+				if self._include_sources:
+					cached_sources = {s.lower() for s in self.cache_mgr.load_sources()}
+					missing = self._include_sources - cached_sources
+					if missing:
+						console.print(
+							f'[dim]💾 Cache missing source(s) {sorted(missing)} — '
+							f'rescanning.[/dim]\n'
+						)
+					else:
+						apps = [
+							a for a in cached if a.source.lower() in self._include_sources
+						]
+						console.print(
+							f'[dim]💾 Loaded {len(apps)} items from cache '
+							f'(filter: {",".join(sorted(self._include_sources))})[/dim]\n'
+						)
+				else:
+					apps = cached
+					console.print(f'[dim]💾 Loaded {len(apps)} items from cache[/dim]\n')
 
 		security_vulns: List[Dict] = []
 		total_updates = 0
