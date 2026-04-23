@@ -19,6 +19,7 @@ from system_update.notifications import NotificationManager
 from system_update.checkers import UpdateChecker
 from system_update.executors import UpdateExecutor
 from system_update.scanners import PackageScanner
+from system_update.security import SecurityChecker
 from system_update.ui import DisplayFormatter, ThemeManager, UISystem
 from system_update.utils import (
 	SOURCE_ICONS,
@@ -37,6 +38,7 @@ __all__ = [
 	'NotificationManager',
 	'PackageScanner',
 	'SOURCE_ICONS',
+	'SecurityChecker',
 	'SecurityInfo',
 	'SystemConfig',
 	'THEMES',
