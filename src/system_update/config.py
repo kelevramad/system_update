@@ -1,0 +1,422 @@
+"""Configuration management and logging setup.
+
+Provides :class:`SystemConfig` for JSON/YAML-backed settings with environment
+variable overrides and named profiles, plus :func:`setup_logging` for the
+application-wide logging configuration.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional
+
+
+class SystemConfig:
+	"""JSON/YAML-backed configuration with env var overrides and profiles.
+
+	Settings are organised into logical sections: ``cache``, ``performance``,
+	``sources``, ``security``, ``ui``, ``export``, ``notifications``. When a
+	config file exists it is deep-merged onto the defaults so new keys added
+	in future versions are automatically present.
+	"""
+
+	def __init__(self, profile_name: Optional[str] = None) -> None:
+		self.config_dir = Path.home() / '.system_update'
+		self.profiles_dir = self.config_dir / 'profiles'
+		self.current_profile = profile_name
+
+		self.config_dir.mkdir(exist_ok=True)
+		self.profiles_dir.mkdir(exist_ok=True)
+
+		self._update_paths(profile_name)
+
+		self.settings = self._get_default_settings()
+		self.load()
+
+	@staticmethod
+	def _get_default_settings() -> Dict:
+		"""Return the default settings dictionary."""
+		return {
+			'version': 1,
+			'log_level': 'WARNING',
+			'exclude': [],
+			'cache': {
+				'duration_hours': 2,
+				'enabled': True,
+			},
+			'performance': {
+				'parallel_scan': True,
+				'max_workers': 6,
+				'timeout_seconds': 45,
+			},
+			'sources': {
+				'winget': True,
+				'chocolatey': True,
+				'npm': True,
+				'pnpm': True,
+				'pip': True,
+				'bun': True,
+				'yarn': True,
+				'path': True,
+				'registry': True,
+				'rust': True,
+				'scoop': True,
+				'dotnet': True,
+				'appx': True,
+				'msix': True,
+			},
+			'security': {
+				'enabled': True,
+				'auto_check': True,
+				'severity_threshold': 'medium',
+			},
+			'ui': {
+				'theme': 'default',
+				'show_stats': True,
+				'compact_view': False,
+				'color_scheme': 'vibrant',
+				'display_format': 'auto',
+				'use_icons': False,
+			},
+			'export': {
+				'default_format': 'json',
+				'include_timestamp': True,
+			},
+			'notifications': {
+				'notify_on_updates': True,
+				'notify_on_scan_complete': False,
+				'system_notifications': False,
+				'email_enabled': False,
+				'email_to': '',
+				'smtp_server': '',
+				'smtp_port': 587,
+				'smtp_username': '',
+				'smtp_password': '',
+				'webhook_enabled': False,
+				'webhook_url': '',
+				'webhook_headers': {},
+				'custom_script_enabled': False,
+				'custom_script_path': '',
+			},
+		}
+
+	def _update_paths(self, profile_name: Optional[str]) -> None:
+		"""Update file paths based on the current profile."""
+		if profile_name:
+			profile_dir = self.profiles_dir / profile_name
+			profile_dir.mkdir(exist_ok=True)
+			base = profile_dir
+		else:
+			base = self.config_dir
+
+		self.config_file = base / 'config.json'
+		self.yaml_config_file = base / 'config.yaml'
+		self.yml_config_file = base / 'config.yml'
+		self.cache_file = base / 'cache.json'
+		self.log_file = base / 'system.log'
+
+	def reinit(self, profile_name: Optional[str]) -> None:
+		"""Switch to a different profile and reload configuration."""
+		self.current_profile = profile_name
+		self._update_paths(profile_name)
+		self.settings = self._get_default_settings()
+		self.load()
+
+	def export_profile(self, output_path: str) -> bool:
+		"""Export current profile settings to a JSON file."""
+		try:
+			export_data = {
+				'profile_name': self.current_profile or 'default',
+				'settings': self.settings,
+				'exported_at': datetime.now().isoformat(),
+			}
+			with open(output_path, 'w', encoding='utf-8') as f:
+				json.dump(export_data, f, indent=2)
+			return True
+		except Exception as e:
+			logging.error(f'Failed to export profile: {e}')
+			return False
+
+	def import_profile(self, input_path: str, profile_name: Optional[str] = None) -> bool:
+		"""Import settings from a profile JSON file."""
+		try:
+			with open(input_path, 'r', encoding='utf-8') as f:
+				import_data = json.load(f)
+
+			settings = import_data.get('settings')
+			if not settings:
+				logging.error('Invalid profile file: missing settings')
+				return False
+
+			target_profile = profile_name or import_data.get('profile_name', 'imported')
+			self.reinit(target_profile)
+			self.settings = settings
+			self.save()
+			return True
+		except Exception as e:
+			logging.error(f'Failed to import profile: {e}')
+			return False
+
+	def load(self) -> None:
+		"""Load configuration from YAML or JSON, then apply env var overrides."""
+		loaded_settings = self._read_config_file()
+
+		if loaded_settings and isinstance(loaded_settings, dict):
+			loaded_settings = self._migrate_config(loaded_settings)
+			self._apply_smart_sources_filtering(loaded_settings)
+			self._merge_settings(self.settings, loaded_settings)
+
+		self._load_env_vars()
+		self._validate_config()
+
+	def _read_config_file(self) -> Optional[Dict]:
+		"""Attempt to read settings from YAML (preferred) or JSON on disk."""
+		yaml_path = (
+			self.yaml_config_file
+			if self.yaml_config_file.exists()
+			else (self.yml_config_file if self.yml_config_file.exists() else None)
+		)
+
+		if yaml_path:
+			try:
+				import yaml
+
+				with open(yaml_path, 'r', encoding='utf-8') as f:
+					return yaml.safe_load(f)
+			except ImportError:
+				logging.warning('PyYAML not installed but YAML config found.')
+			except Exception as e:
+				logging.warning(f'Failed to load YAML config: {e}')
+
+		if self.config_file.exists():
+			try:
+				with open(self.config_file, 'r', encoding='utf-8') as f:
+					return json.load(f)
+			except Exception as e:
+				logging.warning(f'Failed to load config: {e}')
+
+		return None
+
+	def _apply_smart_sources_filtering(self, loaded_settings: Dict) -> None:
+		"""Honour explicit user source choices: enabling any disables unlisted ones.
+
+		If the user explicitly enables at least one source in the config file,
+		every source not listed by the user gets disabled. This makes config
+		files where the user lists only the sources they want act as a whitelist.
+		"""
+		if 'sources' not in loaded_settings or not isinstance(loaded_settings['sources'], dict):
+			return
+
+		user_sources = loaded_settings['sources']
+		if 'choco' in user_sources:
+			user_sources['chocolatey'] = user_sources.pop('choco')
+
+		has_explicit_true = any(val is True for val in user_sources.values())
+		if has_explicit_true:
+			for src in self.settings['sources']:
+				if src not in user_sources:
+					self.settings['sources'][src] = False
+
+	def _load_env_vars(self) -> None:
+		"""Apply ``SYSTEM_UPDATE_*`` environment variable overrides."""
+		if 'SYSTEM_UPDATE_SOURCES' in os.environ:
+			sources_str = os.environ['SYSTEM_UPDATE_SOURCES']
+			source_list = [s.strip().lower() for s in sources_str.split(',') if s.strip()]
+			if 'choco' in source_list:
+				source_list.append('chocolatey')
+			for src in self.settings['sources']:
+				self.settings['sources'][src] = src in source_list
+
+		if 'SYSTEM_UPDATE_TIMEOUT' in os.environ:
+			try:
+				self.settings['performance']['timeout_seconds'] = int(
+					os.environ['SYSTEM_UPDATE_TIMEOUT']
+				)
+			except ValueError:
+				pass
+
+		if 'SYSTEM_UPDATE_WORKERS' in os.environ:
+			try:
+				self.settings['performance']['max_workers'] = int(
+					os.environ['SYSTEM_UPDATE_WORKERS']
+				)
+			except ValueError:
+				pass
+
+		if 'SYSTEM_UPDATE_EXCLUDE' in os.environ:
+			exclude_str = os.environ['SYSTEM_UPDATE_EXCLUDE']
+			self.settings.setdefault('exclude', [])
+			self.settings['exclude'].extend(
+				[e.strip() for e in exclude_str.split(',') if e.strip()]
+			)
+
+		if 'SYSTEM_UPDATE_LOG_LEVEL' in os.environ:
+			self.settings['log_level'] = os.environ['SYSTEM_UPDATE_LOG_LEVEL'].upper()
+
+		# Generic double-underscore nested overrides: SYSTEM_UPDATE_SECTION__KEY=VALUE
+		prefix = 'SYSTEM_UPDATE_'
+		for key, val in os.environ.items():
+			if key.startswith(prefix) and '__' in key:
+				path = key[len(prefix) :].lower().split('__')
+				self._set_nested_env_value(self.settings, path, val)
+
+	@staticmethod
+	def _set_nested_env_value(target: Dict, path: List[str], value: str) -> None:
+		"""Set a nested dict value from an env-var path, casting the scalar."""
+		for key in path[:-1]:
+			if key not in target:
+				target[key] = {}
+			target = target[key]
+
+		final_key = path[-1]
+		val_lower = value.lower()
+		if val_lower in ('true', 'yes', '1'):
+			target[final_key] = True
+		elif val_lower in ('false', 'no', '0'):
+			target[final_key] = False
+		elif value.isdigit():
+			target[final_key] = int(value)
+		else:
+			try:
+				target[final_key] = float(value)
+			except ValueError:
+				target[final_key] = value
+
+	@staticmethod
+	def _migrate_config(loaded: Dict) -> Dict:
+		"""Auto-upgrade old configs to current format."""
+		version = loaded.get('version', 0)
+		if version < 1:
+			loaded['version'] = 1
+		return loaded
+
+	def _validate_config(self) -> None:
+		"""Reset invalid configuration values to their defaults."""
+		if (
+			not isinstance(self.settings['cache']['duration_hours'], (int, float))
+			or self.settings['cache']['duration_hours'] < 0
+		):
+			logging.warning('Invalid cache.duration_hours. Resetting to default (2).')
+			self.settings['cache']['duration_hours'] = 2
+
+		if (
+			not isinstance(self.settings['performance']['max_workers'], int)
+			or self.settings['performance']['max_workers'] < 1
+		):
+			logging.warning('Invalid performance.max_workers. Resetting to default (6).')
+			self.settings['performance']['max_workers'] = 6
+
+		if (
+			not isinstance(self.settings['performance']['timeout_seconds'], int)
+			or self.settings['performance']['timeout_seconds'] < 1
+		):
+			logging.warning('Invalid performance.timeout_seconds. Resetting to default (45).')
+			self.settings['performance']['timeout_seconds'] = 45
+
+		valid_thresholds = ['low', 'medium', 'high', 'critical']
+		try:
+			if self.settings['security']['severity_threshold'].lower() not in valid_thresholds:
+				logging.warning("Invalid security.severity_threshold. Resetting to 'medium'.")
+				self.settings['security']['severity_threshold'] = 'medium'
+		except (AttributeError, KeyError):
+			self.settings['security']['severity_threshold'] = 'medium'
+
+		self.settings['cache']['enabled'] = bool(self.settings['cache']['enabled'])
+		self.settings['security']['enabled'] = bool(self.settings['security']['enabled'])
+
+	def _merge_settings(self, base: Dict, loaded: Dict) -> None:
+		"""Recursively merge ``loaded`` into ``base`` (in-place)."""
+		for key, value in loaded.items():
+			if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+				self._merge_settings(base[key], value)
+			else:
+				base[key] = value
+
+	def save(self) -> None:
+		"""Persist current settings to YAML (if present on disk) or JSON."""
+		yaml_path = (
+			self.yaml_config_file
+			if self.yaml_config_file.exists()
+			else (self.yml_config_file if self.yml_config_file.exists() else None)
+		)
+
+		try:
+			if yaml_path:
+				import yaml
+
+				with open(yaml_path, 'w', encoding='utf-8') as f:
+					yaml.dump(self.settings, f, default_flow_style=False, sort_keys=False)
+			else:
+				with open(self.config_file, 'w', encoding='utf-8') as f:
+					json.dump(self.settings, f, indent=2, default=str)
+		except ImportError:
+			try:
+				with open(self.config_file, 'w', encoding='utf-8') as f:
+					json.dump(self.settings, f, indent=2, default=str)
+			except Exception as e:
+				logging.error(f'Failed to save config: {e}')
+		except Exception as e:
+			logging.error(f'Failed to save config: {e}')
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# LOGGING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class WarningFileHandler(logging.FileHandler):
+	"""File handler that only records WARNING and above."""
+
+	def __init__(
+		self, filename, mode: str = 'a', encoding: str = 'utf-8', delay: bool = False
+	) -> None:
+		super().__init__(filename, mode, encoding, delay)
+		self.setLevel(logging.WARNING)
+
+
+def setup_logging(
+	config: SystemConfig,
+	debug: bool = False,
+	enable_log: bool = False,
+) -> None:
+	"""Configure root logger: console handler + primary + warning-only files.
+
+	Args:
+		config: The active :class:`SystemConfig` — its ``log_file`` and
+			``config_dir`` determine where log files go.
+		debug: If True, console level is DEBUG and all commands are echoed.
+		enable_log: If True, console level is INFO; otherwise WARNING.
+	"""
+	root_logger = logging.getLogger()
+
+	for handler in root_logger.handlers[:]:
+		root_logger.removeHandler(handler)
+
+	if debug:
+		level = logging.DEBUG
+	elif enable_log:
+		level = logging.INFO
+	else:
+		level = logging.WARNING
+
+	file_handler = logging.FileHandler(config.log_file, encoding='utf-8')
+	file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+	file_handler.setLevel(logging.DEBUG)
+	root_logger.addHandler(file_handler)
+
+	console_handler = logging.StreamHandler(sys.stdout)
+	console_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+	console_handler.setLevel(level)
+	if hasattr(console_handler.stream, 'reconfigure'):
+		console_handler.stream.reconfigure(encoding='utf-8', errors='replace')
+	root_logger.addHandler(console_handler)
+
+	error_handler = WarningFileHandler(config.config_dir / 'errors.log')
+	root_logger.addHandler(error_handler)
+
+	root_logger.setLevel(logging.DEBUG)

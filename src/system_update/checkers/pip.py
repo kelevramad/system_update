@@ -1,0 +1,98 @@
+"""Check PIP package updates via ``pip list --outdated`` and PyPI fallback."""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import urllib.request
+from typing import List
+
+from system_update.models import AppInfo, UpdateStatus
+from system_update.utils import run_command
+
+_OUTDATED_COMMANDS = [
+	['uv', 'pip', 'list', '--outdated', '--format=json'],
+	[sys.executable, '-m', 'pip', 'list', '--outdated', '--format=json'],
+	['pip', 'list', '--outdated', '--format=json'],
+	['pip3', 'list', '--outdated', '--format=json'],
+]
+
+_GLOBAL_PYTHON_EXES = [
+	'C:\\Users\\vchav\\AppData\\Local\\Programs\\Python\\Python313\\python.exe',
+	'C:\\Python313\\python.exe',
+	'C:\\Python312\\python.exe',
+	'python.exe',
+]
+
+
+def _pypi_latest(name: str) -> str:
+	"""Return the ``info.version`` field for ``name`` from PyPI, or ``''`` on failure."""
+	url = f'https://pypi.org/pypi/{name}/json'
+	req = urllib.request.Request(url, headers={'User-Agent': 'SystemUpdateCLI'})
+	try:
+		with urllib.request.urlopen(req, timeout=10) as response:
+			data = json.loads(response.read().decode())
+		return data.get('info', {}).get('version', '') if isinstance(data, dict) else ''
+	except Exception:
+		return ''
+
+
+def check(apps: List[AppInfo]) -> int:
+	"""Collect outdated packages from active + global interpreters, then merge results."""
+	output = None
+	for cmd in _OUTDATED_COMMANDS:
+		output = run_command(cmd, allow_failure=True)
+		if output:
+			break
+
+	all_outdated: List[dict] = []
+	if output:
+		try:
+			all_outdated = json.loads(output)
+		except Exception:
+			pass
+
+	for pyexe in _GLOBAL_PYTHON_EXES:
+		if not os.path.exists(pyexe):
+			continue
+		global_output = run_command(
+			[pyexe, '-m', 'pip', 'list', '--outdated', '--format=json'], allow_failure=True
+		)
+		if global_output and len(global_output) > 10:
+			try:
+				global_data = json.loads(global_output)
+				existing = {p.get('name', '').lower() for p in all_outdated}
+				for pkg in global_data:
+					if pkg.get('name', '').lower() not in existing:
+						all_outdated.append(pkg)
+			except Exception:
+				pass
+
+	updates = 0
+	if all_outdated:
+		seen: set[str] = set()
+		for item in all_outdated:
+			if not isinstance(item, dict):
+				continue
+			name = item.get('name', '')
+			latest = item.get('latest_version', '')
+			if not name:
+				continue
+			key = name.lower()
+			if key in seen:
+				continue
+			for app in apps:
+				if app.name.lower() == key:
+					app.latest_version = latest
+					if app.update_status != UpdateStatus.VULNERABLE:
+						app.update_status = UpdateStatus.UPDATE_AVAILABLE
+					updates += 1
+					seen.add(key)
+					break
+
+	for app in apps:
+		if app.is_vulnerable and not app.latest_version:
+			app.latest_version = _pypi_latest(app.name)
+
+	return updates
