@@ -214,6 +214,39 @@ class SystemUpdateApp:
 
 		return sorted(all_apps, key=lambda x: f'{x.source}{x.name}')
 
+	# ── partial scan + cache merge ─────────────────────────────────────────
+
+	def _scan_missing_and_merge(
+		self, cached: List[AppInfo], missing: Set[str]
+	) -> List[AppInfo]:
+		"""Scan only ``missing`` sources, merge into ``cached``, save, return filtered view."""
+		console.print(
+			f'[dim]💾 Cache hit. Scanning missing source(s) '
+			f'{sorted(missing)} and merging.[/dim]\n'
+		)
+		prev_include = self._include_sources
+		self._include_sources = set(missing)
+		try:
+			new_apps = self.scan_system(','.join(sorted(missing)))
+			self.checker.check_all_updates(new_apps)
+			advisory_file = os.path.join(
+				os.path.expanduser('~'), '.system_update', 'advisories.json'
+			)
+			self.security.check_all(new_apps, advisory_file)
+			_pypi_fallback_latest(new_apps)
+		finally:
+			self._include_sources = prev_include
+
+		# Merge: drop any cached entries for newly-scanned sources, append fresh.
+		merged = [a for a in cached if a.source.lower() not in missing] + new_apps
+		merged = sorted(merged, key=lambda x: f'{x.source}{x.name}')
+		self.cache_mgr.save(merged)
+		console.print(
+			f'[dim]💾 Cache updated ({len(merged)} items across '
+			f'{len({a.source.lower() for a in merged})} sources).[/dim]\n'
+		)
+		return [a for a in merged if a.source.lower() in self._include_sources]
+
 	# ── main workflow ──────────────────────────────────────────────────────
 
 	def run(self, args: Namespace) -> None:
@@ -285,10 +318,7 @@ class SystemUpdateApp:
 					cached_sources = {s.lower() for s in self.cache_mgr.load_sources()}
 					missing = self._include_sources - cached_sources
 					if missing:
-						console.print(
-							f'[dim]💾 Cache missing source(s) {sorted(missing)} — '
-							f'rescanning.[/dim]\n'
-						)
+						apps = self._scan_missing_and_merge(cached, missing)
 					else:
 						apps = [
 							a for a in cached if a.source.lower() in self._include_sources
@@ -300,6 +330,12 @@ class SystemUpdateApp:
 				else:
 					apps = cached
 					console.print(f'[dim]💾 Loaded {len(apps)} items from cache[/dim]\n')
+			elif cached is not None and self._include_sources:
+				# Valid but empty cache + --source X: scan only X, save as cache.
+				console.print(
+					f'[dim]💾 Cache is empty — scanning '
+					f'{", ".join(sorted(self._include_sources))} only.[/dim]\n'
+				)
 
 		security_vulns: List[Dict] = []
 		total_updates = 0
