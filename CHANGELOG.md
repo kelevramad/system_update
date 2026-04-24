@@ -15,6 +15,15 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v5.3.1 (April 2026)
+- **Cache Partial-Scan + Merge**: `--source X` where `X` is not yet cached now scans only `X`, merges into cached apps, and saves — no more full rescan that discards warm cache
+- **Invalid `--source` Handling**: Unknown tokens (e.g. `--source xpto`) warn with the list of available sources; mixed valid+invalid proceed with valid only; cache untouched when nothing valid remains
+- **Empty-Cache Incremental**: Valid but empty cache + `--source X` silently routes through the merge path instead of triggering the full-scan banner
+- **Unified Summary**: Dropped standalone `📈 Security Summary`; severity / packages-affected / persistent lines fold into the main `📊 Summary` block. Works for both cache-hit and fresh-scan paths
+- **Per-CVE Security Table**: `🔥 Security Vulnerabilities Detected` now emits one row per CVE (was grouped per package with a count); added `Fix` column populated from `latest_version`; trailing `Found N known vulnerabilities in M package(s).` line
+- **Cross-Source Vuln Dedup**: Findings keyed by `(package, cve)` so PyPI JSON + pip-audit + OSV duplicates collapse into one row, keeping the highest severity, numeric CVSS, and longest description
+- **Cache v1.0.2**: Top-level deduplicated `sources` array enables fast missing-source detection; `AppInfo.to_dict()` now round-trips `security_findings`, `error_msg`, `install_path`
+
 ### v5.3.0 (April 2026)
 - **Modular Refactor**: Split monolithic `system_update.py` (~7100 LOC) into `src/system_update/` package
   - Subpackages: `scanners/`, `checkers/`, `executors/`, `security/`, `ui/` — one module per source

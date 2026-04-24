@@ -46,12 +46,11 @@ class CacheManager:
 				data = json.load(f)
 				apps: List[AppInfo] = []
 				for item in data.get('apps', []):
-					source_raw = item.get('source', '')
-					source_normalized = (
-						source_raw.upper()
-						if source_raw in ('npm', 'pnpm', 'pip')
-						else source_raw.capitalize()
-					)
+					# Preserve the stored (lowercase) source verbatim so that
+					# filter/merge comparisons stay case-consistent with fresh
+					# scanner output. source_badge() lowercases for display
+					# anyway, so no capitalization is required here.
+					source_normalized = str(item.get('source', '') or '').lower()
 					latest = item.get('latestVersion', '')
 					if latest == '-':
 						latest = ''
