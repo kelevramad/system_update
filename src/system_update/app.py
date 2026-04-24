@@ -17,7 +17,7 @@ from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn
 from rich.prompt import Confirm
@@ -43,6 +43,8 @@ _SCAN_ORDER = (
 	'winget', 'chocolatey', 'npm', 'pnpm', 'bun', 'yarn', 'pip',
 	'path', 'registry', 'rust', 'scoop', 'dotnet', 'appx', 'msix',
 )
+
+_KNOWN_SOURCES: Set[str] = set(_SCAN_ORDER) | set(_SOURCE_ALIASES.keys())
 
 
 def _build_scanner_map() -> Dict[str, Callable[[], List[AppInfo]]]:
@@ -73,6 +75,25 @@ def _parse_source_filter(raw: Optional[str]) -> Set[str]:
 		for item in raw.split(',')
 		if item.strip()
 	}
+
+
+def _partition_sources(raw: Optional[str]) -> Tuple[Set[str], Set[str]]:
+	"""Split ``--source a,b,xpto`` into (valid_canonical, invalid_raw_tokens)."""
+	if not raw:
+		return set(), set()
+	valid: Set[str] = set()
+	invalid: Set[str] = set()
+	for item in raw.split(','):
+		token = item.strip()
+		if not token:
+			continue
+		lowered = token.lower()
+		canonical = _SOURCE_ALIASES.get(lowered, lowered)
+		if canonical in _KNOWN_SOURCES or lowered in _KNOWN_SOURCES:
+			valid.add(canonical)
+		else:
+			invalid.add(token)
+	return valid, invalid
 
 
 def _pypi_fallback_latest(apps: List[AppInfo]) -> None:
@@ -230,7 +251,29 @@ class SystemUpdateApp:
 			args.yes = True
 
 		if getattr(args, 'source', None):
-			self._include_sources = _parse_source_filter(args.source)
+			valid, invalid = _partition_sources(args.source)
+			if invalid:
+				available = ', '.join(sorted(_SCAN_ORDER))
+				console.print(
+					f'[yellow]⚠️  Unknown source(s): '
+					f'{", ".join(sorted(invalid))}[/yellow]\n'
+					f'[dim]   Available: {available}[/dim]'
+				)
+			if not valid:
+				console.print(
+					'[red]❌ No valid sources in --source. '
+					'Nothing to do — cache left untouched.[/red]'
+				)
+				return
+			if invalid:
+				console.print(
+					f'[dim]   Proceeding with: {", ".join(sorted(valid))}[/dim]\n'
+				)
+			self._include_sources = valid
+			# Overwrite args.source with the sanitized CSV so downstream
+			# helpers (scan_system, _scanned_sources_label, cache sources check)
+			# see only valid tokens.
+			args.source = ','.join(sorted(valid))
 
 		apps: Optional[List[AppInfo]] = None
 		if not getattr(args, 'no_cache', False) and self.settings.get('cache', {}).get(
