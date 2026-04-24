@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 5.3.0
+**Document Version:** 5.3.1
 **Last Updated:** April 23, 2026
 **Author:** Qwen Code
-**Based On:** `src/system_update/` package (v5.3.0)
+**Based On:** `src/system_update/` package (v5.3.1)
 
 ---
 
@@ -906,6 +906,7 @@ Errors are displayed with appropriate styling:
 | 5.1.0 | April 2026 | Historical Tracking (SQLite scan history, trends, stale-package detection, report generation) |
 | 5.2.0 | April 2026 | Export Formats (HTML, XML, Markdown, diff in addition to JSON/CSV) |
 | 5.3.0 | April 2026 | Modular refactor: `src/system_update/` package, Typer CLI, `python -m system_update` entry; monolithic `system_update.py` removed |
+| 5.3.1 | April 2026 | Cache partial-scan + merge for missing sources; unified Summary (security stats folded in); per-CVE security table with Fix column and cross-source dedupe by `package|cve`; invalid-source validation |
 
 ## Appendix B: Glossary
 

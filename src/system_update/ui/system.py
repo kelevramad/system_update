@@ -53,8 +53,9 @@ def display_summary(
 	scan_time: float,
 	sources_count: Dict[str, int],
 	show_all: bool = False,  # noqa: ARG001 — reserved for future "all apps" variant
+	security_stats: Optional[Dict] = None,
 ) -> None:
-	"""Print the 4-line scan summary with per-source counts."""
+	"""Print the scan summary with per-source counts + optional security block."""
 	console.print('[bold magenta]📊 Summary[/bold magenta]')
 	console.print(f'📦 total apps     [bold white]{total_apps}[/bold white]')
 	console.print(f'🔄 updates        [bold yellow]{updates}[/bold yellow]')
@@ -66,6 +67,24 @@ def display_summary(
 		if c > 0
 	]
 	console.print(f'⚙️ sources        {", ".join(parts)}')
+
+	if security_stats and security_stats.get('total_vulnerabilities', 0) > 0:
+		breakdown = security_stats.get('severity_breakdown', {})
+		sev_parts = [
+			f'[{_SEVERITY_COLORS[sev]}]{sev}[/{_SEVERITY_COLORS[sev]}]: {breakdown.get(sev, 0)}'
+			for sev in ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW')
+			if breakdown.get(sev, 0) > 0
+		]
+		if sev_parts:
+			console.print(f'🛡️ severity       {" | ".join(sev_parts)}')
+		console.print(
+			f'📦 pkgs affected  [bold white]'
+			f'{security_stats.get("packages_affected", 0)}[/bold white]'
+		)
+		console.print(
+			f'🔁 persistent     [bold yellow]'
+			f'{security_stats.get("persistent_vulnerabilities", 0)}[/bold yellow]'
+		)
 	console.print()
 
 

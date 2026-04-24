@@ -227,12 +227,50 @@ class SystemUpdateApp:
 		prev_include = self._include_sources
 		self._include_sources = set(missing)
 		try:
+			console.print('[bold cyan]🔎 Scanning sources...[/bold cyan]')
 			new_apps = self.scan_system(','.join(sorted(missing)))
+			console.print(
+				f'\n📦 [bold]Discovered {len(new_apps)} unique apps.[/bold]'
+			)
+
+			console.print('[bold cyan]🔄 Checking for updates...[/bold cyan]')
 			self.checker.check_all_updates(new_apps)
+
+			regular_updates = sum(
+				1 for a in new_apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE
+			)
+			security_updates = sum(
+				1 for a in new_apps
+				if a.update_status == UpdateStatus.VULNERABLE and a.latest_version
+			)
+			total_updates = regular_updates + security_updates
+			if security_updates > 0:
+				console.print(
+					f'[bold magenta]📊 Detected {security_updates} '
+					f'security updates (urgent).[/bold magenta]'
+				)
+			else:
+				console.print(
+					f'[bold magenta]📊 Detected {total_updates} '
+					f'update candidates.[/bold magenta]\n'
+				)
+
+			console.print(
+				'[bold magenta]🔒 Checking security vulnerabilities...[/bold magenta]'
+			)
 			advisory_file = os.path.join(
 				os.path.expanduser('~'), '.system_update', 'advisories.json'
 			)
-			self.security.check_all(new_apps, advisory_file)
+			security_vulns = self.security.check_all(new_apps, advisory_file)
+			if security_vulns:
+				console.print(
+					f'[bold red]🔥 Found {len(security_vulns)} '
+					f'security vulnerabilities.[/bold red]\n'
+				)
+			else:
+				console.print(
+					'[bold green]🛡️ No security vulnerabilities found.[/bold green]\n'
+				)
 			_pypi_fallback_latest(new_apps)
 		finally:
 			self._include_sources = prev_include
@@ -331,11 +369,9 @@ class SystemUpdateApp:
 					apps = cached
 					console.print(f'[dim]💾 Loaded {len(apps)} items from cache[/dim]\n')
 			elif cached is not None and self._include_sources:
-				# Valid but empty cache + --source X: scan only X, save as cache.
-				console.print(
-					f'[dim]💾 Cache is empty — scanning '
-					f'{", ".join(sorted(self._include_sources))} only.[/dim]\n'
-				)
+				# Valid but empty cache + --source X: scan X silently via merge
+				# path so the full-scan banners don't fire.
+				apps = self._scan_missing_and_merge([], set(self._include_sources))
 
 		security_vulns: List[Dict] = []
 		total_updates = 0
@@ -400,7 +436,6 @@ class SystemUpdateApp:
 			scan_time = time.time() - start_time
 			self.history_db.record_scan(apps, scan_id, scanned_sources, scan_time)
 
-			self.ui.display_security_summary(self.ui.compute_security_stats(security_vulns))
 			total_updates = _count_updates(apps)
 			self.cache_mgr.save(apps)
 		else:
@@ -412,9 +447,27 @@ class SystemUpdateApp:
 		for app in apps:
 			sources_count[app.source] = sources_count.get(app.source, 0) + 1
 
+		# Flatten security findings from AppInfo so cache-hit path also gets
+		# a summary (security_vulns is only populated on fresh scan).
+		# Dedupe by (package, cve) across sources (PyPI + pip-audit + OSV …).
+		seen_keys: Set[str] = set()
+		all_vulns: List[Dict] = []
+		for a in apps:
+			for f in a.security_findings or []:
+				cve = f.get('cve') or f.get('cve_id') or 'N/A'
+				key = f'{a.name.lower()}|{cve}'
+				if key in seen_keys:
+					continue
+				seen_keys.add(key)
+				entry = dict(f)
+				entry.setdefault('package', a.name)
+				all_vulns.append(entry)
+		security_stats = self.ui.compute_security_stats(all_vulns)
+
 		self.ui.display_summary(
 			len(apps), total_updates, scan_time, sources_count,
 			show_all=getattr(args, 'show_all', False),
+			security_stats=security_stats,
 		)
 
 		if getattr(args, 'package', None):
@@ -504,31 +557,73 @@ class SystemUpdateApp:
 				self.executor.execute_updates(regular_updates, dry_run)
 
 	def _display_security_table(self, vulnerable: List[AppInfo]) -> None:
-		"""Render the red ``🔥 Security Vulnerabilities Detected`` table at the end."""
+		"""Render the red ``🔥 Security Vulnerabilities Detected`` table — one row per CVE."""
 		console.print()
 		table = self.ui.create_security_table([])
 		table.title = '[bold red]🔥 Security Vulnerabilities Detected[/bold red]'
+		# create_security_table seeds 5 columns; add Fix as 6th.
+		table.add_column('Fix', justify='center')
+
+		_SEV_RANK = {'CRITICAL': 4, 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1, '': 0}
+		total_vulns = 0
+		pkg_count = 0
 		for app in vulnerable:
-			entry = (
-				app.security_findings[0]
-				if app.security_findings
-				else {
+			findings = list(app.security_findings or [])
+			if not findings:
+				findings = [{
 					'severity': 'HIGH',
 					'cvss_score': None,
 					'cve': 'N/A',
 					'description': 'Update recommended',
-				}
-			)
-			cvss_val = entry.get('cvss_score')
-			cvss_display = f'{cvss_val:.1f}' if isinstance(cvss_val, (int, float)) else '-'
-			table.add_row(
-				app.name,
-				entry.get('severity', 'HIGH'),
-				cvss_display,
-				entry.get('cve', 'N/A'),
-				entry.get('description', 'Update recommended'),
-			)
+				}]
+
+			# Dedupe by (package, cve): merge entries from multiple sources
+			# (PyPI JSON, pip-audit, OSV, …) keeping richest metadata.
+			merged: Dict[str, Dict] = {}
+			for entry in findings:
+				cve = entry.get('cve') or entry.get('cve_id') or 'N/A'
+				key = f'{app.name.lower()}|{cve}'
+				prev = merged.get(key)
+				if prev is None:
+					merged[key] = dict(entry)
+					continue
+				# Prefer higher severity.
+				if _SEV_RANK.get((entry.get('severity') or '').upper(), 0) > _SEV_RANK.get(
+					(prev.get('severity') or '').upper(), 0
+				):
+					prev['severity'] = entry.get('severity')
+				# Prefer any numeric CVSS over None.
+				if isinstance(entry.get('cvss_score'), (int, float)) and not isinstance(
+					prev.get('cvss_score'), (int, float)
+				):
+					prev['cvss_score'] = entry['cvss_score']
+				# Prefer longer description.
+				if len(str(entry.get('description') or '')) > len(
+					str(prev.get('description') or '')
+				):
+					prev['description'] = entry.get('description')
+
+			pkg_count += 1
+			for entry in merged.values():
+				cvss_val = entry.get('cvss_score')
+				cvss_display = (
+					f'{cvss_val:.1f}' if isinstance(cvss_val, (int, float)) else '-'
+				)
+				table.add_row(
+					f'{app.name} {app.version or ""}'.strip(),
+					entry.get('severity', 'HIGH'),
+					cvss_display,
+					entry.get('cve') or entry.get('cve_id') or 'N/A',
+					entry.get('description', 'Update recommended'),
+					app.latest_version or '-',
+				)
+				total_vulns += 1
 		console.print(table)
+		if total_vulns:
+			console.print(
+				f'[bold red]Found {total_vulns} known vulnerabilities '
+				f'in {pkg_count} package(s).[/bold red]'
+			)
 
 	def _handle_single_update(self, apps: List[AppInfo], args: Namespace) -> None:
 		"""Update a single package by name — deferred to Step 11; warn and exit for now."""
