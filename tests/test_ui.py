@@ -2,7 +2,6 @@ import sys
 import subprocess
 import functools
 import pytest
-from pathlib import Path
 from system_update import AppInfo, ThemeManager, DisplayFormatter
 
 PYTHON = sys.executable

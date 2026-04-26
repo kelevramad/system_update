@@ -2,7 +2,6 @@ import sys
 import subprocess
 import functools
 import pytest
-from pathlib import Path
 
 PYTHON = sys.executable
 

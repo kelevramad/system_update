@@ -3,7 +3,6 @@ import sys
 import subprocess
 import tempfile
 import functools
-from pathlib import Path
 
 PYTHON = sys.executable
 

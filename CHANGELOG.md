@@ -15,6 +15,31 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v5.5.0 (April 2026)
+- **History CLI Ported**: `--history`, `--history-package`, `--history-trends`, `--history-stale N` now render Rich tables instead of stub messages
+  - `--history` — last 10 scans (timestamp, source, pkgs, updates, vulns, duration)
+  - `--history-package <name>` — full version-history rows for a package across all sources
+  - `--history-trends` — per-source aggregates over the last 30 days + unique packages tracked
+  - `--history-stale <days>` — packages whose latest `version_history` row is older than N days
+- **History Reports**: `--report text|json|html` (with optional `--report-output PATH`) generates a self-contained scan/trend/stale/vuln summary; HTML report is fully branded (KPIs + tables) and writes anywhere
+- **Interactive Picker**: `--interactive` opens a numbered TUI of update candidates (vulnerable first, tagged `[VULN]`); accepts `all` / `none` / `1,3,5-7` syntax; confirms before applying; honors `--dry-run` and `--yes`; clean Ctrl-C / EOF cancellation
+- **Friendly Choice Errors**: Typos like `--export hmlt` or `--report hmtl` raise `typer.BadParameter` rendered in the standard Click error panel with a `Did you mean 'html'?` suggestion — no more tracebacks
+- **Branded HTML Source Chips**: `📦 Sources` block in HTML reports now renders as colored pills (one per source) with brand color, emoji icon, count badge, and luminance-aware text color
+- **Beautified `--help`**: Typer help output grouped into emoji-labeled panels (🔎 Scanning, ⚙️ Updates, 📤 Export, 🎨 UI, 🧭 Profiles, 📜 History, 🪵 Logging) with per-flag emojis and a worked-example epilog
+- **Test Suite Speedup**: Full suite ~180s → ~80s
+  - Late-bound `run_command` proxy in `tests/conftest.py` so `@patch('system_update.run_command')` finally reaches per-submodule callers (was silently missing — checker/scanner mocked tests hit real subprocess at 2-12s each)
+  - Default-stub fixture prevents non-mocked tests from accidentally running real commands
+  - Shared session-scoped `seeded_cache` fixture replaces three duplicate `--no-cache` integration scans (saved ~40s)
+- **UTF-8 stdout in `__main__.py`**: Reconfigures stdout/stderr to UTF-8 so emoji-rich help renders on Windows cp1252 consoles
+
+### v5.4.0 (April 2026)
+- **Report Templates (5.3)**: HTML export now driven by a placeholder-based template + branding block
+  - **Custom HTML Templates (5.3.1)**: `--html-template PATH` (or `report.template_path` in config) loads any `.html` file with `{title}`, `{logo_html}`, `{summary_cards}`, `{packages_rows}`, `{vuln_section}`, `{security_summary_section}`, `{sources_section}`, `{footer_text}`, `{primary_color}`, `{accent_color}` placeholders. Unknown tokens kept verbatim.
+  - **Logo Insertion (5.3.2)**: `--html-logo PATH` (PNG/JPG/SVG/…) embeds as `data:` URI in the report header — no external files needed.
+  - **Report Branding (5.3.3)**: `--html-title`, `--html-company`, plus `report.branding.{title,subtitle,company_name,primary_color,accent_color,background_color,footer_text}` in config. CLI wins over config, config over defaults.
+  - New `src/system_update/report_templates.py` module with `ReportBranding`, `render_html`, `load_template`, `load_logo_data_uri`, `resolve_branding`.
+  - Existing `export html` users unaffected — default template matches the previous built-in layout.
+
 ### v5.3.1 (April 2026)
 - **Cache Partial-Scan + Merge**: `--source X` where `X` is not yet cached now scans only `X`, merges into cached apps, and saves — no more full rescan that discards warm cache
 - **Invalid `--source` Handling**: Unknown tokens (e.g. `--source xpto`) warn with the list of available sources; mixed valid+invalid proceed with valid only; cache untouched when nothing valid remains

@@ -9,7 +9,7 @@ from __future__ import annotations
 import csv
 import json
 from datetime import datetime
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Optional
 
 from system_update.models import AppInfo, UpdateStatus
 
@@ -204,7 +204,25 @@ _HTML_STYLE_BLOCK = """
 """
 
 
-def export_html(apps: List[AppInfo], output_file: str) -> str:
+def export_html(
+	apps: List[AppInfo],
+	output_file: str,
+	branding: 'Optional[object]' = None,
+	template_path: Optional[str] = None,
+) -> str:
+	"""Write a styled, branded HTML report. Template + branding optional (5.3)."""
+	from system_update.report_templates import ReportBranding, render_html
+
+	if branding is None:
+		branding = ReportBranding()
+	rendered = render_html(apps, branding=branding, template_path=template_path)
+	with open(output_file, 'w', encoding='utf-8') as f:
+		f.write(rendered)
+	return output_file
+
+
+# Legacy inline HTML generator retained as fallback / reference.
+def _export_html_legacy(apps: List[AppInfo], output_file: str) -> str:
 	"""Write a styled HTML report with summary cards and tables."""
 	scan_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 	stats = get_export_stats(apps)
@@ -563,13 +581,31 @@ _EXPORTERS = {
 }
 
 
-def export(apps: List[AppInfo], format_type: str, output_file: str = None) -> str:
+def export(
+	apps: List[AppInfo],
+	format_type: str,
+	output_file: str = None,
+	branding: 'Optional[object]' = None,
+	template_path: Optional[str] = None,
+) -> str:
 	"""Dispatch to the correct exporter for ``format_type``.
 
+	``branding`` and ``template_path`` are HTML-only (ignored for other formats)
+	and implement enhancement section 5.3 (custom templates, logo, branding).
 	Returns the written file path. Raises ``ValueError`` for unknown formats.
 	"""
 	exporter = _EXPORTERS.get(format_type)
 	if exporter is None:
-		raise ValueError(f'Unknown export format: {format_type}')
+		import difflib
+
+		valid = sorted(_EXPORTERS.keys())
+		suggestion = difflib.get_close_matches(str(format_type), valid, n=1)
+		hint = f' Did you mean: {suggestion[0]!r}?' if suggestion else ''
+		raise ValueError(
+			f'Unknown export format: {format_type!r}.{hint} '
+			f'Valid formats: {", ".join(valid)}.'
+		)
 	path = resolve_output_file(format_type, output_file)
+	if format_type == 'html':
+		return export_html(apps, path, branding=branding, template_path=template_path)
 	return exporter(apps, path)

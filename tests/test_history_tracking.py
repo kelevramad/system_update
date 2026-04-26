@@ -147,6 +147,8 @@ class TestHistoryCLIFlags:
 			[sys.executable, '-m', 'system_update', '--help'],
 			capture_output=True,
 			text=True,
+			encoding='utf-8',
+			errors='replace',
 		)
 		assert '--history' in result.stdout
 
@@ -158,6 +160,8 @@ class TestHistoryCLIFlags:
 			[sys.executable, '-m', 'system_update', '--history'],
 			capture_output=True,
 			text=True,
+			encoding='utf-8',
+			errors='replace',
 		)
 		code = result.returncode
 		output = result.stdout + result.stderr
@@ -171,6 +175,8 @@ class TestHistoryCLIFlags:
 			[sys.executable, '-m', 'system_update', '--history-package', 'git'],
 			capture_output=True,
 			text=True,
+			encoding='utf-8',
+			errors='replace',
 		)
 		output = result.stdout + result.stderr
 		assert 'not found' in output.lower() or result.returncode == 0
@@ -183,6 +189,8 @@ class TestHistoryCLIFlags:
 			[sys.executable, '-m', 'system_update', '--history-trends'],
 			capture_output=True,
 			text=True,
+			encoding='utf-8',
+			errors='replace',
 		)
 		code = result.returncode
 		output = result.stdout + result.stderr
@@ -200,6 +208,8 @@ class TestHistoryCLIFlags:
 				[sys.executable, '-m', 'system_update', '--report', 'html', '--report-output', output_file],
 				capture_output=True,
 				text=True,
+				encoding='utf-8',
+				errors='replace',
 			)
 			output = result.stdout + result.stderr
 			assert result.returncode == 0 or 'report' in output.lower()

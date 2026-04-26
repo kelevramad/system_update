@@ -502,7 +502,9 @@ class SystemUpdateApp:
 			if getattr(args, 'notify', False):
 				self.notifier.notify_updates_available(total_count, len(vulnerable), force=True)
 
-			if getattr(args, 'update_all', False):
+			if getattr(args, 'interactive', False):
+				self._interactive_update(updates, vulnerable, args)
+			elif getattr(args, 'update_all', False):
 				self._update_all_workflow(updates, vulnerable, args)
 		else:
 			console.print('\n[green]✨ System is up to date![/green]')
@@ -515,10 +517,36 @@ class SystemUpdateApp:
 		if isinstance(export_format, str) and export_format:
 			from system_update import export as export_module
 
-			path = export_module.export(
-				apps, export_format, output_path if isinstance(output_path, str) else None
-			)
-			console.print(f'[green]✓[/green] Exported to {path}')
+			branding = None
+			template_path = None
+			if export_format == 'html':
+				from system_update.report_templates import resolve_branding
+
+				cli_overrides = {
+					'title': getattr(args, 'html_title', None),
+					'company_name': getattr(args, 'html_company', None),
+					'logo_path': getattr(args, 'html_logo', None),
+				}
+				branding = resolve_branding(self.settings, cli_overrides)
+				template_path = getattr(args, 'html_template', None) or (
+					self.settings.get('report', {}).get('template_path') or None
+				)
+
+			try:
+				path = export_module.export(
+					apps,
+					export_format,
+					output_path if isinstance(output_path, str) else None,
+					branding=branding,
+					template_path=template_path,
+				)
+			except ValueError as e:
+				console.print(f'[red]✗ Export failed:[/red] {e}')
+				import sys as _sys
+
+				_sys.exit(2)
+			else:
+				console.print(f'[green]✓[/green] Exported to {path}')
 
 	# ── helpers ────────────────────────────────────────────────────────────
 
@@ -665,37 +693,431 @@ class SystemUpdateApp:
 
 		return export_module.export(apps, format_type, output_file)
 
-	# ── Step 11 placeholders ───────────────────────────────────────────────
+	# ── Meta commands (history / report / interactive) ─────────────────────
 
 	def _handle_meta_commands(self, args: Namespace) -> bool:
 		"""Route history/report/interactive flags; return True if the command was consumed."""
 		if getattr(args, 'history', False):
-			console.print('[yellow]--history not yet ported to the modular CLI (Step 11).[/yellow]')
+			self._show_history()
 			return True
 		if getattr(args, 'history_package', None):
-			console.print(
-				'[yellow]--history-package not yet ported to the modular CLI (Step 11).[/yellow]'
-			)
+			self._show_package_history(args.history_package)
 			return True
 		if getattr(args, 'history_trends', False):
-			console.print(
-				'[yellow]--history-trends not yet ported to the modular CLI (Step 11).[/yellow]'
-			)
+			self._show_trends()
 			return True
 		if getattr(args, 'history_stale', 0) and args.history_stale > 0:
-			console.print(
-				'[yellow]--history-stale not yet ported to the modular CLI (Step 11).[/yellow]'
-			)
+			self._show_stale(args.history_stale)
 			return True
 		if getattr(args, 'report', None):
-			console.print('[yellow]--report not yet ported to the modular CLI (Step 11).[/yellow]')
-			return True
-		if getattr(args, 'interactive', False):
-			console.print(
-				'[yellow]--interactive not yet ported to the modular CLI (Step 11).[/yellow]'
-			)
+			self._generate_history_report(args.report, getattr(args, 'report_output', None))
 			return True
 		return False
+
+	# ── Interactive picker ─────────────────────────────────────────────────
+
+	def _interactive_update(
+		self,
+		updates: List[AppInfo],
+		vulnerable: List[AppInfo],
+		args: Namespace,
+	) -> None:
+		"""Show numbered list of update candidates, let user pick which to apply.
+
+		Input syntax: ``all`` / ``none`` / comma-and-range list (e.g. ``1,3,5-7``).
+		Vulnerable packages are listed first and pre-marked with [VULN].
+		"""
+		from rich.prompt import Prompt
+		from rich.table import Table
+
+		from system_update.executors import UpdateExecutor
+
+		# Vulnerable first, then regular updates; dedup while preserving order.
+		seen: Set[int] = set()
+		ordered: List[AppInfo] = []
+		for app in list(vulnerable) + list(updates):
+			if id(app) in seen:
+				continue
+			seen.add(id(app))
+			ordered.append(app)
+
+		if not ordered:
+			console.print('[yellow]Nothing to update.[/yellow]')
+			return
+
+		table = Table(
+			title='🖱️  Interactive update picker',
+			caption='Select packages to update — type [bold]all[/bold], [bold]none[/bold], or e.g. [bold]1,3,5-7[/bold].',
+			expand=True,
+		)
+		table.add_column('#', justify='right', style='cyan', no_wrap=True)
+		table.add_column('Package', style='bold')
+		table.add_column('Source', style='magenta')
+		table.add_column('Current', style='white')
+		table.add_column('→ Latest', style='green')
+		table.add_column('Status', no_wrap=True)
+		for idx, app in enumerate(ordered, start=1):
+			tag = (
+				'[red]VULN[/red]'
+				if app.update_status == UpdateStatus.VULNERABLE
+				else '[yellow]update[/yellow]'
+			)
+			table.add_row(
+				str(idx),
+				app.name,
+				app.source,
+				app.version or '-',
+				app.latest_version or '?',
+				tag,
+			)
+		console.print(table)
+
+		try:
+			raw = Prompt.ask(
+				'[bold]Select[/bold] [dim](all / none / 1,3,5-7)[/dim]',
+				default='none',
+			)
+		except (EOFError, KeyboardInterrupt):
+			console.print('\n[yellow]Cancelled.[/yellow]')
+			return
+
+		picks = self._parse_picker_input(raw, len(ordered))
+		if picks is None:
+			console.print('[red]✗ Invalid selection.[/red]')
+			return
+		if not picks:
+			console.print('[yellow]No packages selected — exiting.[/yellow]')
+			return
+
+		chosen = [ordered[i - 1] for i in sorted(picks)]
+		console.print(f'\n[cyan]Selected {len(chosen)} package(s):[/cyan]')
+		for app in chosen:
+			console.print(f'  • {app.name} [{app.source}] {app.version} → {app.latest_version}')
+
+		if not getattr(args, 'yes', False):
+			try:
+				confirm = Prompt.ask(
+					'[bold]Proceed with updates?[/bold] [dim](y/N)[/dim]', default='n'
+				)
+			except (EOFError, KeyboardInterrupt):
+				console.print('\n[yellow]Cancelled.[/yellow]')
+				return
+			if confirm.strip().lower() not in ('y', 'yes'):
+				console.print('[yellow]Aborted.[/yellow]')
+				return
+
+		dry_run = getattr(args, 'dry_run', False)
+		console.print(
+			f'\n[bold]{"🧪 Dry-run" if dry_run else "🚀 Updating"} '
+			f'{len(chosen)} package(s)...[/bold]'
+		)
+		UpdateExecutor.execute_updates(chosen, dry_run=dry_run)
+
+	@staticmethod
+	def _parse_picker_input(raw: str, total: int) -> Optional[Set[int]]:
+		"""Parse ``all`` / ``none`` / ``1,3,5-7`` into a set of 1-based indices.
+
+		Returns ``None`` if any token is invalid.
+		"""
+		text = (raw or '').strip().lower()
+		if text in ('', 'none', 'n', 'q', 'quit', 'cancel'):
+			return set()
+		if text in ('all', 'a', '*'):
+			return set(range(1, total + 1))
+		picks: Set[int] = set()
+		for token in (t.strip() for t in text.replace(';', ',').split(',') if t.strip()):
+			if '-' in token:
+				try:
+					lo_s, hi_s = token.split('-', 1)
+					lo, hi = int(lo_s), int(hi_s)
+				except ValueError:
+					return None
+				if lo > hi or lo < 1 or hi > total:
+					return None
+				picks.update(range(lo, hi + 1))
+			else:
+				try:
+					n = int(token)
+				except ValueError:
+					return None
+				if n < 1 or n > total:
+					return None
+				picks.add(n)
+		return picks
+
+	# ── History rendering ──────────────────────────────────────────────────
+
+	def _show_history(self, limit: int = 10) -> None:
+		"""Print a Rich table of the last ``limit`` scan headers."""
+		from rich.table import Table
+
+		scans = self.history_db.get_scans(limit=limit)
+		if not scans:
+			console.print('[yellow]No scan history yet.[/yellow]')
+			return
+		table = Table(title=f'📚 Last {len(scans)} scan(s)', expand=True)
+		table.add_column('Timestamp', style='cyan')
+		table.add_column('Source', style='magenta')
+		table.add_column('Pkgs', justify='right')
+		table.add_column('Updates', justify='right', style='yellow')
+		table.add_column('Vulns', justify='right', style='red')
+		table.add_column('Duration', justify='right', style='green')
+		for s in scans:
+			table.add_row(
+				str(s.get('timestamp', '')),
+				str(s.get('source', '') or '-')[:60],
+				str(s.get('package_count', 0)),
+				str(s.get('update_count', 0)),
+				str(s.get('vulnerability_count', 0)),
+				f'{float(s.get("duration_seconds", 0) or 0):.1f}s',
+			)
+		console.print(table)
+
+	def _show_package_history(self, package: str) -> None:
+		"""Print all version-history rows for ``package`` across sources."""
+		from rich.table import Table
+
+		rows = self.history_db.get_package_history(package)
+		if not rows:
+			console.print(f'[yellow]No history found for[/yellow] [bold]{package}[/bold].')
+			return
+		table = Table(title=f'🔍 Version history — {package}', expand=True)
+		table.add_column('Timestamp', style='cyan')
+		table.add_column('Source', style='magenta')
+		table.add_column('Version', style='white')
+		table.add_column('Change', style='yellow')
+		for r in rows:
+			table.add_row(
+				str(r.get('timestamp', '')),
+				str(r.get('source', '') or '-'),
+				str(r.get('version', '') or '-'),
+				str(r.get('change_type', '') or '-'),
+			)
+		console.print(table)
+
+	def _show_trends(self, days: int = 30) -> None:
+		"""Print update / scan trends per source over the last ``days``."""
+		from rich.table import Table
+
+		data = self.history_db.get_update_trends(days=days)
+		stats = data.get('source_stats') or []
+		console.print(
+			f'[bold]📈 Update trends — last {data.get("period_days", days)} day(s)[/bold]'
+		)
+		console.print(f'Unique packages tracked: [cyan]{data.get("unique_packages", 0)}[/cyan]')
+		if not stats:
+			console.print('[yellow]No scan data in window.[/yellow]')
+			return
+		table = Table(expand=True)
+		table.add_column('Source', style='magenta')
+		table.add_column('Scans', justify='right')
+		table.add_column('Total pkgs', justify='right')
+		table.add_column('Total updates', justify='right', style='yellow')
+		for row in stats:
+			table.add_row(
+				str(row.get('source', '') or '-')[:40],
+				str(row.get('total_scans', 0)),
+				str(row.get('total_packages', 0) or 0),
+				str(row.get('total_updates', 0) or 0),
+			)
+		console.print(table)
+
+	def _show_stale(self, days: int) -> None:
+		"""Print packages whose last-seen version row is older than ``days``."""
+		from rich.table import Table
+
+		stale = self.history_db.get_stale_packages(days=days)
+		if not stale:
+			console.print(f'[green]✓ No packages stale beyond {days} day(s).[/green]')
+			return
+		table = Table(title=f'🕰️  Packages not updated in {days}+ day(s)', expand=True)
+		table.add_column('Package', style='bold')
+		table.add_column('Source', style='magenta')
+		table.add_column('Last seen', style='cyan')
+		for r in stale:
+			table.add_row(
+				str(r.get('package_name', '')),
+				str(r.get('source', '') or '-'),
+				str(r.get('last_seen', '')),
+			)
+		console.print(table)
+		console.print(f'[yellow]Total stale:[/yellow] {len(stale)}')
+
+	def _generate_history_report(
+		self, fmt: str, output: Optional[str] = None
+	) -> None:
+		"""Write a text/json/html summary of scan + vulnerability history to disk (or stdout)."""
+		import json as _json
+		from datetime import datetime
+
+		fmt = (fmt or 'text').lower()
+		scans = self.history_db.get_scans(limit=50)
+		trends = self.history_db.get_update_trends(days=30)
+		stale = self.history_db.get_stale_packages(days=90)
+		vuln_stats = self.vuln_history.get_statistics()
+		generated = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+		if fmt == 'json':
+			payload = {
+				'generated': generated,
+				'scans': scans,
+				'trends': trends,
+				'stale_packages': stale,
+				'vulnerability_stats': vuln_stats,
+			}
+			content = _json.dumps(payload, indent=2, default=str)
+		elif fmt == 'html':
+			from system_update.report_templates import (
+				ReportBranding,
+			)
+
+			# Re-use the HTML report renderer with a synthetic empty app list —
+			# users mainly want the history tables here.
+			content = self._render_history_html(
+				scans, trends, stale, vuln_stats, generated, ReportBranding()
+			)
+		else:  # text
+			lines = [
+				f'System Update — History Report  ({generated})',
+				'=' * 60,
+				'',
+				f'Recent scans (last {len(scans)}):',
+			]
+			for s in scans[:20]:
+				lines.append(
+					f'  [{s.get("timestamp", "")}] {s.get("source", "-"):<25} '
+					f'pkgs={s.get("package_count", 0):>4}  '
+					f'updates={s.get("update_count", 0):>3}  '
+					f'vulns={s.get("vulnerability_count", 0):>3}'
+				)
+			lines += [
+				'',
+				f'Trends (last {trends.get("period_days", 30)} days):',
+				f'  Unique packages tracked: {trends.get("unique_packages", 0)}',
+			]
+			for r in trends.get('source_stats') or []:
+				lines.append(
+					f'  - {r.get("source", "-"):<20} '
+					f'scans={r.get("total_scans", 0):>3}  '
+					f'updates={r.get("total_updates", 0) or 0:>4}'
+				)
+			lines += ['', f'Stale packages (>90d): {len(stale)}']
+			for r in stale[:20]:
+				lines.append(
+					f'  - {r.get("package_name", ""):<30} '
+					f'{r.get("source", "-"):<15} last_seen={r.get("last_seen", "")}'
+				)
+			lines += [
+				'',
+				'Vulnerabilities:',
+				f'  total={vuln_stats.get("total_vulnerabilities", 0)} '
+				f'open={vuln_stats.get("open_vulnerabilities", 0)} '
+				f'resolved={vuln_stats.get("resolved_vulnerabilities", 0)}',
+				f'  critical={vuln_stats.get("critical_count", 0)} '
+				f'high={vuln_stats.get("high_count", 0)} '
+				f'medium={vuln_stats.get("medium_count", 0)} '
+				f'low={vuln_stats.get("low_count", 0)}',
+				f'  packages_affected={vuln_stats.get("packages_affected", 0)} '
+				f'persistent={vuln_stats.get("persistent_vulnerabilities", 0)}',
+			]
+			content = '\n'.join(lines)
+
+		if output:
+			from pathlib import Path as _Path
+
+			out = _Path(output)
+			out.parent.mkdir(parents=True, exist_ok=True)
+			out.write_text(content, encoding='utf-8')
+			console.print(f'[green]✓[/green] History report written to [cyan]{out}[/cyan]')
+		else:
+			if fmt == 'json':
+				console.print_json(content)
+			else:
+				console.print(content)
+
+	def _render_history_html(
+		self,
+		scans: List[Dict],
+		trends: Dict,
+		stale: List[Dict],
+		vuln_stats: Dict,
+		generated: str,
+		branding,
+	) -> str:
+		"""Build a self-contained HTML history report."""
+
+		def _esc(text) -> str:
+			return (
+				str(text)
+				.replace('&', '&amp;')
+				.replace('<', '&lt;')
+				.replace('>', '&gt;')
+				.replace('"', '&quot;')
+			)
+
+		scan_rows = '\n'.join(
+			f'<tr><td>{_esc(s.get("timestamp", ""))}</td>'
+			f'<td>{_esc(s.get("source", "-"))}</td>'
+			f'<td>{s.get("package_count", 0)}</td>'
+			f'<td>{s.get("update_count", 0)}</td>'
+			f'<td>{s.get("vulnerability_count", 0)}</td></tr>'
+			for s in scans[:50]
+		)
+		trend_rows = '\n'.join(
+			f'<tr><td>{_esc(r.get("source", "-"))}</td>'
+			f'<td>{r.get("total_scans", 0)}</td>'
+			f'<td>{r.get("total_packages", 0) or 0}</td>'
+			f'<td>{r.get("total_updates", 0) or 0}</td></tr>'
+			for r in (trends.get('source_stats') or [])
+		)
+		stale_rows = '\n'.join(
+			f'<tr><td>{_esc(r.get("package_name", ""))}</td>'
+			f'<td>{_esc(r.get("source", "-"))}</td>'
+			f'<td>{_esc(r.get("last_seen", ""))}</td></tr>'
+			for r in stale[:100]
+		)
+		return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<title>{_esc(branding.title)} — History — {_esc(generated)}</title>
+<style>
+body {{ font-family: -apple-system, "Segoe UI", sans-serif; max-width: 1100px; margin: 0 auto; padding: 20px; background: {branding.background_color}; color: {branding.accent_color}; }}
+h1, h2 {{ color: {branding.primary_color}; }}
+table {{ width: 100%; border-collapse: collapse; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.08); margin: 12px 0 24px; border-radius: 8px; overflow: hidden; }}
+th {{ background: {branding.primary_color}; color: white; padding: 10px; text-align: left; }}
+td {{ padding: 8px 10px; border-bottom: 1px solid #eee; }}
+.kpi {{ display: inline-block; margin-right: 18px; padding: 8px 14px; border-radius: 8px; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }}
+.kpi b {{ color: {branding.primary_color}; }}
+.footer {{ margin-top: 30px; color: #666; font-size: 12px; text-align: center; }}
+</style></head><body>
+<h1>📚 History Report</h1>
+<p><strong>Generated:</strong> {_esc(generated)}</p>
+
+<h2>🛡️ Vulnerabilities</h2>
+<div>
+  <span class="kpi"><b>{vuln_stats.get('total_vulnerabilities', 0)}</b> total</span>
+  <span class="kpi"><b>{vuln_stats.get('open_vulnerabilities', 0)}</b> open</span>
+  <span class="kpi"><b>{vuln_stats.get('resolved_vulnerabilities', 0)}</b> resolved</span>
+  <span class="kpi"><b>{vuln_stats.get('critical_count', 0)}</b> critical</span>
+  <span class="kpi"><b>{vuln_stats.get('high_count', 0)}</b> high</span>
+  <span class="kpi"><b>{vuln_stats.get('packages_affected', 0)}</b> packages affected</span>
+  <span class="kpi"><b>{vuln_stats.get('persistent_vulnerabilities', 0)}</b> persistent</span>
+</div>
+
+<h2>📈 Trends — last {trends.get('period_days', 30)} day(s)</h2>
+<p>Unique packages tracked: <b>{trends.get('unique_packages', 0)}</b></p>
+<table><thead><tr><th>Source</th><th>Scans</th><th>Packages</th><th>Updates</th></tr></thead>
+<tbody>{trend_rows or '<tr><td colspan="4">No data.</td></tr>'}</tbody></table>
+
+<h2>🕰️ Stale packages (>90d)</h2>
+<table><thead><tr><th>Package</th><th>Source</th><th>Last seen</th></tr></thead>
+<tbody>{stale_rows or '<tr><td colspan="3">None.</td></tr>'}</tbody></table>
+
+<h2>📜 Recent scans</h2>
+<table><thead><tr><th>Timestamp</th><th>Source</th><th>Pkgs</th><th>Updates</th><th>Vulns</th></tr></thead>
+<tbody>{scan_rows or '<tr><td colspan="5">No scans recorded.</td></tr>'}</tbody></table>
+
+<div class="footer"><p>{_esc(branding.footer_text)}</p></div>
+</body></html>"""
 
 
 __all__ = ['SystemUpdateApp']
