@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 5.6.0
+**Document Version:** 6.1.0
 **Last Updated:** April 23, 2026
 **Author:** Qwen Code
-**Based On:** `src/system_update/` package (v5.6.0)
+**Based On:** `src/system_update/` package (v6.1.0)
 
 ---
 
@@ -906,8 +906,11 @@ Errors are displayed with appropriate styling:
 | 5.1.0 | April 2026 | Historical Tracking (SQLite scan history, trends, stale-package detection, report generation) |
 | 5.2.0 | April 2026 | Export Formats (HTML, XML, Markdown, diff in addition to JSON/CSV) |
 | 5.3.0 | April 2026 | Modular refactor: `src/system_update/` package, Typer CLI, `python -m system_update` entry; monolithic `system_update.py` removed |
-| 5.3.1 | April 2026 | Cache partial-scan + merge for missing sources; unified Summary (security stats folded in); per-CVE security table with Fix column and cross-source dedupe by `package|cve`; invalid-source validation |
-| 5.6.0 | April 2026 | Report Templates (5.3): custom HTML template path, base64-embedded logo, branding block (title, subtitle, company, colors, footer); new CLI flags `--html-template`, `--html-logo`, `--html-title`, `--html-company`; `report_templates` module |
+| 5.3.1 | April 2026 | Cache partial-scan + merge, unified summary block, per-CVE security table with cross-source dedup, invalid `--source` handling. Cache partial-scan + merge for missing sources; unified Summary (security stats folded in); per-CVE security table with Fix column and cross-source dedupe by `package|cve`; invalid-source validation|
+| 5.4.0 | April 2026 | Report Templates (5.3): custom HTML templates, logo embedding, full report branding (`--html-template`, `--html-logo`, `--html-title`, `--html-company`) |
+| 5.5.0 | April 2026 | History/report/interactive ported (`--history`, `--history-package`, `--history-trends`, `--history-stale`, `--report text\|json\|html`, interactive picker); friendly choice errors; beautified `--help` with emoji panels |
+| 5.6.0 | April 2026 | Data Sharing (5.4): `--import`, `--merge`, `--cloud-sync` (file + http backends); detailed sub-help system (`--explain <topic>`, `--<flag> help`) with 13 topics. Report Templates (5.3): custom HTML template path, base64-embedded logo, branding block (title, subtitle, company, colors, footer); new CLI flags `--html-template`, `--html-logo`, `--html-title`, `--html-company`; `report_templates` module |
+| 6.1.0 | April 2026 | Scheduled Updates (6.1): `--schedule create\|delete\|list\|status\|run\|eval` wraps Windows Task Scheduler; daily/weekly/hourly/monthly/onstart/onlogon recurrences; conditional actions engine (`any_critical_cves`, `n_updates_gte:N`, `security_updates_only` → `notify`/`log`/`auto_update`); `--schedule list` table now shows Last Run + Last Result columns |
 
 ## Appendix B: Glossary
 

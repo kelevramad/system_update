@@ -32,6 +32,7 @@ PANEL_UI = '🎨 UI & Display'
 PANEL_PROFILE = '🧭 Profiles & Config'
 PANEL_HISTORY = '📜 History & Trends'
 PANEL_DATA = '🔄 Data Sharing'
+PANEL_SCHEDULE = '🗓️  Scheduled Tasks'
 PANEL_LOG = '🪵 Logging & Debug'
 
 
@@ -88,6 +89,9 @@ EPILOG = """
   [dim]# Switch profile[/dim]
   [cyan]system-update --profile work[/cyan]
 
+[bold]Tip[/bold] flags marked [bold green]📖[/bold green] have a detailed help page — run [cyan]--explain <flag>[/cyan]
+or pass [cyan]help[/cyan] as the value (e.g. [cyan]--cloud-sync help[/cyan], [cyan]--export help[/cyan]).
+
 [bold]Data dir[/bold] [yellow]~/.system_update/[/yellow]  ·  [bold]Docs[/bold] [blue]https://github.com/kelevramad/system_update[/blue]
 """
 
@@ -98,7 +102,32 @@ app = typer.Typer(
 	no_args_is_help=False,
 	add_completion=False,
 	rich_markup_mode='rich',
+	context_settings={'help_option_names': ['-h', '--help']},
 )
+
+
+def _intercept_subhelp_argv() -> bool:
+	"""Pre-Typer scan: ``--<flag> help`` (any flag, including booleans).
+
+	Typer rejects ``--interactive help`` because ``--interactive`` is a bool
+	option that takes no value. We catch the pattern here, render the page,
+	and exit cleanly before Typer parses argv.
+
+	Returns True if a help page was rendered (caller should ``sys.exit(0)``).
+	"""
+	from system_update import subhelp
+
+	argv = sys.argv[1:]
+	for i in range(len(argv) - 1):
+		flag, value = argv[i], argv[i + 1]
+		if not flag.startswith('--'):
+			continue
+		if value.lower() != 'help':
+			continue
+		topic = flag.lstrip('-').replace('_', '-').lower()
+		if subhelp.show(topic):
+			return True
+	return False
 
 
 @app.command(epilog=EPILOG)
@@ -106,7 +135,7 @@ def main(
 	# 🔎 Scanning & Sources
 	source: Optional[str] = typer.Option(
 		None, '--source', '-s',
-		help='🎯 Limit scan to one or more sources (comma-separated, e.g. [cyan]winget,npm[/cyan]).',
+		help='🎯 Limit scan to one or more sources (comma-separated, e.g. [cyan]winget,npm[/cyan]). [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_SCAN,
 	),
 	no_cache: bool = typer.Option(
@@ -124,6 +153,11 @@ def main(
 		help='👀 Include up-to-date packages in output (default hides them).',
 		rich_help_panel=PANEL_SCAN,
 	),
+	exclude: Optional[str] = typer.Option(
+		None, '--exclude',
+		help='🚫 Skip packages matching the given names. Comma-separated; supports [cyan]source:name[/cyan] for per-source filtering (e.g. [cyan]--exclude Git.Git,pip:requests[/cyan]).',
+		rich_help_panel=PANEL_SCAN,
+	),
 	# ⚙️ Updates & Actions
 	update_all: bool = typer.Option(
 		False, '--update-all', '-U',
@@ -132,7 +166,7 @@ def main(
 	),
 	update_source: Optional[str] = typer.Option(
 		None, '--update-source',
-		help='📦 Update all packages from a specific source (e.g. [cyan]npm[/cyan]).',
+		help='📦 Update all packages from a specific source (e.g. [cyan]npm[/cyan]). [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_UPDATE,
 	),
 	package: Optional[str] = typer.Option(
@@ -157,18 +191,18 @@ def main(
 	),
 	interactive: bool = typer.Option(
 		False, '--interactive',
-		help='🖱️  Interactive TUI to select packages to update.',
+		help='🖱️  Interactive TUI to select packages to update. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_UPDATE,
 	),
 	notify: bool = typer.Option(
 		False, '--notify',
-		help='🔔 Send a system notification when updates are available.',
+		help='🔔 Send a system notification when updates are available. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_UPDATE,
 	),
 	# 📤 Export & Reports
 	export_format: Optional[str] = typer.Option(
 		None, '--export',
-		help='📄 Export format: [cyan]json, csv, html, xml, markdown, md, diff[/cyan].',
+		help='📄 Export format: [cyan]json, csv, html, xml, markdown, md, diff[/cyan]. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_EXPORT,
 	),
 	export_file: Optional[str] = typer.Option(
@@ -199,12 +233,12 @@ def main(
 	# 🎨 UI & Display
 	format_mode: Optional[str] = typer.Option(
 		None, '--format',
-		help='🎛️  Display mode: [cyan]auto, compact, verbose, json[/cyan].',
+		help='🎛️  Display mode: [cyan]auto, compact, verbose, json[/cyan]. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_UI,
 	),
 	theme: Optional[str] = typer.Option(
 		None, '--theme',
-		help='🌈 UI theme: [cyan]default, vibrant, minimal, dark, neon[/cyan].',
+		help='🌈 UI theme: [cyan]default, vibrant, minimal, dark, neon[/cyan]. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_UI,
 	),
 	icons: bool = typer.Option(
@@ -215,17 +249,22 @@ def main(
 	# 🧭 Profiles & Config
 	profile: Optional[str] = typer.Option(
 		None, '--profile',
-		help='👤 Activate a named config profile.',
+		help='👤 Activate a named config profile. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_PROFILE,
 	),
 	profile_export: Optional[str] = typer.Option(
 		None, '--profile-export',
-		help='📤 Export active profile to a JSON file.',
+		help='📤 Export active profile to a JSON file. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_PROFILE,
 	),
 	profile_import: Optional[str] = typer.Option(
 		None, '--profile-import',
-		help='📥 Import profile from a JSON file.',
+		help='📥 Import profile from a JSON file. [bold green]📖[/bold green]',
+		rich_help_panel=PANEL_PROFILE,
+	),
+	save_config: bool = typer.Option(
+		False, '--save-config',
+		help='💾 Persist this run\'s flag overrides ([cyan]--source[/cyan], [cyan]--theme[/cyan], [cyan]--format[/cyan], [cyan]--icons[/cyan]) into the active profile\'s config.json.',
 		rich_help_panel=PANEL_PROFILE,
 	),
 	# 📜 History & Trends
@@ -241,17 +280,17 @@ def main(
 	),
 	history_trends: bool = typer.Option(
 		False, '--history-trends',
-		help='📈 Show update trends over time.',
+		help='📈 Show update trends over time. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_HISTORY,
 	),
 	history_stale: int = typer.Option(
 		0, '--history-stale',
-		help='🕰️  Show packages not updated in N days.',
+		help='🕰️  Show packages not updated in N days. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_HISTORY,
 	),
 	report: Optional[str] = typer.Option(
 		None, '--report',
-		help='🧾 Generate a history report: [cyan]text, html, json[/cyan].',
+		help='🧾 Generate a history report: [cyan]text, html, json[/cyan]. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_HISTORY,
 	),
 	report_output: Optional[str] = typer.Option(
@@ -262,7 +301,7 @@ def main(
 	# 🔄 Data Sharing (5.4)
 	import_files: Optional[List[str]] = typer.Option(
 		None, '--import',
-		help='📥 Import scan data from JSON/CSV file(s). Repeatable; multiple files are merged.',
+		help='📥 Import scan data from JSON/CSV file(s). Repeatable; multiple files are merged. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_DATA,
 	),
 	merge_with_cache: bool = typer.Option(
@@ -272,13 +311,43 @@ def main(
 	),
 	cloud_sync: Optional[str] = typer.Option(
 		None, '--cloud-sync',
-		help='☁️  Cloud-sync action: [cyan]push, pull, status[/cyan]. Use [bold]--cloud-sync help[/bold] for setup details.',
+		help='☁️  Cloud-sync action: [cyan]push, pull, status[/cyan]. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_DATA,
 	),
 	explain: Optional[str] = typer.Option(
 		None, '--explain',
 		help='📖 Show detailed help for any flag (e.g. [cyan]--explain interactive[/cyan]). Use [cyan]--explain list[/cyan] to see all topics.',
-		rich_help_panel=PANEL_DATA,
+	),
+	# 🗓️  Scheduled Tasks (6.1)
+	schedule: Optional[str] = typer.Option(
+		None, '--schedule',
+		help='🗓️  Scheduled-task action: [cyan]create, delete, list, status, run, eval, help[/cyan]. [bold green]📖[/bold green]',
+		rich_help_panel=PANEL_SCHEDULE,
+	),
+	schedule_name: Optional[str] = typer.Option(
+		'SystemUpdate_Scan', '--schedule-name',
+		help='🏷️  Task name (default [yellow]SystemUpdate_Scan[/yellow]).',
+		rich_help_panel=PANEL_SCHEDULE,
+	),
+	schedule_when: Optional[str] = typer.Option(
+		'daily', '--schedule-when',
+		help='🔁 Recurrence: [cyan]daily, weekly, hourly, monthly, onstart, onlogon[/cyan].',
+		rich_help_panel=PANEL_SCHEDULE,
+	),
+	schedule_time: Optional[str] = typer.Option(
+		'09:00', '--schedule-time',
+		help='⏰ Time of day for daily/weekly/monthly schedules (HH:MM).',
+		rich_help_panel=PANEL_SCHEDULE,
+	),
+	schedule_days: Optional[str] = typer.Option(
+		'', '--schedule-days',
+		help='📅 Days for weekly schedule (e.g. [cyan]MON,WED,FRI[/cyan]).',
+		rich_help_panel=PANEL_SCHEDULE,
+	),
+	schedule_args: Optional[str] = typer.Option(
+		'--no-cache --notify', '--schedule-args',
+		help='🧰 Arguments the scheduled task will pass to system-update.',
+		rich_help_panel=PANEL_SCHEDULE,
 	),
 	# 🪵 Logging & Debug
 	debug: bool = typer.Option(
@@ -330,6 +399,13 @@ def main(
 		('source', source),
 		('format', format_mode),
 		('theme', theme),
+		('schedule', schedule),
+		('update-source', update_source),
+		('profile', profile),
+		('profile-export', profile_export),
+		('profile-import', profile_import),
+		('history-package', history_package),
+		('import', import_files[0] if import_files else None),
 	):
 		if isinstance(_val, str) and _val.lower() == 'help':
 			_maybe_show_subhelp(_flag)
@@ -354,6 +430,7 @@ def main(
 	_VALID_FORMATS = ['auto', 'compact', 'verbose', 'json']
 	_VALID_THEMES = ['default', 'vibrant', 'minimal', 'dark', 'neon']
 	_VALID_CLOUD = ['push', 'pull', 'status', 'help']
+	_VALID_SCHEDULE = ['create', 'delete', 'list', 'status', 'run', 'eval', 'help']
 
 	if export_format and export_format not in _VALID_EXPORTS:
 		_bail('--export', export_format, _VALID_EXPORTS)
@@ -365,9 +442,12 @@ def main(
 		_bail('--theme', theme, _VALID_THEMES)
 	if cloud_sync and cloud_sync not in _VALID_CLOUD:
 		_bail('--cloud-sync', cloud_sync, _VALID_CLOUD)
+	if schedule and schedule not in _VALID_SCHEDULE:
+		_bail('--schedule', schedule, _VALID_SCHEDULE)
 
 	args = Namespace(
 		source=source,
+		exclude=exclude,
 		update_source=update_source,
 		update_all=update_all,
 		dry_run=dry_run,
@@ -377,6 +457,7 @@ def main(
 		profile=profile,
 		profile_export=profile_export,
 		profile_import=profile_import,
+		save_config=save_config,
 		format=format_mode,
 		theme=theme,
 		icons=icons,
@@ -400,6 +481,12 @@ def main(
 		import_files=import_files,
 		merge_with_cache=merge_with_cache,
 		cloud_sync=cloud_sync,
+		schedule=schedule,
+		schedule_name=schedule_name,
+		schedule_when=schedule_when,
+		schedule_time=schedule_time,
+		schedule_days=schedule_days,
+		schedule_args=schedule_args,
 		debug=debug,
 		log=log,
 	)
@@ -407,5 +494,15 @@ def main(
 	SystemUpdateApp().run(args)
 
 
-if __name__ == '__main__':
+def _main_entry() -> None:
+	"""Console-script entry point (``system-update`` and ``python -m system_update``).
+
+	Runs the pre-Typer sub-help intercept first so ``--<bool-flag> help`` works.
+	"""
+	if _intercept_subhelp_argv():
+		sys.exit(0)
 	app()
+
+
+if __name__ == '__main__':
+	_main_entry()

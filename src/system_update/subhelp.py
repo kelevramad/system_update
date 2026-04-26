@@ -425,6 +425,63 @@ def _page_history_stale(console: Console) -> None:
 	])
 
 
+def _page_schedule(console: Console) -> None:
+	_header(
+		console,
+		'🗓️  --schedule — Detailed Help',
+		'Manage Windows Task Scheduler entries that run [bold]system-update[/bold] '
+		'on a recurring schedule. Linux/macOS users should configure cron / '
+		'systemd / launchd manually.',
+	)
+	_action_table(console, [
+		('create', 'Create or replace a scheduled task.'),
+		('delete', 'Remove a scheduled task by name.'),
+		('list', 'List every SystemUpdate task registered with the OS.'),
+		('status', 'Show last run, next run, exit code, and command line.'),
+		('run', 'Trigger the task immediately (out-of-band).'),
+		('eval', 'Run a scan and evaluate conditional_actions rules. Used by tasks.'),
+		('help', 'Print this page.'),
+	])
+	t = Table(title='Companion flags', show_header=True, header_style='bold')
+	t.add_column('Flag', style='cyan', no_wrap=True)
+	t.add_column('Default')
+	t.add_column('Notes')
+	t.add_row('--schedule-name', 'SystemUpdate_Scan', 'Task identifier in Task Scheduler.')
+	t.add_row('--schedule-when', 'daily',
+		'One of: [yellow]daily, weekly, hourly, monthly, onstart, onlogon[/yellow].')
+	t.add_row('--schedule-time', '09:00', 'HH:MM. Required for daily/weekly/monthly.')
+	t.add_row('--schedule-days', '(empty)',
+		'Weekly only — e.g. [yellow]MON,WED,FRI[/yellow].')
+	t.add_row('--schedule-args', '--no-cache --notify',
+		'Arguments the scheduled run will pass to system-update.')
+	console.print(t)
+	console.print()
+	console.print('[bold]Conditional actions ([yellow]conditional_actions[/yellow] in config.json)[/bold]')
+	console.print(
+		'  • Predicates: [cyan]any_updates, any_vulnerabilities, any_critical_cves, '
+		'security_updates_only, n_updates_gte:N, n_vulns_gte:N[/cyan]\n'
+		'  • Actions:    [cyan]notify, log, auto_update[/cyan]\n'
+	)
+	_json_block(console, 'Sample config block', '''{
+  "conditional_actions": [
+    {"when": "any_critical_cves",      "do": "notify"},
+    {"when": "n_updates_gte:20",       "do": "notify"},
+    {"when": "security_updates_only",  "do": "auto_update"},
+    {"when": "any_vulnerabilities",    "do": "log"}
+  ]
+}''')
+	_examples(console, [
+		('system-update --schedule create --schedule-when daily --schedule-time 03:00', '# nightly 3 AM scan'),
+		('system-update --schedule create --schedule-when weekly --schedule-days MON,FRI --schedule-time 09:00', '# Mon+Fri 9 AM'),
+		('system-update --schedule create --schedule-when onlogon --schedule-args "--source winget --notify"', '# at logon'),
+		('system-update --schedule list', ''),
+		('system-update --schedule status --schedule-name SystemUpdate_Scan', ''),
+		('system-update --schedule run --schedule-name SystemUpdate_Scan', '# fire immediately'),
+		('system-update --schedule eval', '# evaluate conditional_actions'),
+		('system-update --schedule delete --schedule-name SystemUpdate_Scan', ''),
+	])
+
+
 def _page_update_source(console: Console) -> None:
 	_header(
 		console,
@@ -461,6 +518,7 @@ _REGISTRY: Dict[str, Callable[[Console], None]] = {
 	'history-trends': _page_history_trends,
 	'history-stale': _page_history_stale,
 	'update-source': _page_update_source,
+	'schedule': _page_schedule,
 }
 
 

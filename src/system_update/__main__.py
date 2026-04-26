@@ -9,7 +9,7 @@ for _stream in (sys.stdout, sys.stderr):
 	except Exception:
 		pass
 
-from system_update.cli import app  # noqa: E402
+from system_update.cli import _main_entry  # noqa: E402
 
 if __name__ == '__main__':
-	app()
+	_main_entry()

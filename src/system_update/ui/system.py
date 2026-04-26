@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from rich import box
@@ -24,26 +25,122 @@ _SEVERITY_COLORS = {
 _TABLE_SEVERITY_COLORS = {**_SEVERITY_COLORS, 'CRITICAL': 'bold red blink'}
 
 
+def _format_size(size: int) -> str:
+	"""Compact human-readable byte count (e.g. 1.2 KB, 4.7 MB)."""
+	for unit in ('B', 'KB', 'MB', 'GB'):
+		if size < 1024:
+			return f'{size:.1f} {unit}' if unit != 'B' else f'{size} {unit}'
+		size /= 1024
+	return f'{size:.1f} TB'
+
+
+def _file_row(label: str, path: Path, show_path: bool = True) -> str:
+	"""Render one file row: ✅/⬜ icon, label, size, mtime, full path."""
+	from datetime import datetime
+
+	if path.is_file():
+		try:
+			stat = path.stat()
+			size = _format_size(stat.st_size)
+			mtime = datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M')
+			meta = f'[dim]({size}, {mtime})[/dim]'
+		except OSError:
+			meta = ''
+		marker = '[green]✅[/green]'
+		path_style = 'dim cyan'
+	else:
+		marker = '❌'
+		meta = '[dim red](missing)[/dim red]'
+		path_style = 'dim white'
+
+	pieces = [marker, f'[white]{label}[/white]', meta]
+	if show_path:
+		pieces.append(f'[{path_style}]→ {path}[/{path_style}]')
+	return '  ' + ' '.join(p for p in pieces if p)
+
+
 def display_banner(config: SystemConfig) -> None:
-	"""Render the ``System Update Python`` header and data-directory paths."""
+	"""Render the header, profile badge, and a checked file inventory.
+
+	Profile-aware: when ``--profile X`` is active the banner displays the
+	profile name in a coloured pill and lists files from the profile
+	directory. The user sees at-a-glance whether each expected file exists,
+	how big it is, and when it was last touched.
+	"""
 	rule = '─' * 70
 	title = f'🚀 System Update Python v{_VERSION}'
-	sub = f'⚙️ Data dir: {config.config_dir}'
+	profile = getattr(config, 'current_profile', None)
+	if profile:
+		profile_badge = (
+			f'[bold bright_white on cyan] 👤 {profile} [/bold bright_white on cyan]'
+		)
+		sub = f'⚙️ Data dir: {config.config_dir}'
+	else:
+		profile_badge = '[bright_white]👤 default profile[/bright_white]'
+		sub = f'⚙️ Data dir: {config.config_dir}'
 
 	console.print(f'[cyan]┌{rule}┐[/cyan]')
 	console.print(f'[cyan]│[/cyan] [bold cyan]{title.ljust(69)}[/bold cyan][cyan]│[/cyan]')
 	console.print(f'[cyan]│[/cyan] [dim cyan]{sub.ljust(69)}[/dim cyan][cyan]│[/cyan]')
 	console.print(f'[cyan]└{rule}┘[/cyan]')
 
-	console.print(f'[dim white]Files in {config.config_dir}:[/dim white]')
-	for label, path in (
-		('cache.json', config.cache_file),
-		('config.json', config.config_file),
-		('errors.log', config.config_dir / 'errors.log'),
-		('system.log', config.log_file),
-		('vulnerability_history.json', config.config_dir / 'vulnerability_history.json'),
-	):
-		console.print(f'  [dim white]{label} → {path}[/dim white]')
+	# Profile status line
+	console.print(f'  Profile: {profile_badge}')
+
+	# Profile-scoped files (config + cache + per-profile log).
+	if profile:
+		profile_dir = Path(config.profiles_dir) / profile
+		console.print(f'[dim white]📁 Profile data → {profile_dir}[/dim white]')
+		for label, path in (
+			('config.json', config.config_file),
+			('cache.json', config.cache_file),
+			('system.log', config.log_file),
+		):
+			console.print(_file_row(label, Path(path)))
+		console.print(f'[dim white]🌐 Shared data  → {config.config_dir}[/dim white]')
+		shared_rows = [
+			('history.db', Path(config.config_dir) / 'history.db'),
+			('vulnerability_history.json',
+				Path(config.config_dir) / 'vulnerability_history.json'),
+			('errors.log', Path(config.config_dir) / 'errors.log'),
+		]
+	else:
+		console.print(f'[dim white]📁 Files in {config.config_dir}:[/dim white]')
+		shared_rows = [
+			('config.json', config.config_file),
+			('cache.json', config.cache_file),
+			('history.db', Path(config.config_dir) / 'history.db'),
+			('vulnerability_history.json',
+				Path(config.config_dir) / 'vulnerability_history.json'),
+			('system.log', config.log_file),
+			('errors.log', Path(config.config_dir) / 'errors.log'),
+		]
+	for label, path in shared_rows:
+		console.print(_file_row(label, Path(path)))
+
+	# List available profiles (if any) so users see what they can switch to.
+	profiles_dir = Path(config.profiles_dir)
+	if profiles_dir.is_dir():
+		available = sorted(p.name for p in profiles_dir.iterdir() if p.is_dir())
+	else:
+		available = []
+	if available:
+		chips = []
+		for p in available:
+			if p == profile:
+				chips.append(
+					f'[bold bright_white on green] ★ {p} [/bold bright_white on green]'
+				)
+			else:
+				chips.append(
+					f'[bold bright_white on grey23] {p} [/bold bright_white on grey23]'
+				)
+		console.print(f'  [dim]Profiles available:[/dim] {" ".join(chips)}')
+	else:
+		console.print(
+			'  [dim]Profiles available:[/dim] [dim italic]none — '
+			'create one via [/dim italic][cyan]--profile <name>[/cyan]'
+		)
 	console.print()
 
 

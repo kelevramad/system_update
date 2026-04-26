@@ -112,6 +112,58 @@ def _pypi_fallback_latest(apps: List[AppInfo]) -> None:
 			pass
 
 
+def _parse_exclude_list(raw) -> List[str]:
+	"""Normalize a comma-string or list into a clean list of exclude tokens."""
+	if not raw:
+		return []
+	if isinstance(raw, str):
+		items = raw.split(',')
+	else:
+		items = list(raw)
+	return [item.strip() for item in items if str(item).strip()]
+
+
+def _exclude_matches(app: AppInfo, tokens: List[str]) -> bool:
+	"""Return True if ``app`` should be excluded based on any token.
+
+	Tokens accept three shapes (case-insensitive):
+	* ``source``             — every package from that known source
+	  (e.g. ``--exclude pip`` drops all pip packages)
+	* ``source:name``        — match only when source AND name/app_id both match
+	  (e.g. ``--exclude pip:requests``)
+	* ``source:*``           — same as bare ``source`` (explicit form)
+	* ``name``               — match any package whose name/app_id equals name
+	  (only when ``name`` is not also a known source — sources win)
+	"""
+	name = (app.name or '').lower()
+	source = (app.source or '').lower()
+	app_id = (app.app_id or '').lower()
+	for token in tokens:
+		t = token.strip().lower()
+		if not t:
+			continue
+		if ':' in t:
+			t_src, t_name = t.split(':', 1)
+			if t_src == source and (t_name in ('*', '', name, app_id)):
+				return True
+		else:
+			# Bare token: prefer source match (most users expect ``--exclude pip``
+			# to drop all pip packages). Fall back to name/app_id otherwise.
+			if t in _KNOWN_SOURCES:
+				if t == source:
+					return True
+			elif t == name or t == app_id:
+				return True
+	return False
+
+
+def _apply_excludes(apps: List[AppInfo], tokens: List[str]) -> List[AppInfo]:
+	"""Drop apps matching any exclude token. No-op if ``tokens`` is empty."""
+	if not tokens:
+		return apps
+	return [a for a in apps if not _exclude_matches(a, tokens)]
+
+
 def _count_updates(apps: List[AppInfo]) -> int:
 	"""Total = regular updates + vulnerable packages that also have a newer version available."""
 	regular = sum(1 for a in apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE)
@@ -162,11 +214,41 @@ class SystemUpdateApp:
 			scanners = {name: func for name, func in scanners.items() if name in include}
 
 		enabled = self.settings.get('sources', {})
+		# An explicit ``--source X`` request overrides ``sources.X: false`` in
+		# the active profile — the user asking for X by name wins. Surface a
+		# clear notice so it's obvious what happened.
+		overridden = sorted(
+			name for name in include
+			if name in scanners and not enabled.get(name, True)
+		)
+		if overridden:
+			console.print(
+				f'[yellow]ℹ Source(s) disabled in config but requested via '
+				f'--source:[/yellow] [bold]{", ".join(overridden)}[/bold] '
+				f'[dim](scanning anyway — pass [cyan]--save-config[/cyan] '
+				f'to make this permanent)[/dim]'
+			)
+
 		selected = [
 			(name, scanners[name])
 			for name in _SCAN_ORDER
-			if name in scanners and enabled.get(name, True)
+			if name in scanners and (enabled.get(name, True) or name in include)
 		]
+		if not selected and include:
+			# Filter passed but nothing left to scan — explain why.
+			console.print(
+				'[red]✗ Nothing to scan:[/red] '
+				f'requested sources [bold]{", ".join(sorted(include))}[/bold] '
+				'are not available (no scanner registered).'
+			)
+		elif not selected:
+			# Bare run with everything disabled in config.
+			console.print(
+				'[red]✗ Nothing to scan:[/red] every source is disabled in '
+				f'[cyan]{self.config.config_file}[/cyan]. '
+				'[dim]Re-enable some via [cyan]sources.{name}: true[/cyan] '
+				'or pass [cyan]--source X[/cyan].[/dim]'
+			)
 
 		max_workers = self.settings.get('performance', {}).get('max_workers', 4)
 		all_apps: List[AppInfo] = []
@@ -289,6 +371,39 @@ class SystemUpdateApp:
 
 	def run(self, args: Namespace) -> None:
 		"""Full flow: scan → check → security → cache → history → display → export → update."""
+		# Activate the named profile BEFORE setup_logging so log/cache/history
+		# all land in the right directory. SystemConfig.__init__ runs with the
+		# default profile (we don't see args yet), so we re-init here.
+		# Strict ``isinstance(str)`` so MagicMock attrs in unit tests don't
+		# accidentally get treated as profile names.
+		profile = getattr(args, 'profile', None)
+		if isinstance(profile, str) and profile:
+			self.config.reinit(profile)
+			self.settings = self.config.settings
+			# Re-bind any sub-system that captured an old path.
+			from system_update.cache import CacheManager
+			from system_update.history import HistoryDatabase, VulnerabilityHistory
+
+			self.cache_mgr = CacheManager(
+				self.config.cache_file,
+				self.settings.get('cache', {}).get('duration_hours', 2),
+			)
+			try:
+				if self.history_db:
+					self.history_db.close()
+			except Exception:
+				pass
+			self.history_db = HistoryDatabase(
+				Path(self.config.config_dir) / 'history.db'
+			)
+			self.vuln_history = VulnerabilityHistory(
+				Path(self.config.config_dir) / 'vulnerability_history.json'
+			)
+			console.print(
+				f'[bold cyan]👤 Profile activated:[/bold cyan] '
+				f'[bold]{profile}[/bold]'
+			)
+
 		setup_logging(
 			self.config,
 			debug=getattr(args, 'debug', False),
@@ -302,6 +417,12 @@ class SystemUpdateApp:
 			self.settings.setdefault('ui', {})['display_format'] = args.format
 		if getattr(args, 'icons', False):
 			self.settings.setdefault('ui', {})['use_icons'] = True
+
+		# --save-config: fold this run's CLI overrides into config.json so the
+		# next run uses them as defaults. Specifically: --source X,Y,Z sets
+		# sources.* to True only for those sources (everything else False).
+		if getattr(args, 'save_config', False):
+			self._persist_cli_overrides(args)
 
 		# Step 11 features (history/report/interactive) are routed here.
 		if self._handle_meta_commands(args):
@@ -376,11 +497,15 @@ class SystemUpdateApp:
 						]
 						console.print(
 							f'[dim]💾 Loaded {len(apps)} items from cache '
-							f'(filter: {",".join(sorted(self._include_sources))})[/dim]\n'
+							f'(filter: {",".join(sorted(self._include_sources))}) '
+							f'{self._cache_expiry_hint()}[/dim]\n'
 						)
 				else:
 					apps = cached
-					console.print(f'[dim]💾 Loaded {len(apps)} items from cache[/dim]\n')
+					console.print(
+						f'[dim]💾 Loaded {len(apps)} items from cache '
+						f'{self._cache_expiry_hint()}[/dim]\n'
+					)
 			elif cached is not None and self._include_sources:
 				# Valid but empty cache + --source X: scan X silently via merge
 				# path so the full-scan banners don't fire.
@@ -450,10 +575,31 @@ class SystemUpdateApp:
 			self.history_db.record_scan(apps, scan_id, scanned_sources, scan_time)
 
 			total_updates = _count_updates(apps)
-			self.cache_mgr.save(apps)
+			if getattr(args, 'no_cache', False):
+				console.print(
+					'[dim]💾 --no-cache: skipping cache write '
+					'(scan results not persisted).[/dim]\n'
+				)
+			else:
+				self.cache_mgr.save(apps)
 		else:
 			total_updates = _count_updates(apps)
 			scan_time = 0.0
+
+		# ── apply exclude list (CLI > env > config) ────────────────────────
+		exclude_tokens = _parse_exclude_list(getattr(args, 'exclude', None))
+		if not exclude_tokens:
+			exclude_tokens = _parse_exclude_list(self.settings.get('exclude'))
+		if exclude_tokens:
+			before = len(apps)
+			apps = _apply_excludes(apps, exclude_tokens)
+			dropped = before - len(apps)
+			if dropped:
+				console.print(
+					f'[dim]🚫 Excluded {dropped} package(s) matching: '
+					f'{", ".join(exclude_tokens)}[/dim]\n'
+				)
+			total_updates = _count_updates(apps)
 
 		# ── shared rendering path (cache hit OR fresh scan) ────────────────
 		sources_count: Dict[str, int] = {}
@@ -728,7 +874,281 @@ class SystemUpdateApp:
 		if getattr(args, 'cloud_sync', None):
 			self._handle_cloud_sync(args.cloud_sync)
 			return True
+		if getattr(args, 'schedule', None):
+			self._handle_schedule(args)
+			return True
+		if getattr(args, 'profile_export', None):
+			self._export_profile(args.profile_export)
+			return True
+		if getattr(args, 'profile_import', None):
+			self._import_profile(
+				args.profile_import,
+				target_name=getattr(args, 'profile', None),
+			)
+			return True
 		return False
+
+	# ── Cache helpers ──────────────────────────────────────────────────────
+
+	def _cache_expiry_hint(self) -> str:
+		"""Return ``(expires HH:MM:SS · in 1h 23m)`` style suffix, or empty."""
+		expires = self.cache_mgr.expires_at()
+		remaining = self.cache_mgr.time_remaining()
+		if expires is None or remaining is None:
+			return ''
+		stamp = expires.strftime('%H:%M:%S')
+		return f'(expires {stamp} · in {remaining})'
+
+	# ── Persist CLI overrides ──────────────────────────────────────────────
+
+	def _persist_cli_overrides(self, args: Namespace) -> None:
+		"""Write current CLI overrides (sources, theme, format, icons) into config.json.
+
+		Only ``--source`` rewrites the ``sources`` block — every named source
+		gets ``true`` and every other one gets ``false``. UI flags merge into
+		``ui``. Called when the user passes ``--save-config``.
+		"""
+		changed: List[str] = []
+
+		raw_source = getattr(args, 'source', None)
+		if raw_source:
+			valid, _ = _partition_sources(raw_source)
+			if valid:
+				new_sources = {
+					name: (name in valid) for name in self.settings.get('sources', {})
+				}
+				# Add any canonical names that weren't already in config.
+				for name in valid:
+					new_sources.setdefault(name, True)
+				self.settings['sources'] = new_sources
+				changed.append(f'sources → {", ".join(sorted(valid))}')
+
+		raw_exclude = getattr(args, 'exclude', None)
+		if raw_exclude:
+			tokens = _parse_exclude_list(raw_exclude)
+			self.settings['exclude'] = tokens
+			changed.append(f'exclude → {", ".join(tokens)}')
+
+		ui = self.settings.setdefault('ui', {})
+		if getattr(args, 'theme', None):
+			ui['theme'] = args.theme
+			changed.append(f'ui.theme → {args.theme}')
+		if getattr(args, 'format', None):
+			ui['display_format'] = args.format
+			changed.append(f'ui.display_format → {args.format}')
+		if getattr(args, 'icons', False):
+			ui['use_icons'] = True
+			changed.append('ui.use_icons → true')
+
+		if not changed:
+			console.print(
+				'[yellow]⚠ --save-config: nothing to persist[/yellow] '
+				'[dim](no --source/--theme/--format/--icons supplied)[/dim]'
+			)
+			return
+
+		try:
+			self.config.save()
+			profile_label = self.config.current_profile or 'default'
+			console.print(
+				f'[green]💾 Saved to[/green] [bold]{profile_label}[/bold] '
+				f'profile: [cyan]{", ".join(changed)}[/cyan]'
+			)
+		except Exception as e:
+			console.print(f'[red]✗ Save failed:[/red] {e}')
+
+	# ── Profile import / export ────────────────────────────────────────────
+
+	def _export_profile(self, output_path: str) -> None:
+		"""Save the active profile (or default) settings to ``output_path``."""
+		from pathlib import Path as _Path
+
+		out = _Path(output_path).expanduser().resolve()
+		ok = self.config.export_profile(str(out))
+		if ok:
+			profile_label = self.config.current_profile or 'default'
+			console.print(
+				f'[green]✓ Exported[/green] profile [bold]{profile_label}[/bold] '
+				f'→ [cyan]{out}[/cyan]'
+			)
+		else:
+			console.print(
+				f'[red]✗ Export failed:[/red] could not write {out} '
+				f'(check permissions / errors.log)'
+			)
+
+	def _import_profile(
+		self, input_path: str, target_name: Optional[str] = None
+	) -> None:
+		"""Load profile JSON; if ``--profile NAME`` was passed, install under that name."""
+		from pathlib import Path as _Path
+
+		src = _Path(input_path).expanduser()
+		if not src.is_file():
+			console.print(f'[red]✗ Import failed:[/red] file not found: {src}')
+			return
+		ok = self.config.import_profile(str(src), profile_name=target_name)
+		if ok:
+			profile_label = self.config.current_profile or 'imported'
+			# Re-bind subsystems to the new profile's paths.
+			self.settings = self.config.settings
+			from system_update.cache import CacheManager
+			from system_update.history import HistoryDatabase, VulnerabilityHistory
+
+			self.cache_mgr = CacheManager(
+				self.config.cache_file,
+				self.settings.get('cache', {}).get('duration_hours', 2),
+			)
+			try:
+				if self.history_db:
+					self.history_db.close()
+			except Exception:
+				pass
+			self.history_db = HistoryDatabase(
+				Path(self.config.config_dir) / 'history.db'
+			)
+			self.vuln_history = VulnerabilityHistory(
+				Path(self.config.config_dir) / 'vulnerability_history.json'
+			)
+			console.print(
+				f'[green]✓ Imported[/green] profile [bold]{profile_label}[/bold] '
+				f'← [cyan]{src}[/cyan]'
+			)
+		else:
+			console.print(
+				f'[red]✗ Import failed:[/red] {src} '
+				f'(invalid JSON or missing "settings" key)'
+			)
+
+	# ── Scheduled tasks (6.1) ──────────────────────────────────────────────
+
+	def _handle_schedule(self, args: Namespace) -> None:
+		"""Dispatch ``--schedule create|delete|list|status|run|eval|help``."""
+		from system_update import scheduler, subhelp
+
+		action = args.schedule.lower()
+		name = getattr(args, 'schedule_name', None) or 'SystemUpdate_Scan'
+
+		if action == 'help':
+			subhelp.show('schedule')
+			return
+
+		if action == 'eval':
+			self._evaluate_conditional_actions(args)
+			return
+
+		try:
+			if action == 'create':
+				spec = scheduler.ScheduleSpec(
+					name=name,
+					frequency=getattr(args, 'schedule_when', 'daily') or 'daily',
+					time=getattr(args, 'schedule_time', '09:00') or '09:00',
+					days=getattr(args, 'schedule_days', '') or '',
+					command_args=getattr(args, 'schedule_args', '') or '',
+				)
+				result = scheduler.create_task(spec)
+				console.print(
+					f'[green]✓ Scheduled[/green] task [bold]{result["name"]}[/bold] '
+					f'({result["frequency"]} @ {result["time"] or "n/a"})'
+				)
+				console.print(f'  [dim]command:[/dim] {result["command"]}')
+
+			elif action == 'delete':
+				scheduler.delete_task(name)
+				console.print(f'[green]✓ Removed[/green] scheduled task [bold]{name}[/bold]')
+
+			elif action == 'list':
+				tasks = scheduler.list_tasks()
+				if not tasks:
+					console.print(
+						'[yellow]No SystemUpdate scheduled tasks found.[/yellow]'
+					)
+					return
+				from rich.table import Table
+
+				t = Table(title='🗓️  Scheduled tasks', expand=True)
+				t.add_column('Name', style='bold')
+				t.add_column('Next run', style='cyan')
+				t.add_column('Last run', style='yellow')
+				t.add_column('Last result', style='green', justify='right')
+				t.add_column('Status', style='magenta')
+				for entry in tasks:
+					last_run = entry.get('last_run', '') or ''
+					# schtasks emits "30/11/1999 ..." as a "never run" sentinel.
+					if not last_run or last_run.startswith('30/11/1999'):
+						last_run_display = '[dim]Never[/dim]'
+					else:
+						last_run_display = last_run
+
+					last_result = entry.get('last_result', '') or ''
+					if not last_result:
+						last_result_display = '[dim]—[/dim]'
+					elif last_result.strip() in ('0', '0x0'):
+						last_result_display = last_result
+					else:
+						last_result_display = f'[red]{last_result}[/red]'
+
+					t.add_row(
+						entry['name'],
+						entry.get('next_run', ''),
+						last_run_display,
+						last_result_display,
+						entry.get('status', ''),
+					)
+				console.print(t)
+
+			elif action == 'status':
+				info = scheduler.task_status(name)
+				if not info:
+					console.print(f'[yellow]Task not found: {name}[/yellow]')
+					return
+				console.print(f'[bold]🗓️  Task: {info["name"]}[/bold]')
+				for key in (
+					'status', 'schedule_type', 'next_run_time', 'last_run_time',
+					'last_result', 'task_to_run', 'run_as_user',
+				):
+					console.print(f'  [cyan]{key}[/cyan]: {info.get(key, "")}')
+
+			elif action == 'run':
+				scheduler.run_task_now(name)
+				console.print(f'[green]✓ Triggered[/green] task [bold]{name}[/bold]')
+
+		except RuntimeError as e:
+			console.print(f'[red]✗ Schedule error:[/red] {e}')
+		except ValueError as e:
+			console.print(f'[red]✗ Invalid schedule spec:[/red] {e}')
+
+	def _evaluate_conditional_actions(self, args: Namespace) -> None:
+		"""Run a scan, evaluate ``conditional_actions`` rules, fire matched actions.
+
+		Used by scheduled tasks: configure ``--schedule-args "--schedule eval"``
+		(or any combination) to have the task run a scan and act on the result
+		without prompts.
+		"""
+		from system_update import conditions
+
+		console.print('[bold cyan]🤖 Evaluating conditional actions...[/bold cyan]')
+		apps = self.scan_system(getattr(args, 'source', None))
+		try:
+			from system_update.checkers import check_all_updates
+
+			check_all_updates(apps)
+		except Exception as e:
+			logger.warning(f'check_all_updates failed during eval: {e}')
+
+		matched = conditions.evaluate(apps, self.settings)
+		if not matched:
+			console.print('[green]✓ No conditional rules matched.[/green]')
+			return
+
+		console.print(f'[bold]Matched {len(matched)} rule(s).[/bold]')
+		conditions.apply(
+			matched, apps,
+			notifier=self.notifier,
+			executor=self.executor,
+			console=console,
+			dry_run=getattr(args, 'dry_run', False),
+		)
 
 	# ── Data sharing (5.4) ─────────────────────────────────────────────────
 

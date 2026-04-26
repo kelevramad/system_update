@@ -15,6 +15,32 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v6.1.0 (April 2026)
+- **Scheduled Updates (6.1)**: Run scans on a recurring schedule and react automatically
+  - **Task Scheduler Integration (6.1.1)**: New `src/system_update/scheduler.py` wraps Windows `schtasks` for create / delete / list / status / run. Non-Windows platforms get a clear "configure cron / systemd / launchd manually" error.
+  - **Daily / Weekly / Hourly / Monthly Scans (6.1.2)**: `--schedule create` accepts `--schedule-when daily|weekly|hourly|monthly|onstart|onlogon`, `--schedule-time HH:MM`, `--schedule-days MON,FRI`, `--schedule-args "..."`. Each task launches `python -m system_update <user-args>` with the current interpreter.
+  - **Conditional Actions (6.1.3)**: New `src/system_update/conditions.py` with a rule engine. Predicates: `any_updates`, `any_vulnerabilities`, `any_critical_cves`, `security_updates_only`, `n_updates_gte:N`, `n_vulns_gte:N`. Actions: `notify`, `log`, `auto_update`. Configured under `conditional_actions` in config.json; trigger via `--schedule eval`.
+  - `--schedule list` table now uses `schtasks /Query /FO CSV /V` and renders `Name`, `Next run`, `Last run`, `Last result`, `Status`. The schtasks "never run" sentinel (`30/11/1999`) renders as dim `Never`; non-zero exit codes turn red.
+- **Profile bug fixes**:
+  - `--profile NAME` was completely ignored — `SystemUpdateApp` always ran with the default profile. Now activated via `config.reinit()`, with cache/history/vuln-history rebound to the profile's paths.
+  - `--profile-export PATH` and `--profile-import PATH` were also non-functional — now wired as meta commands with friendly error rendering.
+  - Activating a fresh profile now auto-seeds a default `config.json` so the directory is no longer empty after first use.
+- **`--exclude` flag (was dead config)**: `exclude` was declared in config but never read. Now CLI flag `--exclude foo,bar,pip:requests` actually drops matching packages. Token formats: bare name, `source:name`, `source:*` (or bare source name → drops every package from that source).
+- **`--save-config` flag**: Persist the run's CLI overrides (`--source`, `--exclude`, `--theme`, `--format`, `--icons`) into the active profile's `config.json` so the next run uses them as defaults.
+- **`--no-cache` symmetry**: previously read but still wrote cache. Now skips cache write too, with a clear `💾 --no-cache: skipping cache write` notice.
+- **Cache expiry hint**: `💾 Loaded N items from cache (expires HH:MM:SS · in 1h 23m)` — auto-formats as `Hh Mm`, `Mm Ss`, or `Ss` as time runs out.
+- **Source override notice**: `--source X` where `sources.X: false` now prints `ℹ Source(s) disabled in config but requested via --source: X (scanning anyway — pass --save-config to make this permanent)` instead of silently scanning nothing.
+- **Banner redesign**: Profile pill (`👤 work` cyan, `default profile` white), tree-style file inventory with ✅/❌ existence, size, mtime; profile-aware split into `📁 Profile data` and `🌐 Shared data`; `Profiles available:` chip row with active profile highlighted (`★ work`).
+- **Detailed sub-help — universal trigger**:
+  - `--explain <flag>` works for any flag including booleans (e.g. `--explain interactive`, `--explain notify`).
+  - `--<flag> help` works via pre-Typer argv intercept, so even boolean flags accept it (`--interactive help`, `--update-source help`).
+  - `--explain` flag moved to the default `Options` panel next to `--help`; new `schedule` sub-help topic added.
+  - Flags with sub-help pages now carry a `📖` marker in `--help`, with a tip line in the epilog.
+- **Friendly choice errors** rendered in the standard Click error panel (no traceback) for `--export`, `--report`, `--format`, `--theme`, `--cloud-sync`, `--schedule`.
+- **`-h` alias** for `--help`.
+- **UTF-8 stdout** moved into `cli.py` so the installed `system-update` script entry-point also renders emoji help on Windows cp1252 consoles.
+- **Tests**: +35 new tests (18 scheduler, 17 conditions). Full suite **388 tests**.
+
 ### v5.6.0 (April 2026)
 - **Data Sharing (5.4)**: Import scans, merge across machines, sync the cache anywhere
   - **Import Scan Data (5.4.1)**: `--import PATH` (repeatable) loads scan data from JSON or CSV (auto-detected by suffix). Imported apps short-circuit live scanning. Accepts a bare list, or an object with a `packages` / `apps` / `items` / `data` key.

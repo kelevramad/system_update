@@ -36,6 +36,14 @@ class SystemConfig:
 		self._update_paths(profile_name)
 
 		self.settings = self._get_default_settings()
+		# Seed a fresh profile with a default config so the dir isn't empty
+		# (and the banner can show the file). Has to happen BEFORE load() so
+		# the loader picks it up. No-op if config_file already exists.
+		if profile_name and not self.config_file.exists():
+			try:
+				self.save()
+			except Exception as e:
+				logging.warning(f'Failed to seed profile {profile_name!r}: {e}')
 		self.load()
 
 	@staticmethod
@@ -134,10 +142,19 @@ class SystemConfig:
 		self.log_file = base / 'system.log'
 
 	def reinit(self, profile_name: Optional[str]) -> None:
-		"""Switch to a different profile and reload configuration."""
+		"""Switch to a different profile and reload configuration.
+
+		Auto-seeds a default ``config.json`` when activating a fresh profile
+		so the profile directory isn't empty after first use.
+		"""
 		self.current_profile = profile_name
 		self._update_paths(profile_name)
 		self.settings = self._get_default_settings()
+		if profile_name and not self.config_file.exists():
+			try:
+				self.save()
+			except Exception as e:
+				logging.warning(f'Failed to seed profile {profile_name!r}: {e}')
 		self.load()
 
 	def export_profile(self, output_path: str) -> bool:

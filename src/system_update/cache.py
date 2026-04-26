@@ -37,6 +37,35 @@ class CacheManager:
 		except Exception:
 			return False
 
+	def expires_at(self) -> Optional[datetime]:
+		"""Return the absolute datetime when the cache expires, or ``None``."""
+		if not self.cache_file.exists():
+			return None
+		try:
+			with open(self.cache_file, 'r', encoding='utf-8') as f:
+				data = json.load(f)
+			cache_time = datetime.fromisoformat(data.get('timestamp', '').replace('Z', ''))
+			return cache_time + self.duration
+		except Exception:
+			return None
+
+	def time_remaining(self) -> Optional[str]:
+		"""Return a compact ``Hh Mm`` (or ``Mm Ss``) string until expiry, or ``None``."""
+		expiry = self.expires_at()
+		if expiry is None:
+			return None
+		delta = expiry - datetime.now()
+		secs = int(delta.total_seconds())
+		if secs <= 0:
+			return 'expired'
+		h, rem = divmod(secs, 3600)
+		m, s = divmod(rem, 60)
+		if h:
+			return f'{h}h {m}m'
+		if m:
+			return f'{m}m {s}s'
+		return f'{s}s'
+
 	def load(self) -> Optional[List[AppInfo]]:
 		"""Load cached apps, rebuilding :class:`AppInfo` instances from camelCase JSON."""
 		if not self.is_valid():

@@ -1,6 +1,6 @@
 [project]
 name = "system-update-cli"
-version = "5.6.0"
+version = "6.1.0"
 description = "Cross-platform package manager scanner/updater"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-system-update = "system_update.cli:app"
+system-update = "system_update.cli:_main_entry"
 
 [dependency-groups]
 dev = [
