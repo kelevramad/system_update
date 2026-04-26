@@ -15,6 +15,23 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v5.6.0 (April 2026)
+- **Data Sharing (5.4)**: Import scans, merge across machines, sync the cache anywhere
+  - **Import Scan Data (5.4.1)**: `--import PATH` (repeatable) loads scan data from JSON or CSV (auto-detected by suffix). Imported apps short-circuit live scanning. Accepts a bare list, or an object with a `packages` / `apps` / `items` / `data` key.
+  - **Merge Scans (5.4.2)**: Multiple `--import` files are deduplicated by `(source, name, version)` with the latest `scan_time` winning per key. Add `--merge` to also fold in the existing on-disk cache. Merged result is persisted back to the cache.
+  - **Cloud Sync (5.4.3)**: `--cloud-sync push|pull|status`. Two backends: `file` (any folder — point at OneDrive/Dropbox/Google Drive/iCloud/network share for free cross-device sync) and `http` (PUT/GET with optional `Authorization` header). Configure under a new `cloud_sync` block in `~/.system_update/config.json`.
+- **Detailed sub-help pages**: 13 topics, 2 trigger styles
+  - `--explain <topic>` — works for any flag, including booleans (e.g. `--explain interactive`, `--explain notify`)
+  - `--<choice-flag> help` — works for choice flags (e.g. `--cloud-sync help`, `--export help`, `--report help`, `--source help`, `--format help`, `--theme help`)
+  - `--explain list` lists all available topics
+  - Topics: cloud-sync, export, format, history-stale, history-trends, import, interactive, notify, profile, report, source, theme, update-source
+  - Each page is a Rich-formatted panel + tables + JSON snippets + worked examples
+  - Unknown `--explain` value → friendly Click error panel with the full topic list (no traceback)
+- **New `🔄 Data Sharing` help panel**: New flags grouped under their own emoji-labeled section in `--help`
+- **UTF-8 stdout in `cli.py`**: Reconfiguration moved out of `__main__.py` so the installed `system-update` script entry-point also renders emoji help on Windows cp1252 consoles
+- **New modules**: `src/system_update/data_sharing.py` (import/merge/cloud APIs), `src/system_update/subhelp.py` (page registry)
+- **Tests**: +44 new tests (15 data-sharing, 29 sub-help). Full suite now 333 tests, ~92s.
+
 ### v5.5.0 (April 2026)
 - **History CLI Ported**: `--history`, `--history-package`, `--history-trends`, `--history-stale N` now render Rich tables instead of stub messages
   - `--history` — last 10 scans (timestamp, source, pkgs, updates, vulns, duration)

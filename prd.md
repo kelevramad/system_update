@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 5.5.0
+**Document Version:** 5.6.0
 **Last Updated:** April 23, 2026
 **Author:** Qwen Code
-**Based On:** `src/system_update/` package (v5.5.0)
+**Based On:** `src/system_update/` package (v5.6.0)
 
 ---
 
@@ -907,7 +907,7 @@ Errors are displayed with appropriate styling:
 | 5.2.0 | April 2026 | Export Formats (HTML, XML, Markdown, diff in addition to JSON/CSV) |
 | 5.3.0 | April 2026 | Modular refactor: `src/system_update/` package, Typer CLI, `python -m system_update` entry; monolithic `system_update.py` removed |
 | 5.3.1 | April 2026 | Cache partial-scan + merge for missing sources; unified Summary (security stats folded in); per-CVE security table with Fix column and cross-source dedupe by `package|cve`; invalid-source validation |
-| 5.5.0 | April 2026 | Report Templates (5.3): custom HTML template path, base64-embedded logo, branding block (title, subtitle, company, colors, footer); new CLI flags `--html-template`, `--html-logo`, `--html-title`, `--html-company`; `report_templates` module |
+| 5.6.0 | April 2026 | Report Templates (5.3): custom HTML template path, base64-embedded logo, branding block (title, subtitle, company, colors, footer); new CLI flags `--html-template`, `--html-logo`, `--html-title`, `--html-company`; `report_templates` module |
 
 ## Appendix B: Glossary
 

@@ -7,10 +7,21 @@ scan → check → security → display → export → update workflow.
 
 from __future__ import annotations
 
+import sys
 from argparse import Namespace
-from typing import Optional
+from typing import List, Optional
 
 import typer
+
+# Force UTF-8 on stdout/stderr so emoji-rich help/sub-help renders on
+# Windows cp1252 consoles. Applied here so it covers both the
+# ``python -m system_update`` entry point and the installed
+# ``system-update`` script entry-point.
+for _stream in (sys.stdout, sys.stderr):
+	try:
+		_stream.reconfigure(encoding='utf-8', errors='replace')
+	except Exception:
+		pass
 
 
 # Rich-help panel labels (emoji-grouped categories)
@@ -20,6 +31,7 @@ PANEL_EXPORT = '📤 Export & Reports'
 PANEL_UI = '🎨 UI & Display'
 PANEL_PROFILE = '🧭 Profiles & Config'
 PANEL_HISTORY = '📜 History & Trends'
+PANEL_DATA = '🔄 Data Sharing'
 PANEL_LOG = '🪵 Logging & Debug'
 
 
@@ -247,6 +259,27 @@ def main(
 		help='💾 Output file for the history report.',
 		rich_help_panel=PANEL_HISTORY,
 	),
+	# 🔄 Data Sharing (5.4)
+	import_files: Optional[List[str]] = typer.Option(
+		None, '--import',
+		help='📥 Import scan data from JSON/CSV file(s). Repeatable; multiple files are merged.',
+		rich_help_panel=PANEL_DATA,
+	),
+	merge_with_cache: bool = typer.Option(
+		False, '--merge',
+		help='🧬 Merge imported scan(s) with the existing cache instead of replacing it.',
+		rich_help_panel=PANEL_DATA,
+	),
+	cloud_sync: Optional[str] = typer.Option(
+		None, '--cloud-sync',
+		help='☁️  Cloud-sync action: [cyan]push, pull, status[/cyan]. Use [bold]--cloud-sync help[/bold] for setup details.',
+		rich_help_panel=PANEL_DATA,
+	),
+	explain: Optional[str] = typer.Option(
+		None, '--explain',
+		help='📖 Show detailed help for any flag (e.g. [cyan]--explain interactive[/cyan]). Use [cyan]--explain list[/cyan] to see all topics.',
+		rich_help_panel=PANEL_DATA,
+	),
 	# 🪵 Logging & Debug
 	debug: bool = typer.Option(
 		False, '--debug',
@@ -261,6 +294,45 @@ def main(
 ) -> None:
 	"""Scan the system, display available updates, and optionally apply them."""
 	from system_update.app import SystemUpdateApp
+	from system_update import subhelp
+
+	# ── --explain FLAG / <choice-flag> help → detailed sub-help pages ──────
+	# Handled before validation so '--export help' and '--cloud-sync help'
+	# don't trip the choice-validator.
+	def _maybe_show_subhelp(name: str) -> bool:
+		if subhelp.show(name):
+			raise typer.Exit(code=0)
+		return False
+
+	if explain:
+		if explain.lower() in ('list', 'topics', 'help'):
+			from rich.console import Console as _Console
+
+			c = _Console()
+			c.print('[bold]Available --explain topics:[/bold]')
+			for t in subhelp.list_topics():
+				c.print(f'  • [cyan]{t}[/cyan]')
+			c.print('\n[dim]Usage: system-update --explain <topic>[/dim]')
+			raise typer.Exit(code=0)
+		if not subhelp.show(explain):
+			raise typer.BadParameter(
+				f"No detailed help for {explain!r}. "
+				f"Available: {', '.join(subhelp.list_topics())}",
+				param_hint='--explain',
+			)
+		raise typer.Exit(code=0)
+
+	# Choice flags that opt-in to "<flag> help" syntax — show page and exit.
+	for _flag, _val in (
+		('cloud-sync', cloud_sync),
+		('export', export_format),
+		('report', report),
+		('source', source),
+		('format', format_mode),
+		('theme', theme),
+	):
+		if isinstance(_val, str) and _val.lower() == 'help':
+			_maybe_show_subhelp(_flag)
 
 	# ── Friendly validation for choice-style flags ─────────────────────────
 	# Catch typos like ``--export hmlt`` before they reach the export layer
@@ -281,6 +353,7 @@ def main(
 	_VALID_REPORTS = ['text', 'html', 'json']
 	_VALID_FORMATS = ['auto', 'compact', 'verbose', 'json']
 	_VALID_THEMES = ['default', 'vibrant', 'minimal', 'dark', 'neon']
+	_VALID_CLOUD = ['push', 'pull', 'status', 'help']
 
 	if export_format and export_format not in _VALID_EXPORTS:
 		_bail('--export', export_format, _VALID_EXPORTS)
@@ -290,6 +363,8 @@ def main(
 		_bail('--format', format_mode, _VALID_FORMATS)
 	if theme and theme not in _VALID_THEMES:
 		_bail('--theme', theme, _VALID_THEMES)
+	if cloud_sync and cloud_sync not in _VALID_CLOUD:
+		_bail('--cloud-sync', cloud_sync, _VALID_CLOUD)
 
 	args = Namespace(
 		source=source,
@@ -322,6 +397,9 @@ def main(
 		history_stale=history_stale,
 		report=report,
 		report_output=report_output,
+		import_files=import_files,
+		merge_with_cache=merge_with_cache,
+		cloud_sync=cloud_sync,
 		debug=debug,
 		log=log,
 	)

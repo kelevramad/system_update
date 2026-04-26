@@ -347,7 +347,20 @@ class SystemUpdateApp:
 			args.source = ','.join(sorted(valid))
 
 		apps: Optional[List[AppInfo]] = None
-		if not getattr(args, 'no_cache', False) and self.settings.get('cache', {}).get(
+
+		# ── --import (5.4.1) / --merge (5.4.2) ─────────────────────────────
+		import_files = getattr(args, 'import_files', None) or []
+		if import_files:
+			merge_flag = bool(getattr(args, 'merge_with_cache', False))
+			imported = self._import_apps_from_files(import_files, merge_flag)
+			if imported:
+				apps = imported
+				# Imported data short-circuits live scan; security checks
+				# can still run on the imported set below.
+				security_vulns = []
+				total_updates = _count_updates(apps)
+
+		if apps is None and not getattr(args, 'no_cache', False) and self.settings.get('cache', {}).get(
 			'enabled', True
 		):
 			cached = self.cache_mgr.load()
@@ -712,7 +725,93 @@ class SystemUpdateApp:
 		if getattr(args, 'report', None):
 			self._generate_history_report(args.report, getattr(args, 'report_output', None))
 			return True
+		if getattr(args, 'cloud_sync', None):
+			self._handle_cloud_sync(args.cloud_sync)
+			return True
 		return False
+
+	# ── Data sharing (5.4) ─────────────────────────────────────────────────
+
+	def _handle_cloud_sync(self, action: str) -> None:
+		"""Dispatch ``--cloud-sync push|pull|status|help`` to the data_sharing module."""
+		from system_update import data_sharing, subhelp
+
+		if action == 'help':
+			subhelp.show('cloud-sync')
+			return
+
+		cache_path = Path(self.config.cache_file)
+		try:
+			if action == 'push':
+				target, size = data_sharing.cloud_push(cache_path, self.settings)
+				console.print(
+					f'[green]✓ Pushed[/green] {size:,} bytes → [cyan]{target}[/cyan]'
+				)
+			elif action == 'pull':
+				target, size = data_sharing.cloud_pull(cache_path, self.settings)
+				console.print(
+					f'[green]✓ Pulled[/green] {size:,} bytes ← [cyan]{target}[/cyan]'
+				)
+			elif action == 'status':
+				stat = data_sharing.cloud_status(cache_path, self.settings)
+				console.print('[bold]☁️  Cloud sync status[/bold]')
+				for k, v in stat.items():
+					console.print(f'  [cyan]{k}[/cyan]: {v}')
+			else:
+				console.print(f'[red]Unknown cloud-sync action: {action}[/red]')
+		except FileNotFoundError as e:
+			console.print(f'[red]✗ {e}[/red]')
+		except ValueError as e:
+			console.print(f'[red]✗ Cloud sync misconfigured:[/red] {e}')
+		except Exception as e:
+			console.print(f'[red]✗ Cloud sync failed:[/red] {e}')
+
+	def _import_apps_from_files(
+		self, paths: List[str], merge_with_cache: bool = False
+	) -> List[AppInfo]:
+		"""Load and merge AppInfo lists from one or more JSON/CSV files.
+
+		If ``merge_with_cache`` is set and a valid cache exists, those entries
+		are folded in too (latest scan_time wins per source|name|version key).
+		"""
+		from system_update import data_sharing
+
+		batches: List[List[AppInfo]] = []
+		for path in paths:
+			try:
+				batch = data_sharing.import_apps(path)
+				console.print(
+					f'[green]✓ Imported[/green] {len(batch)} package(s) from '
+					f'[cyan]{path}[/cyan]'
+				)
+				batches.append(batch)
+			except (FileNotFoundError, ValueError) as e:
+				console.print(f'[red]✗ Import failed for {path}:[/red] {e}')
+			except Exception as e:
+				console.print(f'[red]✗ Unexpected import error for {path}:[/red] {e}')
+
+		if merge_with_cache:
+			cached = self.cache_mgr.load() or []
+			if cached:
+				console.print(
+					f'[dim]🧬 Merging with cache ({len(cached)} cached package(s))[/dim]'
+				)
+				batches.append(cached)
+
+		if not batches:
+			return []
+
+		merged = data_sharing.merge_apps(*batches, prefer='latest')
+		console.print(
+			f'[bold]🧬 Merge complete:[/bold] {len(merged)} unique package(s)'
+		)
+		# Persist merged result so subsequent runs use it.
+		try:
+			self.cache_mgr.save(merged)
+			console.print('[dim]💾 Cache updated with merged data.[/dim]')
+		except Exception as e:
+			logger.warning(f'Failed to persist merged cache: {e}')
+		return merged
 
 	# ── Interactive picker ─────────────────────────────────────────────────
 
