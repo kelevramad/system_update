@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from system_update.models import AppInfo, UpdateStatus
-from system_update.utils import SOURCE_ICONS
+from system_update.utils import SOURCE_ICONS, display_source
 
 # Hex colours for HTML source chips. Mirrors Rich palette in
 # ``utils._SOURCE_BADGE_STYLES`` but expressed as concrete CSS values.
@@ -243,7 +243,7 @@ def _packages_rows(apps: List[AppInfo]) -> str:
 		rows.append(
 			f'            <tr>'
 			f'<td><strong>{_html_escape(app.name)}</strong></td>'
-			f'<td>{_html_escape(app.source)}</td>'
+			f'<td>{_html_escape(display_source(app.source))}</td>'
 			f'<td>{_html_escape(app.version or "-")}</td>'
 			f'<td>{_html_escape(app.latest_version or "-")}</td>'
 			f'<td><span class="status {status_class}">{_html_escape(status_text)}</span></td>'
@@ -262,7 +262,7 @@ def _vuln_section(apps: List[AppInfo], total_vulnerable: int) -> str:
 			rows.append(
 				f'            <tr>'
 				f'<td><strong>{_html_escape(app.name)}</strong></td>'
-				f'<td>{_html_escape(app.source)}</td>'
+				f'<td>{_html_escape(display_source(app.source))}</td>'
 				f'<td>{_html_escape(app.version)}</td>'
 				f'<td>{_html_escape(finding.get("cve", finding.get("cve_id", "N/A")))}</td>'
 				f'<td><span class="status status-vulnerable">'
@@ -309,16 +309,17 @@ def _sources_section(source_counts: Dict[str, int]) -> str:
 		return ''
 	chips: List[str] = []
 	for src, cnt in sorted(source_counts.items(), key=lambda kv: (-kv[1], kv[0])):
-		key = src.lower()
+		label = display_source(src)
+		key = label.lower()
 		bg = _SOURCE_HEX.get(key, '#6c757d')
 		fg = _source_text_color(bg)
 		icon = SOURCE_ICONS.get(key, '📦')
 		chips.append(
 			f'        <span class="source-chip" '
 			f'style="background:{bg};color:{fg};border-color:{bg};" '
-			f'title="{_html_escape(src)}: {cnt} package(s)">'
+			f'title="{_html_escape(label)}: {cnt} package(s)">'
 			f'<span class="icon">{icon}</span>'
-			f'<span class="name">{_html_escape(src)}</span>'
+			f'<span class="name">{_html_escape(label)}</span>'
 			f'<span class="count">{cnt}</span>'
 			f'</span>'
 		)

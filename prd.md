@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 6.1.0
+**Document Version:** 6.2.0
 **Last Updated:** April 23, 2026
 **Author:** Qwen Code
-**Based On:** `src/system_update/` package (v6.1.0)
+**Based On:** `src/system_update/` package (v6.2.0)
 
 ---
 
@@ -628,8 +628,8 @@ python -m system_update [options]
 |--------|-------|------|-------------|
 | `--update-all` | - | Flag | Update every package with updates |
 | `--update-source <source>` | - | String | Update all packages from one source |
-| `--package <name>` | - | String | Update one package by name |
-| `--version <ver>` | - | String | Target version (with --package) |
+| `--update-package <name>` | - | String | Update one package by name |
+| `--version <ver>` | - | String | Target version (with --update-package) |
 | `--source <source>` | - | String | Filter sources (comma-separated for multiple) |
 | `--dry-run` | - | Flag | Print planned updates without executing |
 | `--no-cache` | - | Flag | Force fresh scan (skip cache) |
@@ -676,7 +676,7 @@ python -m system_update --update-source rust --yes
 python -m system_update --update-source winget --dry-run
 
 # Update specific package
-python -m system_update --package git --source chocolatey
+python -m system_update --update-package git --source chocolatey
 
 # Update all Rust packages only
 python -m system_update --source rust --yes
@@ -745,7 +745,7 @@ python -m system_update --show-all
 **Goal:** Update specific package to specific version
 
 **Steps:**
-1. Run `python -m system_update --package node --source path --version 22.0.0`
+1. Run `python -m system_update --update-package node --source path --version 22.0.0`
 2. Confirm update when prompted
 3. Verify success message
 
@@ -911,6 +911,7 @@ Errors are displayed with appropriate styling:
 | 5.5.0 | April 2026 | History/report/interactive ported (`--history`, `--history-package`, `--history-trends`, `--history-stale`, `--report text\|json\|html`, interactive picker); friendly choice errors; beautified `--help` with emoji panels |
 | 5.6.0 | April 2026 | Data Sharing (5.4): `--import`, `--merge`, `--cloud-sync` (file + http backends); detailed sub-help system (`--explain <topic>`, `--<flag> help`) with 13 topics. Report Templates (5.3): custom HTML template path, base64-embedded logo, branding block (title, subtitle, company, colors, footer); new CLI flags `--html-template`, `--html-logo`, `--html-title`, `--html-company`; `report_templates` module |
 | 6.1.0 | April 2026 | Scheduled Updates (6.1): `--schedule create\|delete\|list\|status\|run\|eval` wraps Windows Task Scheduler; daily/weekly/hourly/monthly/onstart/onlogon recurrences; conditional actions engine (`any_critical_cves`, `n_updates_gte:N`, `security_updates_only` → `notify`/`log`/`auto_update`); `--schedule list` table now shows Last Run + Last Result columns |
+| 6.2.0 | April 2026 | Rollback Support (6.2): version snapshots auto-recorded for every batch update (`snapshots.py`, SQLite); `--rollback <id>\|last` re-installs `version_before` per package; `--snapshot list\|show\|delete`. Cross-interpreter pip safety: scanner records originating interpreter, update/rollback target it; `pip-audit` filtered against installed version. Context-aware pip default (venv-only / system-only); cache pip-context invalidation on env switch; `VIRTUAL_ENV` scrub for global Python under `uv run`. CVE table surfaced before update prompts; `--update-source` no longer auto-`--yes`. New `--exclude`, `--save-config`, profile import/export wired through |
 
 ## Appendix B: Glossary
 

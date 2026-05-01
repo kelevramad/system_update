@@ -11,6 +11,7 @@ from rich.table import Table
 
 from system_update.models import AppInfo
 from system_update.ui.theme import ThemeManager
+from system_update.utils import display_source
 
 
 def _compact_table(apps: List[AppInfo], theme: str, use_icons: bool) -> Table:
@@ -51,7 +52,7 @@ def _verbose_table(apps: List[AppInfo], theme: str, use_icons: bool) -> Table:
 		status_color = ThemeManager.get_status_color(app.update_status.name, theme)
 		table.add_row(
 			app.name[:25],
-			f'[{src_color}]{icon}{app.source}[/{src_color}]',
+			f'[{src_color}]{icon}{display_source(app.source)}[/{src_color}]',
 			app.version,
 			app.latest_version or '-',
 			f'[{status_color}]{app.status_display}[/{status_color}]',
@@ -66,7 +67,7 @@ def _json_table(apps: List[AppInfo]) -> Table:
 	payload = [
 		{
 			'name': app.name,
-			'source': app.source,
+			'source': display_source(app.source),
 			'version': app.version,
 			'latest': app.latest_version,
 			'status': app.update_status.name,

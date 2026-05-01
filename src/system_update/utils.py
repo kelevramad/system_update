@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import platform
 import shutil
 import subprocess
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from rich import box
 from rich.console import Console
@@ -34,6 +35,8 @@ def run_command(
 	timeout: int = 45,
 	allow_failure: bool = False,
 	include_stderr: bool = False,
+	scrub_venv: bool = False,
+	env_overrides: Optional[Dict[str, str]] = None,
 ) -> Optional[str]:
 	"""Execute a command with UTF-8 encoding, timeout, and structured errors.
 
@@ -46,6 +49,11 @@ def run_command(
 		allow_failure: If True, return whatever was captured on stdout even when
 			the process exits non-zero. If False, return None on non-zero exit.
 		include_stderr: If True, concatenate stdout + stderr in the return value.
+		scrub_venv: If True, drop ``VIRTUAL_ENV``, ``CONDA_PREFIX``,
+			``PYTHONHOME``, and ``PIP_*`` env vars from the child process. Use
+			when invoking a Python interpreter that should NOT see the parent's
+			active venv (e.g. a global Python pip listing under ``uv run``).
+		env_overrides: Extra environment variables to set for the child process.
 
 	Returns:
 		Stripped stdout (or combined stdout+stderr) on success, else ``None``.
@@ -62,6 +70,23 @@ def run_command(
 			else:
 				logger.debug(f'[EXEC] Command not found in PATH: {cmd[0]}')
 
+		env = None
+		if scrub_venv or env_overrides:
+			env = os.environ.copy()
+		if scrub_venv and env is not None:
+			# uv / poetry / activate-scripts set VIRTUAL_ENV; pip respects it
+			# for some operations and can shadow the interpreter we explicitly
+			# invoke. Strip these so the child's own sys.prefix wins.
+			for k in ('VIRTUAL_ENV', 'CONDA_PREFIX', 'PYTHONHOME'):
+				env.pop(k, None)
+			# Remove every PIP_* override; the only one most users care about
+			# (PIP_INDEX_URL) is preserved on the child if present in user
+			# config, not env.
+			for k in [k for k in env if k.startswith('PIP_')]:
+				env.pop(k, None)
+		if env_overrides and env is not None:
+			env.update(env_overrides)
+
 		result = subprocess.run(
 			cmd,
 			capture_output=True,
@@ -70,6 +95,7 @@ def run_command(
 			encoding='utf-8',
 			errors='ignore',
 			timeout=timeout,
+			env=env,
 		)
 
 		logger.debug(f'[EXEC] Exit code: {result.returncode}')
@@ -157,6 +183,11 @@ def source_badge(source: str) -> str:
 	source_lower = (source or 'unknown').lower()
 	style = _SOURCE_BADGE_STYLES.get(source_lower, 'bright_white')
 	return f'[{style}]{source_lower}[/{style}]'
+
+
+def display_source(source: str) -> str:
+	"""Return the canonical user-facing source label."""
+	return (source or 'unknown').lower()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

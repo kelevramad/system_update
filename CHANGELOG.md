@@ -15,6 +15,29 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v6.2.0 (April 2026)
+- **Rollback Support (6.2)**: Every batch update now records a snapshot; one command restores it
+  - **Version Snapshots (6.2.1)**: New `src/system_update/snapshots.py` with `SnapshotStore` writing to `~/.system_update/history.db` (tables `snapshots` + `snapshot_packages`). Captures `(name, source, app_id, version_before, version_after, success)` per package. Recorded automatically by `--update-all`, `--update-source`, `--update-package`, and `--interactive`. Skipped during `--dry-run`.
+  - **One-Click Rollback (6.2.2)**: `--rollback <id>` (or `--rollback last`) re-installs the captured `version_before` for each package via per-source builders in `executors/commands.py`: winget (`-v --force`), chocolatey (`--allow-downgrade`), npm/pnpm/bun/yarn (`@version`), pip (`==version --force-reinstall --no-deps`). Unsupported sources (PATH, registry, scoop, dotnet, rust, appx, msix) skip with a clear warning. Honours `--dry-run` and `--yes`; confirms before executing otherwise.
+  - **Snapshot Listing (6.2.3)**: `--snapshot list` (id, timestamp, package count, success count, label) · `--snapshot show [--snapshot-id ID|last]` (per-package detail with before/after/✓✗) · `--snapshot delete --snapshot-id ID`.
+  - New `⏪ Snapshots & Rollback` help panel; new sub-help topics `snapshot` and `rollback` (`--explain snapshot`, `--rollback help`).
+- **Vulnerability detail in update flows**: The CVE table renders before the confirm prompt for `--update-package` (with a new "Vulns" column), `--update-all` security batch, and `--interactive` selection — the user sees exactly which CVEs they're about to patch. Selected vulnerable packages get a `🔥` tag in the interactive picker.
+- **Cross-interpreter pip safety**: pip scanner records the originating interpreter (`install_path`); update/rollback commands target that exact Python so installs land in the right site-packages. `pip-audit` findings whose `fix_versions` are at or below the installed version are filtered out (no more false positives when `pip-audit` audited a different interpreter than ours).
+- **Context-aware pip scope**: Default behaviour now matches `pip list` in your shell — venv-only when in a venv, system-only otherwise. No merging across interpreters by default.
+- **VIRTUAL_ENV scrub**: When invoking a global Python under `uv run` (or any active venv), `VIRTUAL_ENV` / `CONDA_PREFIX` / `PYTHONHOME` / `PIP_*` are stripped from the child env so the targeted interpreter's own site-packages are reported, not the parent venv's.
+- **Cache pip-context invalidation**: Cache header now records `pip_context` (scope, interpreter, in_venv). On load, if the running process's pip context differs, only the cached pip entries are dropped and rescanned — other sources stay cached. Switching between system Python and venv (or between venvs) is now self-correcting.
+- **Cache expiry hint**: `💾 Loaded N items from cache` now shows `(expires HH:MM:SS · in 1h 23m)`. Auto-formats as `Hh Mm` → `Mm Ss` → `Ss` → `expired`.
+- **`--no-cache` symmetry**: now skips cache write too (was only skipping read).
+- **`--exclude` flag**: previously dead config; now functional — bare token (`pip` excludes every pip package), `source:name`, `source:*` all supported. Combine with `--save-config` to persist.
+- **`--save-config` flag**: persist this run's CLI overrides (`--source`, `--exclude`, `--theme`, `--format`, `--icons`) into the active profile's `config.json`.
+- **Profile fixes**: `--profile NAME`, `--profile-export`, `--profile-import` were silently no-ops — now activate via `config.reinit()` with cache/history/vuln-history rebound to the profile paths; activation auto-seeds a default config.
+- **Banner runtime line**: Shows whether a venv is active (green pill) or system Python (yellow pill), plus the absolute interpreter path.
+- **Source override notice**: `--source X` against `sources.X: false` now scans anyway with a clear `ℹ Source(s) disabled in config but requested via --source` message instead of silently doing nothing.
+- **`--update-source` no longer auto-enables `--yes`**: now prompts before applying. Add `--yes` explicitly to skip.
+- **Vulnerability history corruption recovery**: Corrupted JSON is auto-renamed to `<name>.corrupt-<ts>.bak` and a fresh empty file is started; warning logged.
+- **MagicMock leak guard**: Strict `isinstance(str)` checks on persisted CLI overrides so unit-test mocks can't poison real `config.json` again.
+- **Tests**: +31 new tests in `tests/test_snapshots.py` covering store CRUD, capture/build helpers, every supported & unsupported rollback source, dry-run / unsupported-source skip paths, snapshot recording during `execute_updates`. Plus pip-audit interpreter / version-aware tests in `tests/test_security.py`.
+
 ### v6.1.0 (April 2026)
 - **Scheduled Updates (6.1)**: Run scans on a recurring schedule and react automatically
   - **Task Scheduler Integration (6.1.1)**: New `src/system_update/scheduler.py` wraps Windows `schtasks` for create / delete / list / status / run. Non-Windows platforms get a clear "configure cron / systemd / launchd manually" error.

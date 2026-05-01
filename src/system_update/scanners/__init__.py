@@ -44,7 +44,7 @@ class PackageScanner:
 	scan_appx = staticmethod(appx.scan)
 	scan_msix = staticmethod(msix.scan)
 
-	_merge_pip_lists = staticmethod(pip._merge_pip_lists)
+	_parse_pip_list = staticmethod(pip._parse_pip_list)
 
 
 __all__ = ['PackageScanner']

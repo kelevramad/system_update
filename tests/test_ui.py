@@ -2,7 +2,8 @@ import sys
 import subprocess
 import functools
 import pytest
-from system_update import AppInfo, ThemeManager, DisplayFormatter
+from rich.console import Console
+from system_update import AppInfo, ThemeManager, DisplayFormatter, UpdateStatus
 
 PYTHON = sys.executable
 
@@ -88,6 +89,25 @@ def test_display_formatter_all_formats(format):
 	apps = [AppInfo(name='Test', source='npm', version='1.0.0')]
 	table = DisplayFormatter.format_table(apps, format)
 	assert table is not None
+
+
+@pytest.mark.parametrize('format_mode', ['auto', 'verbose', 'json'])
+def test_display_formatter_renders_sources_lowercase(format_mode):
+	apps = [
+		AppInfo(
+			name='Demo',
+			source='PIP',
+			version='1.0.0',
+			latest_version='1.1.0',
+			update_status=UpdateStatus.UPDATE_AVAILABLE,
+		)
+	]
+	table = DisplayFormatter.format_table(apps, format_mode, show_all=True)
+	console = Console(record=True, width=120)
+	console.print(table)
+	output = console.export_text()
+	assert 'pip' in output
+	assert 'PIP' not in output
 
 
 def test_theme_manager_default():

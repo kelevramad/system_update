@@ -482,19 +482,80 @@ def _page_schedule(console: Console) -> None:
 	])
 
 
+def _page_snapshot(console: Console) -> None:
+	_header(
+		console,
+		'📸 --snapshot — Detailed Help',
+		'Inspect the version snapshots that [bold]system-update[/bold] records '
+		'automatically before every batch update. Pair with [cyan]--rollback[/cyan] '
+		'to restore a prior state.',
+	)
+	_action_table(console, [
+		('list', 'List recent snapshots (id, timestamp, package count, success).'),
+		('show', 'Show every package recorded in a snapshot. Use [cyan]--snapshot-id[/cyan] or pass [cyan]last[/cyan] (default).'),
+		('delete', 'Drop a snapshot. Use [cyan]--snapshot-id ID[/cyan].'),
+		('help', 'Print this page.'),
+	])
+	console.print('[bold]How they get created[/bold]')
+	console.print(
+		'  Every successful [cyan]--update-all[/cyan], [cyan]--update-source[/cyan], '
+		'or [cyan]--interactive[/cyan] batch records a snapshot under '
+		'[yellow]~/.system_update/history.db[/yellow]\n'
+		'  in the [cyan]snapshots[/cyan] / [cyan]snapshot_packages[/cyan] tables.\n'
+	)
+	_examples(console, [
+		('system-update --snapshot list', '# all snapshots'),
+		('system-update --snapshot show', '# most recent'),
+		('system-update --snapshot show --snapshot-id 20260426-150000', '# specific'),
+		('system-update --snapshot delete --snapshot-id 20260426-150000', ''),
+	])
+	console.print('[dim]→ Tied to[/dim] [cyan]--rollback[/cyan]')
+
+
+def _page_rollback(console: Console) -> None:
+	_header(
+		console,
+		'⏪ --rollback — Detailed Help',
+		'Restore packages to the versions captured in a snapshot. Useful when an '
+		'update breaks something — re-installs the prior version per source.',
+		color='yellow',
+	)
+	_action_table(console, [
+		('<snapshot-id>', 'Roll back the specific snapshot.'),
+		('last',          'Roll back the most recent snapshot.'),
+		('help',          'Print this page.'),
+	])
+	console.print('[bold]Supported sources[/bold]')
+	console.print(
+		'  [green]✓[/green] winget, chocolatey, npm, pnpm, bun, yarn, pip\n'
+		'  [yellow]✗[/yellow] PATH, registry, scoop, dotnet, rust, appx, msix '
+		'[dim](no version-pinning install command)[/dim]\n'
+	)
+	console.print('[bold]Flags it honours[/bold]')
+	console.print(
+		'  • [cyan]--dry-run[/cyan] — print rollback commands without executing\n'
+		'  • [cyan]--yes[/cyan] — skip the confirmation prompt\n'
+	)
+	_examples(console, [
+		('system-update --rollback last', '# undo the most recent batch'),
+		('system-update --rollback 20260426-150000', '# specific snapshot'),
+		('system-update --rollback last --dry-run', '# preview only'),
+		('system-update --rollback last --yes', '# no confirmation'),
+	])
+
+
 def _page_update_source(console: Console) -> None:
 	_header(
 		console,
 		'📦 --update-source — Detailed Help',
-		'Shorthand for [bold]--source X --update-all --yes[/bold]. Updates every '
-		'package from a single source without further prompts.',
-	)
-	console.print(
-		'[yellow]⚠ Equivalent to --yes[/yellow]: confirmation prompts are skipped. '
-		'Use [bold]--dry-run[/bold] to preview.\n'
+		'Shorthand for [bold]--source X --update-all[/bold]. Lists every '
+		'available update from one source and prompts for confirmation before '
+		'applying them. Add [bold]--yes[/bold] to skip the prompt or '
+		'[bold]--dry-run[/bold] to preview without executing.',
 	)
 	_examples(console, [
-		('system-update --update-source npm', '# update every npm package'),
+		('system-update --update-source npm', '# review + confirm before applying'),
+		('system-update --update-source npm --yes', '# skip the prompt'),
 		('system-update --update-source pip --dry-run', '# preview only'),
 	])
 
@@ -519,6 +580,8 @@ _REGISTRY: Dict[str, Callable[[Console], None]] = {
 	'history-stale': _page_history_stale,
 	'update-source': _page_update_source,
 	'schedule': _page_schedule,
+	'snapshot': _page_snapshot,
+	'rollback': _page_rollback,
 }
 
 

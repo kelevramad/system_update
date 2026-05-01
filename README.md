@@ -4,7 +4,7 @@
 
 A comprehensive Python-based system package management tool that scans, checks, and updates software from multiple sources.
 
-**Version:** 6.1.0
+**Version:** 6.2.0
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
 **Layout:** Modular package at `src/system_update/` (typer CLI)
@@ -87,8 +87,8 @@ python -m system_update --export json --output report.json
 |--------|-------------|
 | `--update-all` | Update every package with available updates |
 | `--update-source <source>` | Update all packages from a specific source |
-| `--package <name>` | Update a specific package by name |
-| `--version <ver>` | Target version (use with `--package`) |
+| `--update-package <name>` | Update a specific package by name |
+| `--version <ver>` | Target version (use with `--update-package`) |
 | `--source <source>` | Filter by source (winget\|chocolatey\|npm\|pnpm\|bun\|yarn\|pip\|path\|rust\|registry) |
 | `--dry-run` | Show planned updates without executing |
 | `--no-cache` | Force fresh scan (ignore cache) |
@@ -125,7 +125,7 @@ python -m system_update --update-source rust --yes
 python -m system_update --update-source winget --dry-run
 
 # Update a specific package
-python -m system_update --package git --source chocolatey
+python -m system_update --update-package git --source chocolatey
 
 # Dry run to preview updates
 python -m system_update --dry-run

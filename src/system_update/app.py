@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn
-from rich.prompt import Confirm
+from rich.prompt import Prompt
 
 from system_update.cache import CacheManager
 from system_update.checkers import UpdateChecker
@@ -32,7 +32,7 @@ from system_update.notifications import NotificationManager
 from system_update.scanners import PackageScanner
 from system_update.security import SecurityChecker
 from system_update.ui import DisplayFormatter, UISystem
-from system_update.utils import console, source_badge
+from system_update.utils import console, display_source, source_badge
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +40,35 @@ logger = logging.getLogger(__name__)
 _SOURCE_ALIASES = {'choco': 'chocolatey'}
 
 _SCAN_ORDER = (
-	'winget', 'chocolatey', 'npm', 'pnpm', 'bun', 'yarn', 'pip',
-	'path', 'registry', 'rust', 'scoop', 'dotnet', 'appx', 'msix',
+	'winget',
+	'chocolatey',
+	'npm',
+	'pnpm',
+	'bun',
+	'yarn',
+	'pip',
+	'path',
+	'registry',
+	'rust',
+	'scoop',
+	'dotnet',
+	'appx',
+	'msix',
 )
 
 _KNOWN_SOURCES: Set[str] = set(_SCAN_ORDER) | set(_SOURCE_ALIASES.keys())
+
+
+def _confirm_default_no(message: str) -> bool:
+	"""Prompt for y/n with Enter defaulting to no."""
+	answer = Prompt.ask(
+		f'{message} [dim]\\[y/N][/dim]',
+		choices=['y', 'n', 'Y', 'N'],
+		default='n',
+		show_choices=False,
+		show_default=False,
+	)
+	return answer.lower() == 'y'
 
 
 def _build_scanner_map() -> Dict[str, Callable[[], List[AppInfo]]]:
@@ -167,9 +191,7 @@ def _apply_excludes(apps: List[AppInfo], tokens: List[str]) -> List[AppInfo]:
 def _count_updates(apps: List[AppInfo]) -> int:
 	"""Total = regular updates + vulnerable packages that also have a newer version available."""
 	regular = sum(1 for a in apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE)
-	security = sum(
-		1 for a in apps if a.update_status == UpdateStatus.VULNERABLE and a.latest_version
-	)
+	security = sum(1 for a in apps if a.update_status == UpdateStatus.VULNERABLE and a.has_update)
 	return regular + security
 
 
@@ -218,8 +240,7 @@ class SystemUpdateApp:
 		# the active profile — the user asking for X by name wins. Surface a
 		# clear notice so it's obvious what happened.
 		overridden = sorted(
-			name for name in include
-			if name in scanners and not enabled.get(name, True)
+			name for name in include if name in scanners and not enabled.get(name, True)
 		)
 		if overridden:
 			console.print(
@@ -266,8 +287,7 @@ class SystemUpdateApp:
 			console=console,
 		) as progress:
 			tasks = {
-				name: progress.add_task(f'🔎 {source_badge(name)}', total=1)
-				for name, _ in selected
+				name: progress.add_task(f'🔎 {source_badge(name)}', total=1) for name, _ in selected
 			}
 
 			with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -298,22 +318,18 @@ class SystemUpdateApp:
 
 	# ── partial scan + cache merge ─────────────────────────────────────────
 
-	def _scan_missing_and_merge(
-		self, cached: List[AppInfo], missing: Set[str]
-	) -> List[AppInfo]:
+	def _scan_missing_and_merge(self, cached: List[AppInfo], missing: Set[str]) -> List[AppInfo]:
 		"""Scan only ``missing`` sources, merge into ``cached``, save, return filtered view."""
 		console.print(
-			f'[dim]💾 Cache hit. Scanning missing source(s) '
-			f'{sorted(missing)} and merging.[/dim]\n'
+			f'[bold cyan]⚡ Partial Cache Hit![/bold cyan] '
+			f'[dim]Scanning missing source(s):[/dim] [bold]{", ".join(sorted(missing))}[/bold]\n'
 		)
 		prev_include = self._include_sources
 		self._include_sources = set(missing)
 		try:
 			console.print('[bold cyan]🔎 Scanning sources...[/bold cyan]')
 			new_apps = self.scan_system(','.join(sorted(missing)))
-			console.print(
-				f'\n📦 [bold]Discovered {len(new_apps)} unique apps.[/bold]'
-			)
+			console.print(f'\n📦 [bold]Discovered {len(new_apps)} unique apps.[/bold]')
 
 			console.print('[bold cyan]🔄 Checking for updates...[/bold cyan]')
 			self.checker.check_all_updates(new_apps)
@@ -322,8 +338,7 @@ class SystemUpdateApp:
 				1 for a in new_apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE
 			)
 			security_updates = sum(
-				1 for a in new_apps
-				if a.update_status == UpdateStatus.VULNERABLE and a.latest_version
+				1 for a in new_apps if a.update_status == UpdateStatus.VULNERABLE and a.has_update
 			)
 			total_updates = regular_updates + security_updates
 			if security_updates > 0:
@@ -333,13 +348,10 @@ class SystemUpdateApp:
 				)
 			else:
 				console.print(
-					f'[bold magenta]📊 Detected {total_updates} '
-					f'update candidates.[/bold magenta]\n'
+					f'[bold magenta]📊 Detected {total_updates} update candidates.[/bold magenta]\n'
 				)
 
-			console.print(
-				'[bold magenta]🔒 Checking security vulnerabilities...[/bold magenta]'
-			)
+			console.print('[bold magenta]🔒 Checking security vulnerabilities...[/bold magenta]')
 			advisory_file = os.path.join(
 				os.path.expanduser('~'), '.system_update', 'advisories.json'
 			)
@@ -350,9 +362,7 @@ class SystemUpdateApp:
 					f'security vulnerabilities.[/bold red]\n'
 				)
 			else:
-				console.print(
-					'[bold green]🛡️ No security vulnerabilities found.[/bold green]\n'
-				)
+				console.print('[bold green]🛡️ No security vulnerabilities found.[/bold green]\n')
 			_pypi_fallback_latest(new_apps)
 		finally:
 			self._include_sources = prev_include
@@ -360,11 +370,15 @@ class SystemUpdateApp:
 		# Merge: drop any cached entries for newly-scanned sources, append fresh.
 		merged = [a for a in cached if a.source.lower() not in missing] + new_apps
 		merged = sorted(merged, key=lambda x: f'{x.source}{x.name}')
-		self.cache_mgr.save(merged)
+		self._save_cache_with_context(merged)
 		console.print(
 			f'[dim]💾 Cache updated ({len(merged)} items across '
 			f'{len({a.source.lower() for a in merged})} sources).[/dim]\n'
 		)
+		# Bare run with no source filter → return EVERYTHING; only filter when
+		# the caller explicitly scoped the run to specific sources.
+		if not self._include_sources:
+			return merged
 		return [a for a in merged if a.source.lower() in self._include_sources]
 
 	# ── main workflow ──────────────────────────────────────────────────────
@@ -393,16 +407,11 @@ class SystemUpdateApp:
 					self.history_db.close()
 			except Exception:
 				pass
-			self.history_db = HistoryDatabase(
-				Path(self.config.config_dir) / 'history.db'
-			)
+			self.history_db = HistoryDatabase(Path(self.config.config_dir) / 'history.db')
 			self.vuln_history = VulnerabilityHistory(
 				Path(self.config.config_dir) / 'vulnerability_history.json'
 			)
-			console.print(
-				f'[bold cyan]👤 Profile activated:[/bold cyan] '
-				f'[bold]{profile}[/bold]'
-			)
+			console.print(f'[bold cyan]👤 Profile activated:[/bold cyan] [bold]{profile}[/bold]')
 
 		setup_logging(
 			self.config,
@@ -440,7 +449,8 @@ class SystemUpdateApp:
 		if getattr(args, 'update_source', None):
 			args.source = args.update_source
 			args.update_all = True
-			args.yes = True
+			# Don't auto-confirm — let the user see the queued packages and
+			# approve. Add ``--yes`` explicitly to skip prompts.
 
 		if getattr(args, 'source', None):
 			valid, invalid = _partition_sources(args.source)
@@ -458,9 +468,7 @@ class SystemUpdateApp:
 				)
 				return
 			if invalid:
-				console.print(
-					f'[dim]   Proceeding with: {", ".join(sorted(valid))}[/dim]\n'
-				)
+				console.print(f'[dim]   Proceeding with: {", ".join(sorted(valid))}[/dim]\n')
 			self._include_sources = valid
 			# Overwrite args.source with the sanitized CSV so downstream
 			# helpers (scan_system, _scanned_sources_label, cache sources check)
@@ -481,35 +489,75 @@ class SystemUpdateApp:
 				security_vulns = []
 				total_updates = _count_updates(apps)
 
-		if apps is None and not getattr(args, 'no_cache', False) and self.settings.get('cache', {}).get(
-			'enabled', True
-		):
+		# ── cache check ────────────────────────────────────────────────────
+		no_cache = getattr(args, 'no_cache', False)
+		cache_enabled = self.settings.get('cache', {}).get('enabled', True)
+
+		if no_cache:
+			console.print(
+				'[cyan]🚀 Bypassing cache (--no-cache). Scanning live sources...[/cyan]\n'
+			)
+		elif not cache_enabled:
+			console.print('[dim]ℹ Cache disabled in config. Scanning live sources...[/dim]\n')
+
+		if apps is None and not no_cache and cache_enabled:
 			cached = self.cache_mgr.load()
 			if cached:
+				# Pip is interpreter-sensitive; if the user activated a venv
+				# (or deactivated one) since the cache was written, the
+				# cached pip entries are stale even though the timestamp is
+				# fresh. Drop them so the partial-scan-merge path rescans.
+				pip_stale = self._pip_context_changed()
+				if pip_stale:
+					before = len(cached)
+					cached = [a for a in cached if a.source.lower() != 'pip']
+					recorded = self.cache_mgr.load_pip_context()
+					console.print(
+						f'[yellow]🐍 Python context changed[/yellow] '
+						f'(was: interpreter={recorded.get("interpreter", "?")}, '
+						f'venv={recorded.get("in_venv")}). '
+						f'[dim]Invalidated {before - len(cached)} cached '
+						f'pip entry(ies); will rescan pip.[/dim]\n'
+					)
+
 				if self._include_sources:
 					cached_sources = {s.lower() for s in self.cache_mgr.load_sources()}
+					if pip_stale:
+						cached_sources.discard('pip')
 					missing = self._include_sources - cached_sources
 					if missing:
 						apps = self._scan_missing_and_merge(cached, missing)
 					else:
-						apps = [
-							a for a in cached if a.source.lower() in self._include_sources
-						]
+						apps = [a for a in cached if a.source.lower() in self._include_sources]
 						console.print(
-							f'[dim]💾 Loaded {len(apps)} items from cache '
+							f'[bold cyan]⚡ Cache Hit![/bold cyan] '
+							f'[dim]Loaded {len(apps)} items from cache '
 							f'(filter: {",".join(sorted(self._include_sources))}) '
 							f'{self._cache_expiry_hint()}[/dim]\n'
 						)
+				elif pip_stale:
+					# Bare run + pip context changed → treat pip as missing
+					# so the merge path rescans only pip.
+					apps = self._scan_missing_and_merge(cached, {'pip'})
 				else:
 					apps = cached
 					console.print(
-						f'[dim]💾 Loaded {len(apps)} items from cache '
+						f'[bold cyan]⚡ Cache Hit![/bold cyan] '
+						f'[dim]Loaded {len(apps)} items from cache '
 						f'{self._cache_expiry_hint()}[/dim]\n'
 					)
 			elif cached is not None and self._include_sources:
 				# Valid but empty cache + --source X: scan X silently via merge
 				# path so the full-scan banners don't fire.
 				apps = self._scan_missing_and_merge([], set(self._include_sources))
+			else:
+				# Cache missing or expired (load() returned None)
+				if self.cache_mgr.cache_file.exists():
+					console.print(
+						'[yellow]⏳ Cache expired or invalid. Refreshing data from sources...[/yellow]\n'
+					)
+				else:
+					console.print('[dim]🆕 No cache found. Starting fresh scan...[/dim]\n')
 
 		security_vulns: List[Dict] = []
 		total_updates = 0
@@ -530,8 +578,7 @@ class SystemUpdateApp:
 				1 for a in apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE
 			)
 			security_updates = sum(
-				1 for a in apps
-				if a.update_status == UpdateStatus.VULNERABLE and a.latest_version
+				1 for a in apps if a.update_status == UpdateStatus.VULNERABLE and a.has_update
 			)
 			total_updates = regular_updates + security_updates
 
@@ -558,9 +605,7 @@ class SystemUpdateApp:
 					f'security vulnerabilities.[/bold red]\n'
 				)
 			else:
-				console.print(
-					'[bold green]🛡️ No security vulnerabilities found.[/bold green]\n'
-				)
+				console.print('[bold green]🛡️ No security vulnerabilities found.[/bold green]\n')
 
 			_pypi_fallback_latest(apps)
 
@@ -577,11 +622,10 @@ class SystemUpdateApp:
 			total_updates = _count_updates(apps)
 			if getattr(args, 'no_cache', False):
 				console.print(
-					'[dim]💾 --no-cache: skipping cache write '
-					'(scan results not persisted).[/dim]\n'
+					'[dim]💾 --no-cache: skipping cache write (scan results not persisted).[/dim]\n'
 				)
 			else:
-				self.cache_mgr.save(apps)
+				self._save_cache_with_context(apps)
 		else:
 			total_updates = _count_updates(apps)
 			scan_time = 0.0
@@ -604,7 +648,8 @@ class SystemUpdateApp:
 		# ── shared rendering path (cache hit OR fresh scan) ────────────────
 		sources_count: Dict[str, int] = {}
 		for app in apps:
-			sources_count[app.source] = sources_count.get(app.source, 0) + 1
+			source = display_source(app.source)
+			sources_count[source] = sources_count.get(source, 0) + 1
 
 		# Flatten security findings from AppInfo so cache-hit path also gets
 		# a summary (security_vulns is only populated on fresh scan).
@@ -624,7 +669,10 @@ class SystemUpdateApp:
 		security_stats = self.ui.compute_security_stats(all_vulns)
 
 		self.ui.display_summary(
-			len(apps), total_updates, scan_time, sources_count,
+			len(apps),
+			total_updates,
+			scan_time,
+			sources_count,
 			show_all=getattr(args, 'show_all', False),
 			security_stats=security_stats,
 		)
@@ -652,14 +700,17 @@ class SystemUpdateApp:
 		else:
 			console.print('\n[dim]💾 Showing: updates only[/dim]')
 
+		if vulnerable:
+			self._display_security_table(vulnerable)
+
 		if updates or vulnerable:
-			total_count = len(updates) + len(vulnerable)
-			console.print(
-				f'\n[bold yellow]🎯 Found {total_count} available updates[/bold yellow]'
-			)
+			security_updates = [a for a in vulnerable if a.has_update]
+			total_count = self._print_available_updates_summary(updates, security_updates)
 
 			if getattr(args, 'notify', False):
-				self.notifier.notify_updates_available(total_count, len(vulnerable), force=True)
+				self.notifier.notify_updates_available(
+					total_count, len(security_updates), force=True
+				)
 
 			if getattr(args, 'interactive', False):
 				self._interactive_update(updates, vulnerable, args)
@@ -667,9 +718,6 @@ class SystemUpdateApp:
 				self._update_all_workflow(updates, vulnerable, args)
 		else:
 			console.print('\n[green]✨ System is up to date![/green]')
-
-		if vulnerable:
-			self._display_security_table(vulnerable)
 
 		export_format = getattr(args, 'export', None)
 		output_path = getattr(args, 'output', None)
@@ -716,32 +764,70 @@ class SystemUpdateApp:
 		enabled = self.settings.get('sources', {})
 		return ','.join(name for name in _SCAN_ORDER if enabled.get(name, True))
 
+	def _print_available_updates_summary(
+		self, regular_updates: List[AppInfo], security_updates: List[AppInfo]
+	) -> int:
+		"""Print the regular/security split for available updates and return total."""
+		total_count = len(regular_updates) + len(security_updates)
+		console.print(
+			f'\n[bold yellow]🎯 Found {total_count} available updates '
+			f'({len(regular_updates)} regular, {len(security_updates)} security/vulnerable)'
+			f'[/bold yellow]'
+		)
+		return total_count
+
 	def _update_all_workflow(
 		self, updates: List[AppInfo], vulnerable: List[AppInfo], args: Namespace
 	) -> None:
 		"""Security-first update flow: vulnerable packages get their own confirmation + pass."""
-		security_updates = [a for a in updates if a.update_status == UpdateStatus.VULNERABLE]
+		security_updates = [a for a in vulnerable if a.has_update]
 		regular_updates = [a for a in updates if a.update_status != UpdateStatus.VULNERABLE]
 		dry_run = getattr(args, 'dry_run', False)
 		yes = getattr(args, 'yes', False)
 
-		if security_updates:
-			console.print(
-				f'\n[bold red]🔒 Priority: Updating {len(security_updates)} '
-				f'vulnerable package(s) first...[/bold red]'
-			)
-			if yes or Confirm.ask('🚀 Proceed with security updates?'):
-				self.executor.execute_updates(security_updates, dry_run)
-			else:
-				return
+		store = None if dry_run else self._snapshot_store()
+		import sys as _sys
 
-		if regular_updates:
-			console.print(
-				f'\n[bold yellow]⚡ Now updating {len(regular_updates)} '
-				f'regular package(s)...[/bold yellow]'
-			)
-			if yes or Confirm.ask('🚀 Proceed with remaining updates?'):
-				self.executor.execute_updates(regular_updates, dry_run)
+		cmd_label = ' '.join(_sys.argv)
+
+		try:
+			if security_updates:
+				console.print(
+					f'\n[bold red]🔒 Priority: Updating {len(security_updates)} '
+					f'vulnerable package(s) first...[/bold red]'
+				)
+				# Show the CVE detail for the batch about to run so the user
+				# can see exactly what's being patched before they confirm.
+				self._display_security_table(security_updates)
+				if yes or _confirm_default_no('🚀 Proceed with security updates?'):
+					self.executor.execute_updates(
+						security_updates,
+						dry_run,
+						snapshot_store=store,
+						snapshot_label='security batch',
+						snapshot_command=cmd_label,
+					)
+				else:
+					console.print('[yellow]Skipped security/vulnerable package updates.[/yellow]')
+
+			if regular_updates:
+				console.print(
+					f'\n[bold yellow]⚡ Now updating {len(regular_updates)} '
+					f'regular package(s)...[/bold yellow]'
+				)
+				if yes or _confirm_default_no('🚀 Proceed with remaining updates?'):
+					self.executor.execute_updates(
+						regular_updates,
+						dry_run,
+						snapshot_store=store,
+						snapshot_label='regular batch',
+						snapshot_command=cmd_label,
+					)
+				else:
+					console.print('[yellow]Skipped regular package updates.[/yellow]')
+		finally:
+			if store is not None:
+				store.close()
 
 	def _display_security_table(self, vulnerable: List[AppInfo]) -> None:
 		"""Render the red ``🔥 Security Vulnerabilities Detected`` table — one row per CVE."""
@@ -757,12 +843,14 @@ class SystemUpdateApp:
 		for app in vulnerable:
 			findings = list(app.security_findings or [])
 			if not findings:
-				findings = [{
-					'severity': 'HIGH',
-					'cvss_score': None,
-					'cve': 'N/A',
-					'description': 'Update recommended',
-				}]
+				findings = [
+					{
+						'severity': 'HIGH',
+						'cvss_score': None,
+						'cve': 'N/A',
+						'description': 'Update recommended',
+					}
+				]
 
 			# Dedupe by (package, cve): merge entries from multiple sources
 			# (PyPI JSON, pip-audit, OSV, …) keeping richest metadata.
@@ -793,9 +881,7 @@ class SystemUpdateApp:
 			pkg_count += 1
 			for entry in merged.values():
 				cvss_val = entry.get('cvss_score')
-				cvss_display = (
-					f'{cvss_val:.1f}' if isinstance(cvss_val, (int, float)) else '-'
-				)
+				cvss_display = f'{cvss_val:.1f}' if isinstance(cvss_val, (int, float)) else '-'
 				table.add_row(
 					f'{app.name} {app.version or ""}'.strip(),
 					entry.get('severity', 'HIGH'),
@@ -813,12 +899,103 @@ class SystemUpdateApp:
 			)
 
 	def _handle_single_update(self, apps: List[AppInfo], args: Namespace) -> None:
-		"""Update a single package by name — deferred to Step 11; warn and exit for now."""
-		# TODO(step-11): port the disambiguation + version-pinning flow from the legacy file.
-		console.print(
-			'[yellow]--package is not yet available in the modular CLI. '
-			'Run the legacy system_update.py for now.[/yellow]'
+		"""Update one package by name, optionally constrained by source/version."""
+		target_name = (getattr(args, 'package', '') or '').lower()
+		source_arg = getattr(args, 'source', None)
+		target_sources = (
+			{item.strip().lower() for item in source_arg.split(',') if item.strip()}
+			if isinstance(source_arg, str) and source_arg
+			else set()
 		)
+
+		candidates = [
+			app
+			for app in apps
+			if (app.name.lower() == target_name or (app.app_id or '').lower() == target_name)
+			and (not target_sources or app.source.lower() in target_sources)
+		]
+
+		if not candidates:
+			console.print(f"[red]❌ Package '{args.package}' not found[/red]")
+			if target_sources:
+				console.print(f'[dim]🔍 Filter: source={",".join(sorted(target_sources))}[/dim]')
+			return
+
+		if len(candidates) > 1 and not target_sources:
+			console.print('[yellow]⚠️  Multiple packages found:[/yellow]')
+			for i, candidate in enumerate(candidates, start=1):
+				console.print(
+					f'  {i}. {candidate.name} ({display_source(candidate.source)}) - {candidate.version}'
+				)
+			console.print('[yellow]💡 Please specify --source to target one[/yellow]')
+			return
+
+		target_app = candidates[0]
+		version = getattr(args, 'version', None)
+		if version:
+			target_app.latest_version = version
+			console.print(f'[cyan]🎯 Targeting version: {version}[/cyan]')
+		elif not target_app.has_update:
+			console.print(
+				f'[green]✅ {target_app.name} is up to date ({target_app.version})[/green]'
+			)
+			if not (getattr(args, 'yes', False) or _confirm_default_no('🔄 Force reinstall?')):
+				return
+			target_app.latest_version = ''
+
+		dry_run = getattr(args, 'dry_run', False)
+		yes = getattr(args, 'yes', False)
+		from rich.table import Table
+
+		t = Table(title='Package queued for update', expand=True)
+		t.add_column('Package', style='bold')
+		t.add_column('Source', style='magenta')
+		t.add_column('Current', style='yellow')
+		t.add_column('Target', style='green')
+		t.add_column('Vulns', justify='center')
+		vuln_count = len(target_app.security_findings or [])
+		vuln_cell = f'[bold red]🔥 {vuln_count}[/bold red]' if vuln_count else '[dim]—[/dim]'
+		t.add_row(
+			target_app.name,
+			display_source(target_app.source),
+			target_app.version or '-',
+			target_app.latest_version or 'latest',
+			vuln_cell,
+		)
+		console.print(t)
+
+		# Surface CVE detail BEFORE the confirm prompt when the package is
+		# vulnerable — same table that runs at end-of-scan, scoped to this
+		# package only so the user sees what's being patched.
+		if target_app.is_vulnerable:
+			self._display_security_table([target_app])
+
+		if not yes and not dry_run:
+			if not _confirm_default_no(
+				'Proceed with update? This will run the package manager command.',
+			):
+				console.print('[yellow]Cancelled.[/yellow]')
+				return
+
+		import sys as _sys
+
+		store = None if dry_run else self._snapshot_store()
+		try:
+			self.executor.execute_updates(
+				[target_app],
+				dry_run=dry_run,
+				snapshot_store=store,
+				snapshot_label=f'package:{target_app.name}',
+				snapshot_command=' '.join(_sys.argv),
+			)
+			if not dry_run:
+				self._save_cache_with_context(apps)
+				console.print(
+					'[bold green]✓[/bold green] [dim]Cache updated with package result.[/dim]'
+				)
+		finally:
+			if store is not None:
+				store.close()
 
 	# ── security helpers (test-surface, delegate to SecurityChecker) ──────
 
@@ -886,9 +1063,187 @@ class SystemUpdateApp:
 				target_name=getattr(args, 'profile', None),
 			)
 			return True
+		if getattr(args, 'snapshot', None):
+			self._handle_snapshot(args)
+			return True
+		if getattr(args, 'rollback', None):
+			self._handle_rollback(args)
+			return True
 		return False
 
+	# ── Snapshots & rollback (6.2) ─────────────────────────────────────────
+
+	def _snapshot_store(self):
+		"""Lazy-construct a :class:`SnapshotStore` against the active history.db."""
+		from system_update.snapshots import SnapshotStore
+
+		return SnapshotStore(Path(self.config.config_dir) / 'history.db')
+
+	def _handle_snapshot(self, args: Namespace) -> None:
+		"""Dispatch ``--snapshot list|show|delete|help``."""
+		from system_update import subhelp
+
+		action = (args.snapshot or '').lower()
+		if action == 'help':
+			subhelp.show('snapshot')
+			return
+
+		with self._snapshot_store() as store:
+			if action == 'list':
+				rows = store.list_snapshots()
+				if not rows:
+					console.print('[yellow]No snapshots recorded yet.[/yellow]')
+					return
+				from rich.table import Table
+
+				t = Table(title='📸 Snapshots', expand=True)
+				t.add_column('ID', style='cyan')
+				t.add_column('Timestamp', style='magenta')
+				t.add_column('Pkgs', justify='right')
+				t.add_column('OK', justify='right', style='green')
+				t.add_column('Label')
+				for s in rows:
+					t.add_row(
+						s.id,
+						s.timestamp,
+						str(s.package_count),
+						str(s.success_count),
+						s.label or '-',
+					)
+				console.print(t)
+				return
+
+			target_id = getattr(args, 'snapshot_id', None) or 'last'
+
+			if action == 'show':
+				snap = store.get(target_id)
+				if not snap:
+					console.print(f'[yellow]No snapshot found:[/yellow] {target_id}')
+					return
+				from rich.table import Table
+
+				console.print(
+					f'[bold]📸 Snapshot[/bold] [cyan]{snap.id}[/cyan]  '
+					f'· {snap.timestamp}  · {snap.label or "(no label)"}'
+				)
+				if snap.command:
+					console.print(f'[dim]command:[/dim] {snap.command}')
+				t = Table(expand=True)
+				t.add_column('Package', style='bold')
+				t.add_column('Source', style='magenta')
+				t.add_column('Before', style='yellow')
+				t.add_column('After', style='green')
+				t.add_column('OK', justify='center')
+				for p in snap.packages:
+					t.add_row(
+						p.name,
+						display_source(p.source),
+						p.version_before or '-',
+						p.version_after or '-',
+						'[green]✓[/green]' if p.success else '[red]✗[/red]',
+					)
+				console.print(t)
+				return
+
+			if action == 'delete':
+				ok = store.delete(target_id)
+				if ok:
+					console.print(f'[green]✓ Deleted[/green] snapshot [bold]{target_id}[/bold]')
+				else:
+					console.print(f'[yellow]No snapshot found:[/yellow] {target_id}')
+				return
+
+	def _handle_rollback(self, args: Namespace) -> None:
+		"""Restore packages captured in a snapshot to their previous versions."""
+		from system_update import subhelp
+
+		token = (args.rollback or '').strip()
+		if token.lower() == 'help':
+			subhelp.show('rollback')
+			return
+
+		with self._snapshot_store() as store:
+			snap = store.get(token)
+			if not snap:
+				console.print(
+					f'[red]✗ Snapshot not found:[/red] {token!r}. '
+					f'[dim]Try [cyan]--snapshot list[/cyan] to see available ids.[/dim]'
+				)
+				return
+
+		console.print(
+			f'[bold]⏪ Rolling back snapshot[/bold] [cyan]{snap.id}[/cyan] '
+			f'({snap.timestamp}) — {len(snap.packages)} package(s)'
+		)
+		if snap.label:
+			console.print(f'[dim]label:[/dim] {snap.label}')
+		if snap.command:
+			console.print(f'[dim]snapshot command:[/dim] {snap.command}')
+		from rich.table import Table
+
+		t = Table(title='Packages queued for rollback', expand=True)
+		t.add_column('Package', style='bold')
+		t.add_column('Source', style='magenta')
+		t.add_column('Current / Snapshot After', style='green')
+		t.add_column('Rollback Target', style='yellow')
+		t.add_column('Snapshot OK', justify='center')
+		for pkg in snap.packages:
+			t.add_row(
+				pkg.name,
+				display_source(pkg.source),
+				pkg.version_after or '-',
+				pkg.version_before or '[red]missing[/red]',
+				'[green]✓[/green]' if pkg.success else '[red]✗[/red]',
+			)
+		console.print(t)
+
+		dry_run = getattr(args, 'dry_run', False)
+		yes = getattr(args, 'yes', False)
+		if not yes and not dry_run:
+			if not _confirm_default_no(
+				'Proceed with rollback? This will run install commands for each recorded package.',
+			):
+				console.print('[yellow]Cancelled.[/yellow]')
+				return
+		from system_update.executors import execute_rollback
+
+		execute_rollback(snap.packages, dry_run=dry_run)
+
 	# ── Cache helpers ──────────────────────────────────────────────────────
+
+	def _current_pip_context(self) -> Tuple[str, bool]:
+		"""Return ``(interpreter, in_venv)`` for the current process."""
+		import sys
+
+		from system_update.scanners import pip as _pip_scanner
+
+		return (
+			sys.executable,
+			_pip_scanner._is_in_venv(),
+		)
+
+	def _save_cache_with_context(self, apps: List[AppInfo]) -> None:
+		"""Wrap ``cache_mgr.save`` so we always record the pip context."""
+		interpreter, in_venv = self._current_pip_context()
+		self.cache_mgr.save(
+			apps,
+			pip_interpreter=interpreter,
+			pip_in_venv=in_venv,
+		)
+
+	def _pip_context_changed(self) -> bool:
+		"""True if the cached pip scan was made under a different Python context."""
+		recorded = self.cache_mgr.load_pip_context()
+		if not recorded.get('interpreter'):
+			return False  # no metadata → nothing to compare against
+		current_interp, current_venv = self._current_pip_context()
+		# Different interpreter (e.g. switched venv) invalidates. ``in_venv``
+		# also catches transitions where the interpreter hint stayed empty.
+		if recorded.get('interpreter') and recorded['interpreter'] != current_interp:
+			return True
+		if recorded.get('in_venv') != current_venv:
+			return True
+		return False
 
 	def _cache_expiry_hint(self) -> str:
 		"""Return ``(expires HH:MM:SS · in 1h 23m)`` style suffix, or empty."""
@@ -910,33 +1265,39 @@ class SystemUpdateApp:
 		"""
 		changed: List[str] = []
 
-		raw_source = getattr(args, 'source', None)
+		def _str_arg(name: str):
+			"""Pull ``args.<name>`` only if it's a real non-empty string."""
+			v = getattr(args, name, None)
+			return v if isinstance(v, str) and v else None
+
+		raw_source = _str_arg('source')
 		if raw_source:
 			valid, _ = _partition_sources(raw_source)
 			if valid:
-				new_sources = {
-					name: (name in valid) for name in self.settings.get('sources', {})
-				}
+				new_sources = {name: (name in valid) for name in self.settings.get('sources', {})}
 				# Add any canonical names that weren't already in config.
 				for name in valid:
 					new_sources.setdefault(name, True)
 				self.settings['sources'] = new_sources
 				changed.append(f'sources → {", ".join(sorted(valid))}')
 
-		raw_exclude = getattr(args, 'exclude', None)
+		raw_exclude = _str_arg('exclude')
 		if raw_exclude:
 			tokens = _parse_exclude_list(raw_exclude)
 			self.settings['exclude'] = tokens
 			changed.append(f'exclude → {", ".join(tokens)}')
 
 		ui = self.settings.setdefault('ui', {})
-		if getattr(args, 'theme', None):
-			ui['theme'] = args.theme
-			changed.append(f'ui.theme → {args.theme}')
-		if getattr(args, 'format', None):
-			ui['display_format'] = args.format
-			changed.append(f'ui.display_format → {args.format}')
-		if getattr(args, 'icons', False):
+		theme = _str_arg('theme')
+		if theme:
+			ui['theme'] = theme
+			changed.append(f'ui.theme → {theme}')
+		fmt = _str_arg('format')
+		if fmt:
+			ui['display_format'] = fmt
+			changed.append(f'ui.display_format → {fmt}')
+		icons = getattr(args, 'icons', False)
+		if icons is True:  # strict bool — MagicMock is truthy but not True
 			ui['use_icons'] = True
 			changed.append('ui.use_icons → true')
 
@@ -977,9 +1338,7 @@ class SystemUpdateApp:
 				f'(check permissions / errors.log)'
 			)
 
-	def _import_profile(
-		self, input_path: str, target_name: Optional[str] = None
-	) -> None:
+	def _import_profile(self, input_path: str, target_name: Optional[str] = None) -> None:
 		"""Load profile JSON; if ``--profile NAME`` was passed, install under that name."""
 		from pathlib import Path as _Path
 
@@ -1004,9 +1363,7 @@ class SystemUpdateApp:
 					self.history_db.close()
 			except Exception:
 				pass
-			self.history_db = HistoryDatabase(
-				Path(self.config.config_dir) / 'history.db'
-			)
+			self.history_db = HistoryDatabase(Path(self.config.config_dir) / 'history.db')
 			self.vuln_history = VulnerabilityHistory(
 				Path(self.config.config_dir) / 'vulnerability_history.json'
 			)
@@ -1016,8 +1373,7 @@ class SystemUpdateApp:
 			)
 		else:
 			console.print(
-				f'[red]✗ Import failed:[/red] {src} '
-				f'(invalid JSON or missing "settings" key)'
+				f'[red]✗ Import failed:[/red] {src} (invalid JSON or missing "settings" key)'
 			)
 
 	# ── Scheduled tasks (6.1) ──────────────────────────────────────────────
@@ -1060,9 +1416,7 @@ class SystemUpdateApp:
 			elif action == 'list':
 				tasks = scheduler.list_tasks()
 				if not tasks:
-					console.print(
-						'[yellow]No SystemUpdate scheduled tasks found.[/yellow]'
-					)
+					console.print('[yellow]No SystemUpdate scheduled tasks found.[/yellow]')
 					return
 				from rich.table import Table
 
@@ -1104,8 +1458,13 @@ class SystemUpdateApp:
 					return
 				console.print(f'[bold]🗓️  Task: {info["name"]}[/bold]')
 				for key in (
-					'status', 'schedule_type', 'next_run_time', 'last_run_time',
-					'last_result', 'task_to_run', 'run_as_user',
+					'status',
+					'schedule_type',
+					'next_run_time',
+					'last_run_time',
+					'last_result',
+					'task_to_run',
+					'run_as_user',
 				):
 					console.print(f'  [cyan]{key}[/cyan]: {info.get(key, "")}')
 
@@ -1143,7 +1502,8 @@ class SystemUpdateApp:
 
 		console.print(f'[bold]Matched {len(matched)} rule(s).[/bold]')
 		conditions.apply(
-			matched, apps,
+			matched,
+			apps,
 			notifier=self.notifier,
 			executor=self.executor,
 			console=console,
@@ -1164,14 +1524,10 @@ class SystemUpdateApp:
 		try:
 			if action == 'push':
 				target, size = data_sharing.cloud_push(cache_path, self.settings)
-				console.print(
-					f'[green]✓ Pushed[/green] {size:,} bytes → [cyan]{target}[/cyan]'
-				)
+				console.print(f'[green]✓ Pushed[/green] {size:,} bytes → [cyan]{target}[/cyan]')
 			elif action == 'pull':
 				target, size = data_sharing.cloud_pull(cache_path, self.settings)
-				console.print(
-					f'[green]✓ Pulled[/green] {size:,} bytes ← [cyan]{target}[/cyan]'
-				)
+				console.print(f'[green]✓ Pulled[/green] {size:,} bytes ← [cyan]{target}[/cyan]')
 			elif action == 'status':
 				stat = data_sharing.cloud_status(cache_path, self.settings)
 				console.print('[bold]☁️  Cloud sync status[/bold]')
@@ -1201,8 +1557,7 @@ class SystemUpdateApp:
 			try:
 				batch = data_sharing.import_apps(path)
 				console.print(
-					f'[green]✓ Imported[/green] {len(batch)} package(s) from '
-					f'[cyan]{path}[/cyan]'
+					f'[green]✓ Imported[/green] {len(batch)} package(s) from [cyan]{path}[/cyan]'
 				)
 				batches.append(batch)
 			except (FileNotFoundError, ValueError) as e:
@@ -1214,7 +1569,7 @@ class SystemUpdateApp:
 			cached = self.cache_mgr.load() or []
 			if cached:
 				console.print(
-					f'[dim]🧬 Merging with cache ({len(cached)} cached package(s))[/dim]'
+					f'[bold cyan]⚡ Cache Hit![/bold cyan] [dim]Merging with {len(cached)} cached package(s)...[/dim]'
 				)
 				batches.append(cached)
 
@@ -1222,13 +1577,11 @@ class SystemUpdateApp:
 			return []
 
 		merged = data_sharing.merge_apps(*batches, prefer='latest')
-		console.print(
-			f'[bold]🧬 Merge complete:[/bold] {len(merged)} unique package(s)'
-		)
+		console.print(f'[bold]🧬 Merge complete:[/bold] {len(merged)} unique package(s)')
 		# Persist merged result so subsequent runs use it.
 		try:
-			self.cache_mgr.save(merged)
-			console.print('[dim]💾 Cache updated with merged data.[/dim]')
+			self._save_cache_with_context(merged)
+			console.print('[bold green]✓[/bold green] [dim]Cache updated with merged data.[/dim]')
 		except Exception as e:
 			logger.warning(f'Failed to persist merged cache: {e}')
 		return merged
@@ -1284,7 +1637,7 @@ class SystemUpdateApp:
 			table.add_row(
 				str(idx),
 				app.name,
-				app.source,
+				display_source(app.source),
 				app.version or '-',
 				app.latest_version or '?',
 				tag,
@@ -1311,7 +1664,16 @@ class SystemUpdateApp:
 		chosen = [ordered[i - 1] for i in sorted(picks)]
 		console.print(f'\n[cyan]Selected {len(chosen)} package(s):[/cyan]')
 		for app in chosen:
-			console.print(f'  • {app.name} [{app.source}] {app.version} → {app.latest_version}')
+			vuln_tag = ' [red]🔥[/red]' if app.is_vulnerable else ''
+			console.print(
+				f'  • {app.name} [{display_source(app.source)}] '
+				f'{app.version} → {app.latest_version}{vuln_tag}'
+			)
+
+		# Render the CVE detail when any selected package is vulnerable.
+		vuln_chosen = [a for a in chosen if a.is_vulnerable]
+		if vuln_chosen:
+			self._display_security_table(vuln_chosen)
 
 		if not getattr(args, 'yes', False):
 			try:
@@ -1330,7 +1692,20 @@ class SystemUpdateApp:
 			f'\n[bold]{"🧪 Dry-run" if dry_run else "🚀 Updating"} '
 			f'{len(chosen)} package(s)...[/bold]'
 		)
-		UpdateExecutor.execute_updates(chosen, dry_run=dry_run)
+		import sys as _sys
+
+		store = None if dry_run else self._snapshot_store()
+		try:
+			UpdateExecutor.execute_updates(
+				chosen,
+				dry_run=dry_run,
+				snapshot_store=store,
+				snapshot_label='interactive',
+				snapshot_command=' '.join(_sys.argv),
+			)
+		finally:
+			if store is not None:
+				store.close()
 
 	@staticmethod
 	def _parse_picker_input(raw: str, total: int) -> Optional[Set[int]]:
@@ -1384,7 +1759,7 @@ class SystemUpdateApp:
 		for s in scans:
 			table.add_row(
 				str(s.get('timestamp', '')),
-				str(s.get('source', '') or '-')[:60],
+				display_source(str(s.get('source', '') or '-'))[:60],
 				str(s.get('package_count', 0)),
 				str(s.get('update_count', 0)),
 				str(s.get('vulnerability_count', 0)),
@@ -1408,7 +1783,7 @@ class SystemUpdateApp:
 		for r in rows:
 			table.add_row(
 				str(r.get('timestamp', '')),
-				str(r.get('source', '') or '-'),
+				display_source(str(r.get('source', '') or '-')),
 				str(r.get('version', '') or '-'),
 				str(r.get('change_type', '') or '-'),
 			)
@@ -1434,7 +1809,7 @@ class SystemUpdateApp:
 		table.add_column('Total updates', justify='right', style='yellow')
 		for row in stats:
 			table.add_row(
-				str(row.get('source', '') or '-')[:40],
+				display_source(str(row.get('source', '') or '-'))[:40],
 				str(row.get('total_scans', 0)),
 				str(row.get('total_packages', 0) or 0),
 				str(row.get('total_updates', 0) or 0),
@@ -1456,15 +1831,13 @@ class SystemUpdateApp:
 		for r in stale:
 			table.add_row(
 				str(r.get('package_name', '')),
-				str(r.get('source', '') or '-'),
+				display_source(str(r.get('source', '') or '-')),
 				str(r.get('last_seen', '')),
 			)
 		console.print(table)
 		console.print(f'[yellow]Total stale:[/yellow] {len(stale)}')
 
-	def _generate_history_report(
-		self, fmt: str, output: Optional[str] = None
-	) -> None:
+	def _generate_history_report(self, fmt: str, output: Optional[str] = None) -> None:
 		"""Write a text/json/html summary of scan + vulnerability history to disk (or stdout)."""
 		import json as _json
 		from datetime import datetime
@@ -1504,7 +1877,8 @@ class SystemUpdateApp:
 			]
 			for s in scans[:20]:
 				lines.append(
-					f'  [{s.get("timestamp", "")}] {s.get("source", "-"):<25} '
+					f'  [{s.get("timestamp", "")}] '
+					f'{display_source(str(s.get("source", "-"))):<25} '
 					f'pkgs={s.get("package_count", 0):>4}  '
 					f'updates={s.get("update_count", 0):>3}  '
 					f'vulns={s.get("vulnerability_count", 0):>3}'
@@ -1516,7 +1890,7 @@ class SystemUpdateApp:
 			]
 			for r in trends.get('source_stats') or []:
 				lines.append(
-					f'  - {r.get("source", "-"):<20} '
+					f'  - {display_source(str(r.get("source", "-"))):<20} '
 					f'scans={r.get("total_scans", 0):>3}  '
 					f'updates={r.get("total_updates", 0) or 0:>4}'
 				)
@@ -1524,7 +1898,8 @@ class SystemUpdateApp:
 			for r in stale[:20]:
 				lines.append(
 					f'  - {r.get("package_name", ""):<30} '
-					f'{r.get("source", "-"):<15} last_seen={r.get("last_seen", "")}'
+					f'{display_source(str(r.get("source", "-"))):<15} '
+					f'last_seen={r.get("last_seen", "")}'
 				)
 			lines += [
 				'',
@@ -1576,14 +1951,14 @@ class SystemUpdateApp:
 
 		scan_rows = '\n'.join(
 			f'<tr><td>{_esc(s.get("timestamp", ""))}</td>'
-			f'<td>{_esc(s.get("source", "-"))}</td>'
+			f'<td>{_esc(display_source(str(s.get("source", "-"))))}</td>'
 			f'<td>{s.get("package_count", 0)}</td>'
 			f'<td>{s.get("update_count", 0)}</td>'
 			f'<td>{s.get("vulnerability_count", 0)}</td></tr>'
 			for s in scans[:50]
 		)
 		trend_rows = '\n'.join(
-			f'<tr><td>{_esc(r.get("source", "-"))}</td>'
+			f'<tr><td>{_esc(display_source(str(r.get("source", "-"))))}</td>'
 			f'<td>{r.get("total_scans", 0)}</td>'
 			f'<td>{r.get("total_packages", 0) or 0}</td>'
 			f'<td>{r.get("total_updates", 0) or 0}</td></tr>'
@@ -1591,7 +1966,7 @@ class SystemUpdateApp:
 		)
 		stale_rows = '\n'.join(
 			f'<tr><td>{_esc(r.get("package_name", ""))}</td>'
-			f'<td>{_esc(r.get("source", "-"))}</td>'
+			f'<td>{_esc(display_source(str(r.get("source", "-"))))}</td>'
 			f'<td>{_esc(r.get("last_seen", ""))}</td></tr>'
 			for r in stale[:100]
 		)

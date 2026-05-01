@@ -33,6 +33,7 @@ PANEL_PROFILE = '🧭 Profiles & Config'
 PANEL_HISTORY = '📜 History & Trends'
 PANEL_DATA = '🔄 Data Sharing'
 PANEL_SCHEDULE = '🗓️  Scheduled Tasks'
+PANEL_ROLLBACK = '⏪ Snapshots & Rollback'
 PANEL_LOG = '🪵 Logging & Debug'
 
 
@@ -63,7 +64,7 @@ EPILOG = """
   [cyan]system-update -U -y[/cyan]
 
   [dim]# Update a single package[/dim]
-  [cyan]system-update --package aiohttp --version 3.9.5[/cyan]
+  [cyan]system-update --update-package aiohttp --version 3.9.5[/cyan]
 
   [dim]# Update every npm package[/dim]
   [cyan]system-update --update-source npm -y[/cyan]
@@ -169,14 +170,14 @@ def main(
 		help='📦 Update all packages from a specific source (e.g. [cyan]npm[/cyan]). [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_UPDATE,
 	),
-	package: Optional[str] = typer.Option(
-		None, '--package',
+	update_package: Optional[str] = typer.Option(
+		None, '--update-package',
 		help='🎯 Update a specific package by name.',
 		rich_help_panel=PANEL_UPDATE,
 	),
 	version: Optional[str] = typer.Option(
 		None, '--version',
-		help='🔖 Target a specific version (used with [cyan]--package[/cyan]).',
+		help='🔖 Target a specific version (used with [cyan]--update-package[/cyan]).',
 		rich_help_panel=PANEL_UPDATE,
 	),
 	dry_run: bool = typer.Option(
@@ -349,6 +350,22 @@ def main(
 		help='🧰 Arguments the scheduled task will pass to system-update.',
 		rich_help_panel=PANEL_SCHEDULE,
 	),
+	# ⏪ Snapshots & Rollback (6.2)
+	snapshot: Optional[str] = typer.Option(
+		None, '--snapshot',
+		help='📸 Snapshot action: [cyan]list, show, delete, help[/cyan]. [bold green]📖[/bold green]',
+		rich_help_panel=PANEL_ROLLBACK,
+	),
+	snapshot_id: Optional[str] = typer.Option(
+		None, '--snapshot-id',
+		help='🆔 Target a specific snapshot id (used with [cyan]show[/cyan] / [cyan]delete[/cyan]).',
+		rich_help_panel=PANEL_ROLLBACK,
+	),
+	rollback: Optional[str] = typer.Option(
+		None, '--rollback',
+		help='⏪ Rollback to a snapshot: pass the snapshot id, [cyan]last[/cyan], or [cyan]help[/cyan]. [bold green]📖[/bold green]',
+		rich_help_panel=PANEL_ROLLBACK,
+	),
 	# 🪵 Logging & Debug
 	debug: bool = typer.Option(
 		False, '--debug',
@@ -400,6 +417,8 @@ def main(
 		('format', format_mode),
 		('theme', theme),
 		('schedule', schedule),
+		('snapshot', snapshot),
+		('rollback', rollback),
 		('update-source', update_source),
 		('profile', profile),
 		('profile-export', profile_export),
@@ -431,6 +450,7 @@ def main(
 	_VALID_THEMES = ['default', 'vibrant', 'minimal', 'dark', 'neon']
 	_VALID_CLOUD = ['push', 'pull', 'status', 'help']
 	_VALID_SCHEDULE = ['create', 'delete', 'list', 'status', 'run', 'eval', 'help']
+	_VALID_SNAPSHOT = ['list', 'show', 'delete', 'help']
 
 	if export_format and export_format not in _VALID_EXPORTS:
 		_bail('--export', export_format, _VALID_EXPORTS)
@@ -444,6 +464,8 @@ def main(
 		_bail('--cloud-sync', cloud_sync, _VALID_CLOUD)
 	if schedule and schedule not in _VALID_SCHEDULE:
 		_bail('--schedule', schedule, _VALID_SCHEDULE)
+	if snapshot and snapshot not in _VALID_SNAPSHOT:
+		_bail('--snapshot', snapshot, _VALID_SNAPSHOT)
 
 	args = Namespace(
 		source=source,
@@ -470,7 +492,7 @@ def main(
 		html_logo=html_logo,
 		html_title=html_title,
 		html_company=html_company,
-		package=package,
+		package=update_package,
 		version=version,
 		history=history,
 		history_package=history_package,
@@ -487,6 +509,9 @@ def main(
 		schedule_time=schedule_time,
 		schedule_days=schedule_days,
 		schedule_args=schedule_args,
+		snapshot=snapshot,
+		snapshot_id=snapshot_id,
+		rollback=rollback,
 		debug=debug,
 		log=log,
 	)

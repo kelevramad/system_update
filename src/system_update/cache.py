@@ -6,7 +6,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 from system_update.models import AppInfo, UpdateStatus
 
@@ -114,24 +114,63 @@ class CacheManager:
 		except Exception:
 			return []
 
-	def save(self, apps: List[AppInfo]) -> None:
-		"""Serialize ``apps`` to disk with timestamp + deduplicated ``sources`` header."""
+	def load_pip_context(self) -> Dict[str, object]:
+		"""Return the pip interpreter recorded when pip was last scanned.
+
+		Empty dict if the cache pre-dates this metadata or has no pip entries.
+		Used by the orchestrator to detect when the user's environment has
+		switched between venv and system Python — in which case the cached
+		pip data is stale and pip should be rescanned.
+		"""
+		if not self.cache_file.exists():
+			return {}
+		try:
+			with open(self.cache_file, 'r', encoding='utf-8') as f:
+				data = json.load(f)
+			ctx = data.get('pip_context') or {}
+			return {
+				'interpreter': str(ctx.get('interpreter', '')),
+				'in_venv': bool(ctx.get('in_venv', False)),
+			}
+		except Exception:
+			return {}
+
+	def save(
+		self,
+		apps: List[AppInfo],
+		pip_interpreter: str = '',
+		pip_in_venv: bool = False,
+	) -> None:
+		"""Serialize ``apps`` to disk with timestamp + sources + pip context.
+
+		``pip_interpreter`` / ``pip_in_venv`` are only meaningful when the scan
+		included pip — they let a future load detect that the user has switched
+		between venv and system Python.
+		"""
 		try:
 			sources_seen: List[str] = []
 			seen: Set[str] = set()
+			has_pip = False
 			for app in apps:
 				key = app.source.lower()
 				if key and key not in seen:
 					seen.add(key)
 					sources_seen.append(key)
+				if key == 'pip':
+					has_pip = True
 
 			data = {
 				'timestamp': datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z',
-				'version': '1.0.2',
+				'version': '1.0.3',
 				'totalApps': len(apps),
 				'sources': sorted(sources_seen),
 				'apps': [app.to_dict() for app in apps],
 			}
+			if has_pip and pip_interpreter:
+				data['pip_context'] = {
+					'interpreter': pip_interpreter,
+					'in_venv': pip_in_venv,
+				}
 			with open(self.cache_file, 'w', encoding='utf-8') as f:
 				json.dump(data, f, indent=2)
 		except Exception as e:

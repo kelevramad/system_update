@@ -27,6 +27,7 @@ from system_update.utils import (
 	SOURCE_ICONS,
 	THEMES,
 	console,
+	display_source,
 	run_command,
 	source_badge,
 )
@@ -54,6 +55,7 @@ __all__ = [
 	'VulnerabilityHistory',
 	'WarningFileHandler',
 	'console',
+	'display_source',
 	'export',
 	'main',
 	'run_command',

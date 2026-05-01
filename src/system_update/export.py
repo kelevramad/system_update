@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Dict, Iterable, List, Optional
 
 from system_update.models import AppInfo, UpdateStatus
+from system_update.utils import display_source
 
 _SEVERITIES = ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW')
 
@@ -25,7 +26,8 @@ def get_export_stats(apps: List[AppInfo]) -> Dict:
 	"""Tally update-status counts and per-source counts."""
 	source_counts: Dict[str, int] = {}
 	for app in apps:
-		source_counts[app.source] = source_counts.get(app.source, 0) + 1
+		source = display_source(app.source)
+		source_counts[source] = source_counts.get(source, 0) + 1
 
 	return {
 		'total': len(apps),
@@ -130,7 +132,7 @@ def export_csv(apps: List[AppInfo], output_file: str) -> str:
 			writer.writerow(
 				[
 					app.name,
-					app.source,
+					display_source(app.source),
 					app.version,
 					app.latest_version,
 					app.update_status.value,
@@ -146,7 +148,7 @@ def export_csv(apps: List[AppInfo], output_file: str) -> str:
 					writer.writerow(
 						[
 							app.name,
-							app.source,
+							display_source(app.source),
 							app.version,
 							finding.get('cve', 'N/A'),
 							finding.get('severity', 'UNKNOWN'),
@@ -268,7 +270,7 @@ def _export_html_legacy(apps: List[AppInfo], output_file: str) -> str:
 		html.append(
 			f'            <tr>'
 			f'<td><strong>{app.name}</strong></td>'
-			f'<td>{app.source}</td>'
+			f'<td>{display_source(app.source)}</td>'
 			f'<td>{app.version or "-"}</td>'
 			f'<td>{app.latest_version or "-"}</td>'
 			f'<td><span class="status {status_class}">{status_text}</span></td>'
@@ -297,7 +299,7 @@ def _export_html_legacy(apps: List[AppInfo], output_file: str) -> str:
 				html.append(
 					f'            <tr>'
 					f'<td><strong>{app.name}</strong></td>'
-					f'<td>{app.source}</td>'
+					f'<td>{display_source(app.source)}</td>'
 					f'<td>{app.version}</td>'
 					f'<td>{finding.get("cve", "N/A")}</td>'
 					f'<td><span class="status status-vulnerable">{finding.get("severity", "UNKNOWN")}</span></td>'
@@ -358,7 +360,7 @@ def export_xml(apps: List[AppInfo], output_file: str) -> str:
 	for app in apps:
 		lines.append('    <package>')
 		lines.append(f'      <name>{_xml_escape(app.name)}</name>')
-		lines.append(f'      <source>{_xml_escape(app.source)}</source>')
+		lines.append(f'      <source>{_xml_escape(display_source(app.source))}</source>')
 		lines.append(f'      <current_version>{_xml_escape(app.version or "-")}</current_version>')
 		lines.append(
 			f'      <latest_version>{_xml_escape(app.latest_version or "-")}</latest_version>'
@@ -387,7 +389,7 @@ def export_xml(apps: List[AppInfo], output_file: str) -> str:
 			for finding in app.security_findings:
 				lines.append('    <vulnerability>')
 				lines.append(f'      <package>{_xml_escape(app.name)}</package>')
-				lines.append(f'      <source>{_xml_escape(app.source)}</source>')
+				lines.append(f'      <source>{_xml_escape(display_source(app.source))}</source>')
 				lines.append(f'      <version>{_xml_escape(app.version)}</version>')
 				lines.append(f'      <cve>{_xml_escape(finding.get("cve", "N/A"))}</cve>')
 				lines.append(
@@ -455,7 +457,7 @@ def export_markdown(apps: List[AppInfo], output_file: str) -> str:
 	for app in apps:
 		icon = _MD_STATUS_ICON.get(app.update_status, '❓')
 		lines.append(
-			f'| {app.name} | {app.source} | {app.version or "-"} | '
+			f'| {app.name} | {display_source(app.source)} | {app.version or "-"} | '
 			f'{app.latest_version or "-"} | {icon} {app.update_status.value} |'
 		)
 
@@ -473,7 +475,7 @@ def export_markdown(apps: List[AppInfo], output_file: str) -> str:
 		for app in vuln_apps:
 			for finding in app.security_findings:
 				lines.append(
-					f'| {app.name} | {app.source} | {app.version} | '
+					f'| {app.name} | {display_source(app.source)} | {app.version} | '
 					f'{finding.get("cve", "N/A")} | {finding.get("severity", "UNKNOWN")} |'
 				)
 
@@ -516,7 +518,7 @@ def export_diff(apps: List[AppInfo], output_file: str) -> str:
 		lines.append('Updated Packages:')
 		lines.append('-' * 30)
 		for app in updated:
-			lines.append(f'{app.name} ({app.source})')
+			lines.append(f'{app.name} ({display_source(app.source)})')
 			lines.append(f'  {app.version} -> {app.latest_version}')
 			lines.append('')
 		lines.append('')
@@ -525,7 +527,7 @@ def export_diff(apps: List[AppInfo], output_file: str) -> str:
 		lines.append('Vulnerable Packages:')
 		lines.append('-' * 30)
 		for app in vulnerable:
-			lines.append(f'{app.name} ({app.source})')
+			lines.append(f'{app.name} ({display_source(app.source)})')
 			lines.append(f'  Version: {app.version}')
 			for finding in app.security_findings:
 				lines.append(
@@ -538,7 +540,7 @@ def export_diff(apps: List[AppInfo], output_file: str) -> str:
 		lines.append('Up to Date Packages:')
 		lines.append('-' * 30)
 		for app in up_to_date:
-			lines.append(f'  {app.name} ({app.source}) v{app.version}')
+			lines.append(f'  {app.name} ({display_source(app.source)}) v{app.version}')
 		lines.append('')
 
 	lines.append(

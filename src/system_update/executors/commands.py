@@ -53,13 +53,26 @@ def _yarn(app: AppInfo) -> Optional[Command]:
 	return ['yarn', 'global', 'add', _spec(app.name, app.latest_version)]
 
 
+def _pip_interpreter(app: AppInfo) -> str:
+	"""Return the interpreter to invoke for ``app``.
+
+	Pip packages get scanned from multiple interpreters (active venv + user-site
+	+ globals), so the install command must target the one that actually owns
+	the package — otherwise ``pip install Pygments==2.20.0`` lands in the wrong
+	site-packages and the next ``pip list --outdated`` keeps reporting it.
+	"""
+	hint = (app.install_path or '').strip()
+	if hint and (hint.lower().endswith('python.exe') or hint.lower().endswith('python')):
+		return hint
+	return sys.executable
+
+
 def _pip(app: AppInfo) -> Optional[Command]:
 	cmd: Command = [
-		sys.executable, '-m', 'pip', 'install',
+		_pip_interpreter(app), '-m', 'pip', 'install',
 		_spec(app.name, app.latest_version, separator='=='),
+		'--upgrade',
 	]
-	if not app.latest_version:
-		cmd.append('--upgrade')
 	return cmd
 
 
@@ -93,20 +106,107 @@ def _path(app: AppInfo) -> Optional[Command]:
 
 
 _BUILDERS: Dict[str, Callable[[AppInfo], Optional[Command]]] = {
-	'Winget': _winget,
-	'Chocolatey': _chocolatey,
-	'NPM': _npm,
-	'PNPM': _pnpm,
-	'Bun': _bun,
-	'Yarn': _yarn,
-	'PIP': _pip,
-	'Rust': _rust,
+	'winget': _winget,
+	'chocolatey': _chocolatey,
+	'npm': _npm,
+	'pnpm': _pnpm,
+	'bun': _bun,
+	'yarn': _yarn,
+	'pip': _pip,
+	'rust': _rust,
 	'dotnet': _dotnet,
-	'PATH': _path,
+	'path': _path,
 }
 
 
 def build_update_command(app: AppInfo) -> Optional[Command]:
 	"""Return the argv for updating ``app``, or ``None`` if unsupported."""
-	builder = _BUILDERS.get(app.source)
+	builder = _BUILDERS.get((app.source or '').lower())
 	return builder(app) if builder else None
+
+
+# ─── 6.2.2 — Rollback builders ─────────────────────────────────────────────
+#
+# A rollback is "install version X" where X is the captured pre-update
+# version. Most package managers we target accept a version argument on
+# install/upgrade; the heavy lifting is per-source argv shape.
+
+
+def _winget_rb(app: AppInfo) -> Optional[Command]:
+	if not app.app_id or not app.latest_version:
+		return None
+	return [
+		'winget', 'install', '--id', app.app_id, '-v', app.latest_version,
+		'--accept-source-agreements', '--accept-package-agreements',
+		'--force',
+	]
+
+
+def _chocolatey_rb(app: AppInfo) -> Optional[Command]:
+	if not app.latest_version:
+		return None
+	return [
+		'choco', 'install', app.name, '--version', app.latest_version,
+		'--allow-downgrade', '-y', '-f',
+	]
+
+
+def _npm_rb(app: AppInfo) -> Optional[Command]:
+	if not app.latest_version:
+		return None
+	return ['npm', 'install', '-g', f'{app.name}@{app.latest_version}']
+
+
+def _pnpm_rb(app: AppInfo) -> Optional[Command]:
+	if not app.latest_version:
+		return None
+	return ['pnpm', 'add', '-g', f'{app.name}@{app.latest_version}']
+
+
+def _bun_rb(app: AppInfo) -> Optional[Command]:
+	if not app.latest_version:
+		return None
+	return ['bun', 'add', '-g', f'{app.name}@{app.latest_version}']
+
+
+def _yarn_rb(app: AppInfo) -> Optional[Command]:
+	if not app.latest_version:
+		return None
+	return ['yarn', 'global', 'add', f'{app.name}@{app.latest_version}']
+
+
+def _pip_rb(app: AppInfo) -> Optional[Command]:
+	if not app.latest_version:
+		return None
+	return [
+		_pip_interpreter(app), '-m', 'pip', 'install',
+		f'{app.name}=={app.latest_version}',
+		'--force-reinstall', '--no-deps',
+	]
+
+
+_ROLLBACK_BUILDERS: Dict[str, Callable[[AppInfo], Optional[Command]]] = {
+	'winget': _winget_rb,
+	'chocolatey': _chocolatey_rb,
+	'npm': _npm_rb,
+	'pnpm': _pnpm_rb,
+	'bun': _bun_rb,
+	'yarn': _yarn_rb,
+	'pip': _pip_rb,
+}
+
+
+def build_rollback_command(app: AppInfo) -> Optional[Command]:
+	"""Return the argv to install ``app.latest_version`` (treated as TARGET).
+
+	The caller stages an :class:`AppInfo` whose ``latest_version`` holds the
+	*old* version they want to restore. ``None`` means rollback isn't
+	supported for this source (e.g. PATH/registry/scoop tools without
+	version pinning).
+	"""
+	builder = _ROLLBACK_BUILDERS.get((app.source or '').lower())
+	return builder(app) if builder else None
+
+
+def supports_rollback(source: str) -> bool:
+	return (source or '').lower() in _ROLLBACK_BUILDERS

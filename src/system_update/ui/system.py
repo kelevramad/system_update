@@ -12,7 +12,7 @@ from rich.text import Text
 from system_update.config import SystemConfig
 from system_update.models import AppInfo, UpdateStatus
 from system_update.ui.theme import ThemeManager
-from system_update.utils import console, source_badge
+from system_update.utils import console, display_source, source_badge
 
 _VERSION = '5.2.0'
 _SEVERITY_PRIORITY = {'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3, 'UNKNOWN': 4}
@@ -59,6 +59,35 @@ def _file_row(label: str, path: Path, show_path: bool = True) -> str:
 	return '  ' + ' '.join(p for p in pieces if p)
 
 
+def _python_runtime_info() -> tuple:
+	"""Return (label, is_venv, raw_path) describing the running interpreter.
+
+	Detects venvs via PEP 405 (``sys.prefix != sys.base_prefix``) and via the
+	``VIRTUAL_ENV`` environment variable. The label includes the venv folder
+	name so the user can see WHICH venv is active.
+	"""
+	import os
+	import sys
+
+	pyver = f'Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}'
+	venv_env = os.environ.get('VIRTUAL_ENV') or os.environ.get('CONDA_PREFIX')
+	in_venv = (
+		hasattr(sys, 'real_prefix')
+		or (getattr(sys, 'base_prefix', sys.prefix) != sys.prefix)
+		or bool(venv_env)
+	)
+	if in_venv:
+		venv_path = venv_env or sys.prefix
+		venv_name = Path(venv_path).name or venv_path
+		# Common venv folder names → derive parent project name for clarity.
+		if venv_name.lower() in ('.venv', 'venv', 'env', '.env'):
+			parent = Path(venv_path).parent.name
+			if parent:
+				venv_name = f'{parent}/{venv_name}'
+		return (f'{pyver} (venv: {venv_name})', True, sys.executable)
+	return (f'{pyver} (system / no venv)', False, sys.executable)
+
+
 def display_banner(config: SystemConfig) -> None:
 	"""Render the header, profile badge, and a checked file inventory.
 
@@ -66,6 +95,10 @@ def display_banner(config: SystemConfig) -> None:
 	profile name in a coloured pill and lists files from the profile
 	directory. The user sees at-a-glance whether each expected file exists,
 	how big it is, and when it was last touched.
+
+	Also surfaces the active Python runtime — pip update results depend on
+	*which* interpreter is running, so this is the most useful single line
+	for diagnosing "why isn't my package showing as outdated?".
 	"""
 	rule = '─' * 70
 	title = f'🚀 System Update Python v{_VERSION}'
@@ -83,6 +116,20 @@ def display_banner(config: SystemConfig) -> None:
 	console.print(f'[cyan]│[/cyan] [bold cyan]{title.ljust(69)}[/bold cyan][cyan]│[/cyan]')
 	console.print(f'[cyan]│[/cyan] [dim cyan]{sub.ljust(69)}[/dim cyan][cyan]│[/cyan]')
 	console.print(f'[cyan]└{rule}┘[/cyan]')
+
+	# Python runtime — highlight whether a venv is active so users know
+	# which pip packages will be scanned/updated by default.
+	py_label, in_venv, py_path = _python_runtime_info()
+	if in_venv:
+		runtime_pill = (
+			f'[bold bright_white on green] 🐍 {py_label} [/bold bright_white on green]'
+		)
+	else:
+		runtime_pill = (
+			f'[bold bright_white on yellow] 🐍 {py_label} [/bold bright_white on yellow]'
+		)
+	console.print(f'  Runtime: {runtime_pill}')
+	console.print(f'  [dim]→ {py_path}[/dim]')
 
 	# Profile status line
 	console.print(f'  Profile: {profile_badge}')
@@ -238,7 +285,7 @@ def create_apps_table(
 
 		table.add_row(
 			app.name[:30],
-			f'[{src_color}]{src_icon}{app.source}[/{src_color}]',
+			f'[{src_color}]{src_icon}{display_source(app.source)}[/{src_color}]',
 			app.version,
 			_latest_cell(app),
 			f'[{status_color}]{app.status_display}[/{status_color}]',

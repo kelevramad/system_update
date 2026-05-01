@@ -242,7 +242,12 @@ class VulnerabilityHistory:
 		self._load()
 
 	def _load(self) -> None:
-		"""Read history JSON from disk, tolerating missing or corrupted files."""
+		"""Read history JSON from disk, tolerating missing or corrupted files.
+
+		On corruption: rename the bad file to ``<name>.corrupt-<ts>.bak`` so
+		the user can inspect it manually, then start with an empty history.
+		The next ``_save`` will write a fresh, valid file.
+		"""
 		if not self.history_file.exists():
 			return
 		try:
@@ -250,7 +255,21 @@ class VulnerabilityHistory:
 				data = json.load(f)
 				self.history = data if isinstance(data, list) else []
 		except Exception as e:
-			logger.warning(f'Failed to load vulnerability history: {e}')
+			ts = datetime.now().strftime('%Y%m%d-%H%M%S')
+			backup = self.history_file.with_name(
+				f'{self.history_file.stem}.corrupt-{ts}.bak'
+			)
+			try:
+				self.history_file.rename(backup)
+				logger.warning(
+					f'Vulnerability history corrupt ({e}); '
+					f'moved to {backup.name} and starting fresh.'
+				)
+			except Exception as rename_err:
+				logger.warning(
+					f'Vulnerability history corrupt ({e}); '
+					f'could not back up ({rename_err}). Starting fresh.'
+				)
 			self.history = []
 
 	def _save(self) -> None:

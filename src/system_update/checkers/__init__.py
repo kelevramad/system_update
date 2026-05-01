@@ -71,7 +71,7 @@ def _count_updates(source_apps: List[AppInfo]) -> tuple[int, int]:
 	regular = sum(1 for a in source_apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE)
 	security = sum(
 		1 for a in source_apps
-		if a.update_status == UpdateStatus.VULNERABLE and a.latest_version
+		if a.update_status == UpdateStatus.VULNERABLE and a.has_update
 	)
 	return regular, security
 

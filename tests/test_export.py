@@ -4,6 +4,8 @@ import subprocess
 import tempfile
 import functools
 
+from system_update import AppInfo, UpdateStatus, export
+
 PYTHON = sys.executable
 
 
@@ -77,3 +79,28 @@ def test_export_diff():
 			['--export', 'diff', '--output', output_file, '--source', 'chocolatey'], timeout=120
 		)
 		assert os.path.exists(output_file) or res['code'] == 0
+
+
+def test_exports_render_sources_lowercase(tmp_path):
+	apps = [
+		AppInfo(
+			name='Demo',
+			source='PIP',
+			version='1.0.0',
+			latest_version='1.1.0',
+			update_status=UpdateStatus.UPDATE_AVAILABLE,
+			security_findings=[{'cve': 'CVE-1', 'severity': 'LOW'}],
+		)
+	]
+	for fmt, suffix in [
+		('csv', 'csv'),
+		('xml', 'xml'),
+		('markdown', 'md'),
+		('diff', 'txt'),
+		('html', 'html'),
+	]:
+		out = tmp_path / f'export.{suffix}'
+		export.export(apps, fmt, str(out))
+		content = out.read_text(encoding='utf-8')
+		assert 'pip' in content
+		assert 'PIP' not in content
