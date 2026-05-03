@@ -15,6 +15,12 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v6.2.1 (May 2026)
+- **Structured `errors.log` format**: Each WARNING/ERROR/CRITICAL line now carries the full debug context — `2026-05-02 13:19:23 | WARNING | logger.name | C:\path\file.py:42 | funcName() | pid=1234 tid=5678 | message`. When the record carries an exception, the full traceback is appended on indented lines so a single grep finds the entire failure context. Same `_DebugFormatter` is now applied to both `errors.log` (WARNING+) and `system.log` (DEBUG+ when `--log` / `--debug`).
+- **`--format compact` redesigned**: was a single overflowing 50-char column that wrapped names across lines. Now a 3-column dense view (icon · package · current → latest) with `no_wrap` + ellipsis on the name and current columns, status markers in the latest column (`✓ up-to-date` green / `↑ <ver>` yellow / `🔥 <ver>` bold red / `✗ error` red / `? unknown` dim), up-to-date rows dimmed so update candidates pop, and a header row clarifying columns.
+- **`--format verbose` Source column**: was `width=10` and truncated `🍫 choco…` / `🖥️ regis…`. Now `min_width=16` with `no_wrap=True` so `🍫 chocolatey` and `🖥️ registry` always fit on a single line (icons take 2 cells under Rich's measurement).
+- **`tests/test_config.py`**: New tests covering the `_DebugFormatter` output (timestamp, file:line, funcName, pid/tid, traceback indentation) and `WarningFileHandler` level + formatter wiring.
+
 ### v6.2.0 (April 2026)
 - **Rollback Support (6.2)**: Every batch update now records a snapshot; one command restores it
   - **Version Snapshots (6.2.1)**: New `src/system_update/snapshots.py` with `SnapshotStore` writing to `~/.system_update/history.db` (tables `snapshots` + `snapshot_packages`). Captures `(name, source, app_id, version_before, version_after, success)` per package. Recorded automatically by `--update-all`, `--update-source`, `--update-package`, and `--interactive`. Skipped during `--dry-run`.

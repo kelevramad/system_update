@@ -15,14 +15,63 @@ from system_update.utils import display_source
 
 
 def _compact_table(apps: List[AppInfo], theme: str, use_icons: bool) -> Table:
-	"""Single-column table: ``icon name → latest`` per row."""
-	table = Table(box=box.SIMPLE, show_header=False, pad_edge=False)
-	table.add_column('Item', width=50)
-	for app in sorted(apps, key=lambda x: x.name):
+	"""Three-column dense view: icon | name | current → latest (or ✓ up-to-date).
+
+	Designed for fast visual scanning. Each row stays on a single line — names
+	are truncated with an ellipsis if they exceed the name column. Up-to-date
+	rows are dimmed so update candidates stand out, and the version column
+	uses a colour ramp (green ✓ for current, yellow ↑ for update,
+	red 🔥 for vulnerable, dim grey for unknown / no version).
+	"""
+	from system_update.models import UpdateStatus
+
+	table = Table(
+		box=box.SIMPLE,
+		show_header=True,
+		header_style='bold cyan',
+		pad_edge=False,
+		expand=False,
+	)
+	table.add_column('', width=2, no_wrap=True)
+	table.add_column('Package', min_width=30, max_width=42, no_wrap=True, overflow='ellipsis')
+	table.add_column('Current', min_width=10, no_wrap=True, overflow='ellipsis', style='dim')
+	table.add_column('→', width=1, justify='center', style='dim')
+	table.add_column('Latest', min_width=14, no_wrap=True, overflow='ellipsis')
+
+	def _state_marker(app: AppInfo) -> tuple:
+		"""Return (latest_text, latest_style) for the right-most column."""
+		st = app.update_status
+		if st == UpdateStatus.VULNERABLE:
+			return (
+				f'🔥 {app.latest_version}' if app.latest_version
+				else '🔥 vulnerable',
+				'bold red',
+			)
+		if st in (UpdateStatus.UPDATE_AVAILABLE, UpdateStatus.SECURITY_UPDATE_AVAILABLE):
+			return (f'↑ {app.latest_version or "?"}', 'bold yellow')
+		if st == UpdateStatus.UP_TO_DATE:
+			return ('✓ up-to-date', 'green')
+		if st == UpdateStatus.ERROR:
+			return ('✗ error', 'red')
+		return ('? unknown', 'dim')
+
+	for app in sorted(apps, key=lambda x: (x.source, x.name.lower())):
 		icon = ThemeManager.get_source_icon(app.source) if use_icons else ''
-		color = ThemeManager.get_source_color(app.source, theme)
-		row_text = f'{icon} {app.name} → {app.latest_version or "up-to-date"}'
-		table.add_row(f'[{color}]{row_text}[/{color}]')
+		src_color = ThemeManager.get_source_color(app.source, theme)
+		latest_text, latest_style = _state_marker(app)
+
+		# Dim the whole row when the package is up-to-date so updatable
+		# entries pop visually.
+		dim = app.update_status == UpdateStatus.UP_TO_DATE
+		name_style = 'dim white' if dim else 'bold white'
+
+		table.add_row(
+			f'[{src_color}]{icon}[/{src_color}]',
+			f'[{name_style}]{app.name}[/{name_style}]',
+			app.version or '-',
+			'→',
+			f'[{latest_style}]{latest_text}[/{latest_style}]',
+		)
 	return table
 
 
@@ -41,7 +90,10 @@ def _verbose_table(apps: List[AppInfo], theme: str, use_icons: bool) -> Table:
 		pad_edge=False,
 	)
 	table.add_column('Package', style='bold white', width=25)
-	table.add_column('Source', width=10)
+	# 16 fits "🍫 chocolatey" (icon takes 2 cells) and "🖥️ registry"
+	# without wrapping or truncating. ``no_wrap`` keeps it on one line if a
+	# longer source ever appears.
+	table.add_column('Source', min_width=16, no_wrap=True)
 	table.add_column('Version', width=15)
 	table.add_column('Latest', width=15)
 	table.add_column('Status', width=20)

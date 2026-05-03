@@ -1,6 +1,90 @@
-import pytest
 import json
+import logging
+from types import SimpleNamespace
 from unittest.mock import patch
+
+import pytest
+
+
+def _close_root_handlers():
+	root_logger = logging.getLogger()
+	for handler in root_logger.handlers[:]:
+		root_logger.removeHandler(handler)
+		handler.close()
+
+
+def test_log_flag_writes_info_without_console_output(tmp_path, capsys):
+	from system_update.config import setup_logging
+
+	config = SimpleNamespace(log_file=tmp_path / 'system.log', config_dir=tmp_path)
+	try:
+		setup_logging(config, enable_log=True)
+		logging.getLogger('system_update.security').info("Security check sources: ['npm']")
+		for handler in logging.getLogger().handlers:
+			handler.flush()
+
+		captured = capsys.readouterr()
+		assert 'Security check sources' not in captured.out
+		assert 'Security check sources' not in captured.err
+		log_content = config.log_file.read_text(encoding='utf-8')
+		assert 'System Update execution started:' in log_content
+		assert 'Security check sources' in log_content
+	finally:
+		_close_root_handlers()
+
+
+def test_logging_divider_precedes_first_log_entry(tmp_path):
+	from system_update.config import setup_logging
+
+	config = SimpleNamespace(log_file=tmp_path / 'system.log', config_dir=tmp_path)
+	try:
+		setup_logging(config, enable_log=True)
+		logging.getLogger('system_update.test').info('First real log line')
+		for handler in logging.getLogger().handlers:
+			handler.flush()
+
+		log_content = config.log_file.read_text(encoding='utf-8')
+		assert log_content.index('System Update execution started:') < log_content.index(
+			'First real log line'
+		)
+		assert '====================================================================================================' in log_content
+	finally:
+		_close_root_handlers()
+
+
+def test_logging_setup_without_records_does_not_write_orphan_divider(tmp_path):
+	from system_update.config import setup_logging
+
+	config = SimpleNamespace(log_file=tmp_path / 'system.log', config_dir=tmp_path)
+	try:
+		setup_logging(config, enable_log=True)
+		_close_root_handlers()
+
+		setup_logging(config, enable_log=True)
+		logging.getLogger('system_update.test').info('First real log line')
+		for handler in logging.getLogger().handlers:
+			handler.flush()
+
+		log_content = config.log_file.read_text(encoding='utf-8')
+		assert log_content.count('System Update execution started:') == 1
+		assert 'First real log line' in log_content
+	finally:
+		_close_root_handlers()
+
+
+def test_debug_flag_echoes_info_to_stderr(tmp_path, capsys):
+	from system_update.config import setup_logging
+
+	config = SimpleNamespace(log_file=tmp_path / 'system.log', config_dir=tmp_path)
+	try:
+		setup_logging(config, debug=True, enable_log=True)
+		logging.getLogger('system_update.security').info("Security check sources: ['npm']")
+
+		captured = capsys.readouterr()
+		assert 'Security check sources' not in captured.out
+		assert "INFO: Security check sources: ['npm']" in captured.err
+	finally:
+		_close_root_handlers()
 
 
 def test_system_config_migration(tmp_path, monkeypatch):

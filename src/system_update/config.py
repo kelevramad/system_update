@@ -399,14 +399,89 @@ class SystemConfig:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+class _DebugFormatter(logging.Formatter):
+	"""Detailed logging format used by ``errors.log`` and the primary log file.
+
+	Includes ISO timestamp (with milliseconds), level, fully-qualified logger
+	name, source file:line, function, process/thread ids, and the message.
+	When the record carries an exception, the traceback is appended on
+	following lines so a single grep finds the full failure context.
+	"""
+
+	default_msec_format = '%s.%03d'
+
+	def format(self, record: logging.LogRecord) -> str:
+		# Render absolute (not relative) path so log lines are clickable in
+		# editors and unambiguous when multiple installs share a log dir.
+		try:
+			location = f'{Path(record.pathname).resolve()}:{record.lineno}'
+		except Exception:
+			location = f'{record.pathname}:{record.lineno}'
+
+		header = (
+			f'{self.formatTime(record, self.datefmt)} | '
+			f'{record.levelname:<8} | '
+			f'{record.name} | '
+			f'{location} | '
+			f'{record.funcName}() | '
+			f'pid={record.process} tid={record.thread} | '
+			f'{record.getMessage()}'
+		)
+
+		# Exception info → multiline indented block so the grep-by-prefix
+		# pattern still works for the header line.
+		if record.exc_info:
+			tb = self.formatException(record.exc_info)
+			header += '\n  ' + tb.replace('\n', '\n  ')
+		if record.stack_info:
+			header += '\n  ' + record.stack_info.replace('\n', '\n  ')
+		return header
+
+
 class WarningFileHandler(logging.FileHandler):
-	"""File handler that only records WARNING and above."""
+	"""File handler that only records WARNING and above with full context.
+
+	Writes to ``errors.log`` using :class:`_DebugFormatter` so each entry
+	has timestamp, level, module, file:line, function, pid/tid, and the
+	full traceback when one is available.
+	"""
 
 	def __init__(
 		self, filename, mode: str = 'a', encoding: str = 'utf-8', delay: bool = False
 	) -> None:
 		super().__init__(filename, mode, encoding, delay)
 		self.setLevel(logging.WARNING)
+		self.setFormatter(_DebugFormatter(datefmt='%Y-%m-%d %H:%M:%S'))
+
+
+class SystemLogFileHandler(logging.FileHandler):
+	"""Primary log handler that separates executions before the first record."""
+
+	def __init__(
+		self, filename, mode: str = 'a', encoding: str = 'utf-8', delay: bool = False
+	) -> None:
+		super().__init__(filename, mode, encoding, delay)
+		self._divider_written = False
+
+	def emit(self, record: logging.LogRecord) -> None:
+		if not self._divider_written:
+			self._write_execution_divider()
+			self._divider_written = True
+		super().emit(record)
+
+	def _write_execution_divider(self) -> None:
+		if self.stream is None:
+			self.stream = self._open()
+
+		started_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+		divider = '=' * 100
+		prefix = '\n' if self.stream.tell() else ''
+		self.stream.write(
+			f'{prefix}{divider}\n'
+			f'System Update execution started: {started_at}\n'
+			f'{divider}\n'
+		)
+		self.flush()
 
 
 def setup_logging(
@@ -414,34 +489,27 @@ def setup_logging(
 	debug: bool = False,
 	enable_log: bool = False,
 ) -> None:
-	"""Configure root logger: console handler + primary + warning-only files.
+	"""Configure root logger: primary log file + warning-only error file.
 
 	Args:
 		config: The active :class:`SystemConfig` — its ``log_file`` and
 			``config_dir`` determine where log files go.
-		debug: If True, console level is DEBUG and all commands are echoed.
-		enable_log: If True, console level is INFO; otherwise WARNING.
+		debug: If True, verbose logs are also echoed to stderr.
+		enable_log: If True, INFO logs are written to ``system.log``.
 	"""
 	root_logger = logging.getLogger()
 
 	for handler in root_logger.handlers[:]:
 		root_logger.removeHandler(handler)
 
-	if debug:
-		level = logging.DEBUG
-	elif enable_log:
-		level = logging.INFO
-	else:
-		level = logging.WARNING
-
-	file_handler = logging.FileHandler(config.log_file, encoding='utf-8')
-	file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+	file_handler = SystemLogFileHandler(config.log_file, encoding='utf-8')
+	file_handler.setFormatter(_DebugFormatter(datefmt='%Y-%m-%d %H:%M:%S'))
 	file_handler.setLevel(logging.DEBUG)
 	root_logger.addHandler(file_handler)
 
-	console_handler = logging.StreamHandler(sys.stdout)
+	console_handler = logging.StreamHandler(sys.stderr)
 	console_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
-	console_handler.setLevel(level)
+	console_handler.setLevel(logging.DEBUG if debug else logging.WARNING)
 	if hasattr(console_handler.stream, 'reconfigure'):
 		console_handler.stream.reconfigure(encoding='utf-8', errors='replace')
 	root_logger.addHandler(console_handler)

@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 6.2.0
+**Document Version:** 6.2.1
 **Last Updated:** April 23, 2026
 **Author:** Qwen Code
-**Based On:** `src/system_update/` package (v6.2.0)
+**Based On:** `src/system_update/` package (v6.2.1)
 
 ---
 
@@ -912,6 +912,7 @@ Errors are displayed with appropriate styling:
 | 5.6.0 | April 2026 | Data Sharing (5.4): `--import`, `--merge`, `--cloud-sync` (file + http backends); detailed sub-help system (`--explain <topic>`, `--<flag> help`) with 13 topics. Report Templates (5.3): custom HTML template path, base64-embedded logo, branding block (title, subtitle, company, colors, footer); new CLI flags `--html-template`, `--html-logo`, `--html-title`, `--html-company`; `report_templates` module |
 | 6.1.0 | April 2026 | Scheduled Updates (6.1): `--schedule create\|delete\|list\|status\|run\|eval` wraps Windows Task Scheduler; daily/weekly/hourly/monthly/onstart/onlogon recurrences; conditional actions engine (`any_critical_cves`, `n_updates_gte:N`, `security_updates_only` → `notify`/`log`/`auto_update`); `--schedule list` table now shows Last Run + Last Result columns |
 | 6.2.0 | April 2026 | Rollback Support (6.2): version snapshots auto-recorded for every batch update (`snapshots.py`, SQLite); `--rollback <id>\|last` re-installs `version_before` per package; `--snapshot list\|show\|delete`. Cross-interpreter pip safety: scanner records originating interpreter, update/rollback target it; `pip-audit` filtered against installed version. Context-aware pip default (venv-only / system-only); cache pip-context invalidation on env switch; `VIRTUAL_ENV` scrub for global Python under `uv run`. CVE table surfaced before update prompts; `--update-source` no longer auto-`--yes`. New `--exclude`, `--save-config`, profile import/export wired through |
+| 6.2.1 | May 2026 | Structured `errors.log` format (timestamp, level, logger, file:line, function, pid/tid, traceback). `--format compact` redesigned as a 3-column dense view with status markers (✓ up-to-date / ↑ update / 🔥 vulnerable / ✗ error) and ellipsis truncation — no more mid-line wrap. `--format verbose` Source column widened so `🍫 chocolatey` and `🖥️ registry` fit on one line |
 
 ## Appendix B: Glossary
 
