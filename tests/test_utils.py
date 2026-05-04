@@ -1,6 +1,7 @@
 import subprocess as sp
 import pytest
 import json
+import logging
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 from system_update import (
@@ -230,6 +231,24 @@ def test_run_command_allow_failure(mock_sub):
 	mock_sub.return_value = MagicMock(returncode=1, stdout='Error output', stderr='', text=True)
 	result = run_command(['test'], allow_failure=True)
 	assert result == 'Error output'
+
+
+@patch('subprocess.run')
+def test_run_command_logs_failed_output_at_warning(mock_sub, caplog):
+	mock_sub.return_value = MagicMock(
+		returncode=1,
+		stdout='Access to the path is denied.',
+		stderr='Chocolatey upgraded 0/0 packages.',
+		text=True,
+	)
+
+	with caplog.at_level(logging.WARNING, logger='system_update.utils'):
+		result = run_command(['choco', 'upgrade', 'dbeaver', '-y'])
+
+	assert result is None
+	assert 'Command failed (exit 1): choco upgrade dbeaver -y' in caplog.text
+	assert 'Access to the path is denied.' in caplog.text
+	assert 'Chocolatey upgraded 0/0 packages.' in caplog.text
 
 
 @patch('subprocess.run')

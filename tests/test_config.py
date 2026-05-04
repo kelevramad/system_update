@@ -87,6 +87,31 @@ def test_debug_flag_echoes_info_to_stderr(tmp_path, capsys):
 		_close_root_handlers()
 
 
+def test_failed_exec_warning_is_system_log_only(tmp_path, capsys):
+	from system_update.config import setup_logging
+
+	config = SimpleNamespace(log_file=tmp_path / 'system.log', config_dir=tmp_path)
+	try:
+		setup_logging(config, enable_log=True)
+		logging.getLogger('system_update.utils').warning(
+			'[EXEC] Command failed (exit 1): choco upgrade dbeaver -y\nstdout:\ndenied'
+		)
+		for handler in logging.getLogger().handlers:
+			handler.flush()
+
+		captured = capsys.readouterr()
+		assert '[EXEC] Command failed' not in captured.out
+		assert '[EXEC] Command failed' not in captured.err
+
+		log_content = config.log_file.read_text(encoding='utf-8')
+		assert '[EXEC] Command failed' in log_content
+		assert 'stdout:' in log_content
+		error_content = (config.config_dir / 'errors.log').read_text(encoding='utf-8')
+		assert '[EXEC] Command failed' not in error_content
+	finally:
+		_close_root_handlers()
+
+
 def test_system_config_migration(tmp_path, monkeypatch):
 	from system_update import SystemConfig
 	import json

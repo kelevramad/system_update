@@ -454,6 +454,17 @@ class WarningFileHandler(logging.FileHandler):
 		self.setFormatter(_DebugFormatter(datefmt='%Y-%m-%d %H:%M:%S'))
 
 
+class _SuppressExecFailureFilter(logging.Filter):
+	"""Keep noisy subprocess diagnostics in the primary system log only."""
+
+	def filter(self, record: logging.LogRecord) -> bool:
+		message = record.getMessage()
+		return not (
+			record.name == 'system_update.utils'
+			and message.startswith('[EXEC] Command failed')
+		)
+
+
 class SystemLogFileHandler(logging.FileHandler):
 	"""Primary log handler that separates executions before the first record."""
 
@@ -510,11 +521,13 @@ def setup_logging(
 	console_handler = logging.StreamHandler(sys.stderr)
 	console_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
 	console_handler.setLevel(logging.DEBUG if debug else logging.WARNING)
+	console_handler.addFilter(_SuppressExecFailureFilter())
 	if hasattr(console_handler.stream, 'reconfigure'):
 		console_handler.stream.reconfigure(encoding='utf-8', errors='replace')
 	root_logger.addHandler(console_handler)
 
 	error_handler = WarningFileHandler(config.config_dir / 'errors.log')
+	error_handler.addFilter(_SuppressExecFailureFilter())
 	root_logger.addHandler(error_handler)
 
 	root_logger.setLevel(logging.DEBUG)

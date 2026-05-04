@@ -14,7 +14,7 @@ from system_update.models import AppInfo, UpdateStatus
 from system_update.ui.theme import ThemeManager
 from system_update.utils import console, display_source, source_badge
 
-_VERSION = '5.2.0'
+_VERSION = '6.2.2'
 _SEVERITY_PRIORITY = {'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3, 'UNKNOWN': 4}
 _SEVERITY_COLORS = {
 	'CRITICAL': 'bold red',
@@ -88,107 +88,144 @@ def _python_runtime_info() -> tuple:
 	return (f'{pyver} (system / no venv)', False, sys.executable)
 
 
-def display_banner(config: SystemConfig) -> None:
-	"""Render the header, profile badge, and a checked file inventory.
+def _file_inventory_table(rows: list) -> Table:
+	"""Compact 3-column file inventory: status · name · size · mtime.
 
-	Profile-aware: when ``--profile X`` is active the banner displays the
-	profile name in a coloured pill and lists files from the profile
-	directory. The user sees at-a-glance whether each expected file exists,
-	how big it is, and when it was last touched.
-
-	Also surfaces the active Python runtime — pip update results depend on
-	*which* interpreter is running, so this is the most useful single line
-	for diagnosing "why isn't my package showing as outdated?".
+	The full path is intentionally omitted — the directory header line above
+	the table already shows it, and including it forced ugly mid-path
+	wrapping inside the banner panel.
 	"""
-	rule = '─' * 70
-	title = f'🚀 System Update Python v{_VERSION}'
+	from datetime import datetime
+
+	t = Table(box=None, show_header=False, pad_edge=False, padding=(0, 2))
+	t.add_column('', width=2, no_wrap=True)
+	t.add_column('Name', style='white', no_wrap=True, min_width=28)
+	t.add_column('Size', style='dim', no_wrap=True, justify='right', min_width=10)
+	t.add_column('Modified', style='dim', no_wrap=True)
+	for label, path in rows:
+		if path.is_file():
+			try:
+				stat = path.stat()
+				size = _format_size(stat.st_size)
+				mtime = datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M')
+			except OSError:
+				size, mtime = '-', '-'
+			t.add_row('[green]✅[/green]', label, size, mtime)
+		else:
+			t.add_row('❌', label, '[red]missing[/red]', '')
+	return t
+
+
+def _profile_chip_row(profile: str | None, available: list) -> Text:
+	"""Build the ``Profiles available:`` chip line as a single Text object."""
+	out = Text()
+	out.append('Profiles ', style='dim')
+	if not available:
+		out.append('none — create one via ', style='dim italic')
+		out.append('--profile <name>', style='cyan')
+		return out
+	for p in available:
+		if p == profile:
+			out.append(f' ★ {p} ', style='bold bright_white on green')
+		else:
+			out.append(f' {p} ', style='bold bright_white on grey23')
+		out.append(' ')
+	return out
+
+
+def display_banner(config: SystemConfig) -> None:
+	"""Render a single grouped panel: header · runtime · profile · files · profiles.
+
+	Replaces the previous loose-output banner that printed five separate
+	blocks. Everything now lives inside one bordered Panel so the user sees
+	the whole startup context at a glance, and the file inventory uses a
+	right-aligned table so sizes / mtimes line up regardless of name length.
+	"""
+	from rich.console import Group
+	from rich.panel import Panel
+
 	profile = getattr(config, 'current_profile', None)
+	py_label, in_venv, py_path = _python_runtime_info()
+
+	# ── Top metadata row: title · version · runtime · profile ─────────────
+	header = Table(box=None, show_header=False, pad_edge=False, padding=(0, 2))
+	header.add_column(style='bold cyan', no_wrap=True)
+	header.add_column(no_wrap=True, overflow='fold')
+
+	header.add_row(
+		'🚀 System Update', f'[bold cyan]v{_VERSION}[/bold cyan]'
+	)
+	venv_style = 'bold bright_white on green' if in_venv else 'bold bright_white on yellow'
+	header.add_row(
+		'🐍 Runtime',
+		f'[{venv_style}] {py_label} [/{venv_style}]\n[dim]→ {py_path}[/dim]',
+	)
 	if profile:
-		profile_badge = (
+		profile_pill = (
 			f'[bold bright_white on cyan] 👤 {profile} [/bold bright_white on cyan]'
 		)
-		sub = f'⚙️ Data dir: {config.config_dir}'
 	else:
-		profile_badge = '[bright_white]👤 default profile[/bright_white]'
-		sub = f'⚙️ Data dir: {config.config_dir}'
+		profile_pill = '[bright_white]👤 default[/bright_white]'
+	header.add_row('📂 Profile', profile_pill)
 
-	console.print(f'[cyan]┌{rule}┐[/cyan]')
-	console.print(f'[cyan]│[/cyan] [bold cyan]{title.ljust(69)}[/bold cyan][cyan]│[/cyan]')
-	console.print(f'[cyan]│[/cyan] [dim cyan]{sub.ljust(69)}[/dim cyan][cyan]│[/cyan]')
-	console.print(f'[cyan]└{rule}┘[/cyan]')
-
-	# Python runtime — highlight whether a venv is active so users know
-	# which pip packages will be scanned/updated by default.
-	py_label, in_venv, py_path = _python_runtime_info()
-	if in_venv:
-		runtime_pill = (
-			f'[bold bright_white on green] 🐍 {py_label} [/bold bright_white on green]'
-		)
-	else:
-		runtime_pill = (
-			f'[bold bright_white on yellow] 🐍 {py_label} [/bold bright_white on yellow]'
-		)
-	console.print(f'  Runtime: {runtime_pill}')
-	console.print(f'  [dim]→ {py_path}[/dim]')
-
-	# Profile status line
-	console.print(f'  Profile: {profile_badge}')
-
-	# Profile-scoped files (config + cache + per-profile log).
+	# ── File inventory ────────────────────────────────────────────────────
 	if profile:
 		profile_dir = Path(config.profiles_dir) / profile
-		console.print(f'[dim white]📁 Profile data → {profile_dir}[/dim white]')
-		for label, path in (
-			('config.json', config.config_file),
-			('cache.json', config.cache_file),
-			('system.log', config.log_file),
-		):
-			console.print(_file_row(label, Path(path)))
-		console.print(f'[dim white]🌐 Shared data  → {config.config_dir}[/dim white]')
+		profile_rows = [
+			('config.json', Path(config.config_file)),
+			('cache.json', Path(config.cache_file)),
+			('system.log', Path(config.log_file)),
+		]
 		shared_rows = [
 			('history.db', Path(config.config_dir) / 'history.db'),
 			('vulnerability_history.json',
 				Path(config.config_dir) / 'vulnerability_history.json'),
 			('errors.log', Path(config.config_dir) / 'errors.log'),
 		]
+		files_block = Group(
+			Text(f'📁 Profile data → {profile_dir}', style='dim white'),
+			_file_inventory_table(profile_rows),
+			Text(f'🌐 Shared data  → {config.config_dir}', style='dim white'),
+			_file_inventory_table(shared_rows),
+		)
 	else:
-		console.print(f'[dim white]📁 Files in {config.config_dir}:[/dim white]')
 		shared_rows = [
-			('config.json', config.config_file),
-			('cache.json', config.cache_file),
+			('config.json', Path(config.config_file)),
+			('cache.json', Path(config.cache_file)),
 			('history.db', Path(config.config_dir) / 'history.db'),
 			('vulnerability_history.json',
 				Path(config.config_dir) / 'vulnerability_history.json'),
-			('system.log', config.log_file),
+			('system.log', Path(config.log_file)),
 			('errors.log', Path(config.config_dir) / 'errors.log'),
 		]
-	for label, path in shared_rows:
-		console.print(_file_row(label, Path(path)))
+		files_block = Group(
+			Text(f'📁 {config.config_dir}', style='dim white'),
+			_file_inventory_table(shared_rows),
+		)
 
-	# List available profiles (if any) so users see what they can switch to.
+	# ── Profiles row ──────────────────────────────────────────────────────
 	profiles_dir = Path(config.profiles_dir)
 	if profiles_dir.is_dir():
 		available = sorted(p.name for p in profiles_dir.iterdir() if p.is_dir())
 	else:
 		available = []
-	if available:
-		chips = []
-		for p in available:
-			if p == profile:
-				chips.append(
-					f'[bold bright_white on green] ★ {p} [/bold bright_white on green]'
-				)
-			else:
-				chips.append(
-					f'[bold bright_white on grey23] {p} [/bold bright_white on grey23]'
-				)
-		console.print(f'  [dim]Profiles available:[/dim] {" ".join(chips)}')
-	else:
-		console.print(
-			'  [dim]Profiles available:[/dim] [dim italic]none — '
-			'create one via [/dim italic][cyan]--profile <name>[/cyan]'
-		)
-	console.print()
+
+	body = Group(
+		header,
+		Text(),  # blank line
+		files_block,
+		Text(),
+		_profile_chip_row(profile, available),
+	)
+
+	console.print(Panel(
+		body,
+		title='[bold cyan]System Update[/bold cyan]',
+		title_align='left',
+		border_style='cyan',
+		padding=(0, 1),
+		expand=True,
+	))
 
 
 def display_summary(
@@ -199,37 +236,68 @@ def display_summary(
 	show_all: bool = False,  # noqa: ARG001 — reserved for future "all apps" variant
 	security_stats: Optional[Dict] = None,
 ) -> None:
-	"""Print the scan summary with per-source counts + optional security block."""
-	console.print('[bold magenta]📊 Summary[/bold magenta]')
-	console.print(f'📦 total apps     [bold white]{total_apps}[/bold white]')
-	console.print(f'🔄 updates        [bold yellow]{updates}[/bold yellow]')
-	console.print(f'⏱️ scan duration  [bold white]{scan_time:.2f}s[/bold white]')
+	"""Render the scan summary as a single grouped panel.
 
-	parts = [
-		f'{source_badge(s)}:[bold white]{c}[/bold white]'
-		for s, c in sorted(sources_count.items())
+	Top KPI strip: total / updates / vulns / scan time. Source distribution
+	is rendered as colored chips in a single line. Security breakdown
+	(if any) gets its own row.
+	"""
+	from rich.console import Group
+	from rich.panel import Panel
+
+	# ── KPI strip ─────────────────────────────────────────────────────────
+	vulns = (security_stats or {}).get('total_vulnerabilities', 0)
+	pkgs_affected = (security_stats or {}).get('packages_affected', 0)
+	persistent = (security_stats or {}).get('persistent_vulnerabilities', 0)
+
+	kpis = Table(box=None, show_header=False, pad_edge=False, padding=(0, 2))
+	kpis.add_row(
+		f'📦 [bold white]{total_apps}[/bold white] [dim]total[/dim]',
+		f'🔄 [bold yellow]{updates}[/bold yellow] [dim]updates[/dim]',
+		f'🔥 [bold red]{vulns}[/bold red] [dim]vulns[/dim]',
+		f'⏱️ [bold white]{scan_time:.2f}s[/bold white]',
+	)
+
+	# ── Source distribution chips ────────────────────────────────────────
+	chip_parts = [
+		f'{source_badge(s)}[bold white]:{c}[/bold white]'
+		for s, c in sorted(sources_count.items(), key=lambda kv: -kv[1])
 		if c > 0
 	]
-	console.print(f'⚙️ sources        {", ".join(parts)}')
+	sources_line = Text.from_markup(
+		'⚙️ [dim]sources:[/dim] ' + '  '.join(chip_parts)
+		if chip_parts
+		else '[dim]No sources scanned.[/dim]'
+	)
 
-	if security_stats and security_stats.get('total_vulnerabilities', 0) > 0:
+	rows = [kpis, sources_line]
+
+	# ── Security severity row ────────────────────────────────────────────
+	if security_stats and vulns > 0:
 		breakdown = security_stats.get('severity_breakdown', {})
 		sev_parts = [
-			f'[{_SEVERITY_COLORS[sev]}]{sev}[/{_SEVERITY_COLORS[sev]}]: {breakdown.get(sev, 0)}'
+			f'[{_SEVERITY_COLORS[sev]}]{sev}[/{_SEVERITY_COLORS[sev]}]: '
+			f'[bold]{breakdown.get(sev, 0)}[/bold]'
 			for sev in ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW')
 			if breakdown.get(sev, 0) > 0
 		]
-		if sev_parts:
-			console.print(f'🛡️ severity       {" | ".join(sev_parts)}')
-		console.print(
-			f'📦 pkgs affected  [bold white]'
-			f'{security_stats.get("packages_affected", 0)}[/bold white]'
+		sec_line = Text.from_markup(
+			f'🛡️ [dim]severity:[/dim] {"  ".join(sev_parts)}   '
+			f'[dim]·[/dim]   📦 [bold white]{pkgs_affected}[/bold white] '
+			f'[dim]packages affected[/dim]   '
+			f'[dim]·[/dim]   🔁 [bold yellow]{persistent}[/bold yellow] '
+			f'[dim]persistent[/dim]'
 		)
-		console.print(
-			f'🔁 persistent     [bold yellow]'
-			f'{security_stats.get("persistent_vulnerabilities", 0)}[/bold yellow]'
-		)
-	console.print()
+		rows.append(sec_line)
+
+	console.print(Panel(
+		Group(*rows),
+		title='[bold magenta]📊 Summary[/bold magenta]',
+		title_align='left',
+		border_style='magenta',
+		padding=(0, 1),
+		expand=True,
+	))
 
 
 def _latest_cell(app: AppInfo) -> object:

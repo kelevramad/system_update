@@ -19,7 +19,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
-from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn
 from rich.prompt import Prompt
 
 from system_update.cache import CacheManager
@@ -273,19 +272,9 @@ class SystemUpdateApp:
 
 		max_workers = self.settings.get('performance', {}).get('max_workers', 4)
 		all_apps: List[AppInfo] = []
+		from system_update.ui.progress import make_progress
 
-		with Progress(
-			TextColumn('{task.description}'),
-			BarColumn(
-				bar_width=16,
-				complete_style='cyan',
-				style='dim cyan',
-				finished_style='cyan',
-			),
-			MofNCompleteColumn(),
-			TimeElapsedColumn(),
-			console=console,
-		) as progress:
+		with make_progress() as progress:
 			tasks = {
 				name: progress.add_task(f'🔎 {source_badge(name)}', total=1) for name, _ in selected
 			}

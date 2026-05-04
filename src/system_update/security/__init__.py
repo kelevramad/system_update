@@ -6,12 +6,10 @@ import logging
 import os
 from typing import Dict, List, Tuple
 
-from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn
-
 from system_update.models import AppInfo
 from system_update.security import github, local, npm, osv, pip, pypi
 from system_update.security.common import OSV_ECOSYSTEM_MAP, score_to_severity
-from system_update.utils import console
+from system_update.ui.progress import make_progress
 
 logger = logging.getLogger(__name__)
 
@@ -76,18 +74,7 @@ def check_all(apps: List[AppInfo], advisory_file: str = '') -> List[Dict]:
 	logger.info(f'Security check sources: {[s[0] for s in active]}')
 
 	vulns: List[Dict] = []
-	with Progress(
-		TextColumn('{task.description}'),
-		BarColumn(
-			bar_width=16,
-			complete_style='red',
-			style='dim red',
-			finished_style='red',
-		),
-		MofNCompleteColumn(),
-		TimeElapsedColumn(),
-		console=console,
-	) as progress:
+	with make_progress() as progress:
 		tasks = {name: progress.add_task(f'🔒 {name}', total=1) for name, _ in active}
 
 		for source_name, source_apps in active:

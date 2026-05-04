@@ -30,6 +30,13 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+def _log_excerpt(text: str, limit: int = 8000) -> str:
+	"""Return enough command output for failure diagnostics without huge logs."""
+	if len(text) <= limit:
+		return text
+	return f'{text[:limit]}...[truncated {len(text) - limit} chars]'
+
+
 def run_command(
 	cmd: List[str],
 	timeout: int = 45,
@@ -118,7 +125,16 @@ def run_command(
 			logger.debug(f'[EXEC] stderr ({stderr_len} chars): {stderr_trunc}')
 
 		if result.returncode != 0 and not allow_failure:
-			logger.warning(f'[EXEC] Command failed (exit {result.returncode}): {cmd_str}')
+			details = []
+			if result.stdout:
+				details.append(f'stdout:\n{_log_excerpt(result.stdout.rstrip())}')
+			if result.stderr:
+				details.append(f'stderr:\n{_log_excerpt(result.stderr.rstrip())}')
+			joined_details = '\n'.join(details)
+			output = f'\n{joined_details}' if joined_details else ''
+			logger.warning(
+				f'[EXEC] Command failed (exit {result.returncode}): {cmd_str}{output}'
+			)
 			return None
 
 		if include_stderr:

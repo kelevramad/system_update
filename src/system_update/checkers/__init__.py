@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn
+from system_update.ui.progress import make_progress
 
 from system_update.checkers import (
 	bun,
@@ -28,7 +28,7 @@ from system_update.checkers import (
 	yarn,
 )
 from system_update.models import AppInfo, UpdateStatus
-from system_update.utils import console, source_badge
+from system_update.utils import source_badge
 
 # Sources whose checkers call ``run_command``/remote APIs to set status
 # themselves. Apps from these sources without a confirmed update should be
@@ -91,18 +91,7 @@ def check_all_updates(apps: List[AppInfo]) -> int:
 	active_sources = _group_by_source(apps)
 	total_updates = 0
 
-	with Progress(
-		TextColumn('{task.description}'),
-		BarColumn(
-			bar_width=16,
-			complete_style='yellow',
-			style='dim yellow',
-			finished_style='yellow',
-		),
-		MofNCompleteColumn(),
-		TimeElapsedColumn(),
-		console=console,
-	) as progress:
+	with make_progress() as progress:
 		tasks = {
 			source: progress.add_task(f'🔄 {source_badge(source)}', total=1)
 			for source in active_sources
