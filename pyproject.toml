@@ -1,6 +1,6 @@
 [project]
 name = "system-update-cli"
-version = "6.4.0"
+version = "6.5.0"
 description = "Cross-platform package manager scanner/updater"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -17,6 +17,7 @@ system-update = "system_update.cli:_main_entry"
 
 [dependency-groups]
 dev = [
+    "isort>=6.1.0",
     "pytest>=8.3.0",
     "pytest-cov>=6.0.0",
     "ruff>=0.7.0",

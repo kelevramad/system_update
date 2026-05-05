@@ -28,6 +28,7 @@ from system_update.executors import UpdateExecutor
 from system_update.history import HistoryDatabase, VulnerabilityHistory
 from system_update.models import AppInfo, UpdateStatus
 from system_update.notifications import NotificationManager
+from system_update.plugins import PluginRegistry, load_plugins, scanner_map
 from system_update.scanners import PackageScanner
 from system_update.security import SecurityChecker
 from system_update.ui import DisplayFormatter, UISystem
@@ -100,10 +101,13 @@ def _parse_source_filter(raw: Optional[str]) -> Set[str]:
 	}
 
 
-def _partition_sources(raw: Optional[str]) -> Tuple[Set[str], Set[str]]:
+def _partition_sources(
+	raw: Optional[str], extra_sources: Optional[Set[str]] = None
+) -> Tuple[Set[str], Set[str]]:
 	"""Split ``--source a,b,xpto`` into (valid_canonical, invalid_raw_tokens)."""
 	if not raw:
 		return set(), set()
+	known = _KNOWN_SOURCES | (extra_sources or set())
 	valid: Set[str] = set()
 	invalid: Set[str] = set()
 	for item in raw.split(','):
@@ -112,7 +116,7 @@ def _partition_sources(raw: Optional[str]) -> Tuple[Set[str], Set[str]]:
 			continue
 		lowered = token.lower()
 		canonical = _SOURCE_ALIASES.get(lowered, lowered)
-		if canonical in _KNOWN_SOURCES or lowered in _KNOWN_SOURCES:
+		if canonical in known or lowered in known:
 			valid.add(canonical)
 		else:
 			invalid.add(token)
@@ -146,7 +150,11 @@ def _parse_exclude_list(raw) -> List[str]:
 	return [item.strip() for item in items if str(item).strip()]
 
 
-def _exclude_matches(app: AppInfo, tokens: List[str]) -> bool:
+def _exclude_matches(
+	app: AppInfo,
+	tokens: List[str],
+	extra_sources: Optional[Set[str]] = None,
+) -> bool:
 	"""Return True if ``app`` should be excluded based on any token.
 
 	Tokens accept three shapes (case-insensitive):
@@ -161,6 +169,7 @@ def _exclude_matches(app: AppInfo, tokens: List[str]) -> bool:
 	name = (app.name or '').lower()
 	source = (app.source or '').lower()
 	app_id = (app.app_id or '').lower()
+	known = _KNOWN_SOURCES | (extra_sources or set())
 	for token in tokens:
 		t = token.strip().lower()
 		if not t:
@@ -172,7 +181,7 @@ def _exclude_matches(app: AppInfo, tokens: List[str]) -> bool:
 		else:
 			# Bare token: prefer source match (most users expect ``--exclude pip``
 			# to drop all pip packages). Fall back to name/app_id otherwise.
-			if t in _KNOWN_SOURCES:
+			if t in known:
 				if t == source:
 					return True
 			elif t == name or t == app_id:
@@ -180,11 +189,15 @@ def _exclude_matches(app: AppInfo, tokens: List[str]) -> bool:
 	return False
 
 
-def _apply_excludes(apps: List[AppInfo], tokens: List[str]) -> List[AppInfo]:
+def _apply_excludes(
+	apps: List[AppInfo],
+	tokens: List[str],
+	extra_sources: Optional[Set[str]] = None,
+) -> List[AppInfo]:
 	"""Drop apps matching any exclude token. No-op if ``tokens`` is empty."""
 	if not tokens:
 		return apps
-	return [a for a in apps if not _exclude_matches(a, tokens)]
+	return [a for a in apps if not _exclude_matches(a, tokens, extra_sources)]
 
 
 def _count_updates(apps: List[AppInfo]) -> int:
@@ -210,11 +223,22 @@ class SystemUpdateApp:
 			self.settings.get('cache', {}).get('duration_hours', 2),
 		)
 		self.notifier = NotificationManager(self.config)
+		self.plugins: PluginRegistry = load_plugins(self.config)
+		self.notifier.plugin_registry = self.plugins
 		self.history_db = HistoryDatabase(Path(self.config.config_dir) / 'history.db')
 		self.vuln_history = VulnerabilityHistory(
 			Path(self.config.config_dir) / 'vulnerability_history.json'
 		)
 		self._include_sources: Set[str] = set()
+
+	@property
+	def plugin_sources(self) -> Set[str]:
+		"""Enabled custom source names registered by plugins."""
+		return {name for name, scanner in self.plugins.scanners.items() if scanner.enabled}
+
+	def _scanner_order(self) -> Tuple[str, ...]:
+		"""Built-in scanner order followed by plugin scanners sorted by source."""
+		return _SCAN_ORDER + tuple(sorted(self.plugin_sources))
 
 	def __del__(self) -> None:
 		try:
@@ -228,6 +252,7 @@ class SystemUpdateApp:
 	def scan_system(self, source_filter: Optional[str] = None) -> List[AppInfo]:
 		"""Run every enabled source scanner in parallel with a per-source progress bar."""
 		scanners = _build_scanner_map()
+		scanners.update(scanner_map(self.plugins))
 
 		include = set(self._include_sources)
 		include.update(_parse_source_filter(source_filter))
@@ -251,7 +276,7 @@ class SystemUpdateApp:
 
 		selected = [
 			(name, scanners[name])
-			for name in _SCAN_ORDER
+			for name in self._scanner_order()
 			if name in scanners and (enabled.get(name, True) or name in include)
 		]
 		if not selected and include:
@@ -391,6 +416,9 @@ class SystemUpdateApp:
 				self.config.cache_file,
 				self.settings.get('cache', {}).get('duration_hours', 2),
 			)
+			self.notifier = NotificationManager(self.config)
+			self.plugins = load_plugins(self.config)
+			self.notifier.plugin_registry = self.plugins
 			try:
 				if self.history_db:
 					self.history_db.close()
@@ -442,9 +470,9 @@ class SystemUpdateApp:
 			# approve. Add ``--yes`` explicitly to skip prompts.
 
 		if getattr(args, 'source', None):
-			valid, invalid = _partition_sources(args.source)
+			valid, invalid = _partition_sources(args.source, self.plugin_sources)
 			if invalid:
-				available = ', '.join(sorted(_SCAN_ORDER))
+				available = ', '.join(self._scanner_order())
 				console.print(
 					f'[yellow]⚠️  Unknown source(s): '
 					f'{", ".join(sorted(invalid))}[/yellow]\n'
@@ -625,7 +653,7 @@ class SystemUpdateApp:
 			exclude_tokens = _parse_exclude_list(self.settings.get('exclude'))
 		if exclude_tokens:
 			before = len(apps)
-			apps = _apply_excludes(apps, exclude_tokens)
+			apps = _apply_excludes(apps, exclude_tokens, self.plugin_sources)
 			dropped = before - len(apps)
 			if dropped:
 				console.print(
@@ -755,7 +783,7 @@ class SystemUpdateApp:
 		if getattr(args, 'source', None):
 			return args.source
 		enabled = self.settings.get('sources', {})
-		return ','.join(name for name in _SCAN_ORDER if enabled.get(name, True))
+		return ','.join(name for name in self._scanner_order() if enabled.get(name, True))
 
 	def _print_available_updates_summary(
 		self, regular_updates: List[AppInfo], security_updates: List[AppInfo]
@@ -1090,6 +1118,9 @@ class SystemUpdateApp:
 
 	def _handle_meta_commands(self, args: Namespace) -> bool:
 		"""Route history/report/interactive flags; return True if the command was consumed."""
+		if getattr(args, 'list_plugins', False):
+			self._show_plugins()
+			return True
 		if getattr(args, 'history', False):
 			self._show_history()
 			return True
@@ -1130,6 +1161,43 @@ class SystemUpdateApp:
 			self._handle_remote(args)
 			return True
 		return False
+
+	def _show_plugins(self) -> None:
+		"""Display loaded plugin scanners/notifiers and load errors."""
+		from rich.table import Table
+
+		table = Table(title='Plugins', expand=True)
+		table.add_column('Type', style='cyan')
+		table.add_column('Name', style='bold')
+		table.add_column('Plugin')
+		table.add_column('Description', style='dim')
+
+		for scanner in sorted(self.plugins.scanners.values(), key=lambda s: s.source):
+			table.add_row(
+				'scanner',
+				scanner.source,
+				scanner.plugin or '-',
+				scanner.description or '-',
+			)
+		for notifier in sorted(self.plugins.notifiers.values(), key=lambda n: n.name):
+			table.add_row(
+				'notifier',
+				notifier.name,
+				notifier.plugin or '-',
+				notifier.description or '-',
+			)
+
+		if not self.plugins.scanners and not self.plugins.notifiers:
+			console.print(
+				'[yellow]No plugins loaded.[/yellow] '
+				f'[dim]Add .py plugins under {Path(self.config.config_dir) / "plugins"} '
+				'or configure plugins.paths.[/dim]'
+			)
+		else:
+			console.print(table)
+
+		for error in self.plugins.errors:
+			console.print(f'[red]✗[/red] {error.path}: {error.error}')
 
 	# ── Remote management (6.4) ───────────────────────────────────────────
 
@@ -1599,7 +1667,7 @@ class SystemUpdateApp:
 
 		raw_source = _str_arg('source')
 		if raw_source:
-			valid, _ = _partition_sources(raw_source)
+			valid, _ = _partition_sources(raw_source, self.plugin_sources)
 			if valid:
 				new_sources = {name: (name in valid) for name in self.settings.get('sources', {})}
 				# Add any canonical names that weren't already in config.

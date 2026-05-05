@@ -124,6 +124,10 @@ class SystemConfig:
 				'custom_script_enabled': False,
 				'custom_script_path': '',
 			},
+			'plugins': {
+				'enabled': True,
+				'paths': [],
+			},
 		}
 
 	def _update_paths(self, profile_name: Optional[str]) -> None:

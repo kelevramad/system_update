@@ -16,6 +16,14 @@ from system_update.models import (
 	UpdateStatus,
 )
 from system_update.notifications import NotificationManager
+from system_update.plugins import (
+	PluginContext,
+	PluginLoadError,
+	PluginNotifier,
+	PluginRegistry,
+	PluginScanner,
+	load_plugins,
+)
 from system_update.checkers import UpdateChecker
 from system_update.cli import main
 from system_update.executors import UpdateExecutor
@@ -41,6 +49,11 @@ __all__ = [
 	'HistoryDatabase',
 	'NotificationManager',
 	'PackageScanner',
+	'PluginContext',
+	'PluginLoadError',
+	'PluginNotifier',
+	'PluginRegistry',
+	'PluginScanner',
 	'SOURCE_ICONS',
 	'SecurityChecker',
 	'SecurityInfo',
@@ -59,6 +72,7 @@ __all__ = [
 	'dependency_graph',
 	'export',
 	'main',
+	'load_plugins',
 	'run_command',
 	'setup_logging',
 	'source_badge',

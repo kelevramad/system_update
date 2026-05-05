@@ -8,10 +8,12 @@ scan → check → security → display → export → update workflow.
 from __future__ import annotations
 
 import sys
+import shutil
 from argparse import Namespace
 from typing import List, Optional
 
 import typer
+import typer.rich_utils as typer_rich_utils
 
 # Force UTF-8 on stdout/stderr so emoji-rich help/sub-help renders on
 # Windows cp1252 consoles. Applied here so it covers both the
@@ -22,6 +24,15 @@ for _stream in (sys.stdout, sys.stderr):
 		_stream.reconfigure(encoding='utf-8', errors='replace')
 	except Exception:
 		pass
+
+
+def _configure_rich_help_width() -> None:
+	"""Keep Rich/Typer help panels away from the terminal's clipping edge."""
+	columns = shutil.get_terminal_size(fallback=(120, 24)).columns
+	typer_rich_utils.MAX_WIDTH = max(80, min(120, columns - 2))
+
+
+_configure_rich_help_width()
 
 
 # Rich-help panel labels (emoji-grouped categories)
@@ -136,312 +147,382 @@ def _intercept_subhelp_argv() -> bool:
 def main(
 	# 🔎 Scanning & Sources
 	source: Optional[str] = typer.Option(
-		None, '--source', '-s',
+		None,
+		'--source',
+		'-s',
 		help='🎯 Limit scan to one or more sources (comma-separated, e.g. [cyan]winget,npm[/cyan]). [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_SCAN,
 	),
 	no_cache: bool = typer.Option(
-		False, '--no-cache',
+		False,
+		'--no-cache',
 		help='🚫 Bypass scan cache and force a fresh scan.',
 		rich_help_panel=PANEL_SCAN,
 	),
 	clear_cache: bool = typer.Option(
-		False, '--clear-cache',
+		False,
+		'--clear-cache',
 		help='🧹 Delete cache file before scanning.',
 		rich_help_panel=PANEL_SCAN,
 	),
 	show_all: bool = typer.Option(
-		False, '--show-all',
+		False,
+		'--show-all',
 		help='👀 Include up-to-date packages in output (default hides them).',
 		rich_help_panel=PANEL_SCAN,
 	),
 	exclude: Optional[str] = typer.Option(
-		None, '--exclude',
+		None,
+		'--exclude',
 		help='🚫 Skip packages matching the given names. Comma-separated; supports [cyan]source:name[/cyan] for per-source filtering (e.g. [cyan]--exclude Git.Git,pip:requests[/cyan]).',
 		rich_help_panel=PANEL_SCAN,
 	),
 	# ⚙️ Updates & Actions
 	update_all: bool = typer.Option(
-		False, '--update-all', '-U',
+		False,
+		'--update-all',
+		'-U',
 		help='🚀 Apply every available update.',
 		rich_help_panel=PANEL_UPDATE,
 	),
 	update_source: Optional[str] = typer.Option(
-		None, '--update-source',
+		None,
+		'--update-source',
 		help='📦 Update all packages from a specific source (e.g. [cyan]npm[/cyan]). [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_UPDATE,
 	),
 	update_package: Optional[str] = typer.Option(
-		None, '--update-package',
+		None,
+		'--update-package',
 		help='🎯 Update a specific package by name.',
 		rich_help_panel=PANEL_UPDATE,
 	),
 	version: Optional[str] = typer.Option(
-		None, '--version',
+		None,
+		'--version',
 		help='🔖 Target a specific version (used with [cyan]--update-package[/cyan]).',
 		rich_help_panel=PANEL_UPDATE,
 	),
 	dry_run: bool = typer.Option(
-		False, '--dry-run',
+		False,
+		'--dry-run',
 		help='🧪 Preview updates without executing them.',
 		rich_help_panel=PANEL_UPDATE,
 	),
 	yes: bool = typer.Option(
-		False, '--yes', '-y',
+		False,
+		'--yes',
+		'-y',
 		help='✅ Auto-confirm every prompt.',
 		rich_help_panel=PANEL_UPDATE,
 	),
 	interactive: bool = typer.Option(
-		False, '--interactive',
+		False,
+		'--interactive',
 		help='🖱️  Interactive TUI to select packages to update. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_UPDATE,
 	),
 	notify: bool = typer.Option(
-		False, '--notify',
+		False,
+		'--notify',
 		help='🔔 Send a system notification when updates are available. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_UPDATE,
 	),
 	# 📤 Export & Reports
 	export_format: Optional[str] = typer.Option(
-		None, '--export',
+		None,
+		'--export',
 		help='📄 Export format: [cyan]json, csv, html, xml, markdown, md, diff[/cyan]. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_EXPORT,
 	),
 	export_file: Optional[str] = typer.Option(
-		None, '--output', '-o',
+		None,
+		'--output',
+		'-o',
 		help='💾 Destination file for the export.',
 		rich_help_panel=PANEL_EXPORT,
 	),
 	html_template: Optional[str] = typer.Option(
-		None, '--html-template',
+		None,
+		'--html-template',
 		help='🧩 Custom HTML template path (overrides built-in).',
 		rich_help_panel=PANEL_EXPORT,
 	),
 	html_logo: Optional[str] = typer.Option(
-		None, '--html-logo',
+		None,
+		'--html-logo',
 		help='🖼️  Logo image (PNG/JPG/SVG) embedded as base64 in HTML.',
 		rich_help_panel=PANEL_EXPORT,
 	),
 	html_title: Optional[str] = typer.Option(
-		None, '--html-title',
+		None,
+		'--html-title',
 		help='📝 Override report title on HTML export.',
 		rich_help_panel=PANEL_EXPORT,
 	),
 	html_company: Optional[str] = typer.Option(
-		None, '--html-company',
+		None,
+		'--html-company',
 		help='🏢 Company name shown in HTML header.',
 		rich_help_panel=PANEL_EXPORT,
 	),
 	# 🎨 UI & Display
 	format_mode: Optional[str] = typer.Option(
-		None, '--format',
+		None,
+		'--format',
 		help='🎛️  Display mode: [cyan]auto, compact, verbose, json[/cyan]. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_UI,
 	),
 	theme: Optional[str] = typer.Option(
-		None, '--theme',
+		None,
+		'--theme',
 		help='🌈 UI theme: [cyan]default, vibrant, minimal, dark, neon[/cyan]. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_UI,
 	),
 	icons: bool = typer.Option(
-		False, '--icons',
+		False,
+		'--icons',
 		help='✨ Show source and status icons in tables.',
 		rich_help_panel=PANEL_UI,
 	),
 	# 🧭 Profiles & Config
 	profile: Optional[str] = typer.Option(
-		None, '--profile',
+		None,
+		'--profile',
 		help='👤 Activate a named config profile. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_PROFILE,
 	),
 	profile_export: Optional[str] = typer.Option(
-		None, '--profile-export',
+		None,
+		'--profile-export',
 		help='📤 Export active profile to a JSON file. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_PROFILE,
 	),
 	profile_import: Optional[str] = typer.Option(
-		None, '--profile-import',
+		None,
+		'--profile-import',
 		help='📥 Import profile from a JSON file. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_PROFILE,
 	),
 	save_config: bool = typer.Option(
-		False, '--save-config',
-		help='💾 Persist this run\'s flag overrides ([cyan]--source[/cyan], [cyan]--theme[/cyan], [cyan]--format[/cyan], [cyan]--icons[/cyan]) into the active profile\'s config.json.',
+		False,
+		'--save-config',
+		help="💾 Persist this run's flag overrides ([cyan]--source[/cyan], [cyan]--theme[/cyan], [cyan]--format[/cyan], [cyan]--icons[/cyan]) into the active profile's config.json.",
 		rich_help_panel=PANEL_PROFILE,
 	),
 	# 📜 History & Trends
 	history: bool = typer.Option(
-		False, '--history',
+		False,
+		'--history',
 		help='📚 Show scan history from the SQLite database.',
 		rich_help_panel=PANEL_HISTORY,
 	),
 	history_package: Optional[str] = typer.Option(
-		None, '--history-package',
+		None,
+		'--history-package',
 		help='🔍 Show version history for a specific package.',
 		rich_help_panel=PANEL_HISTORY,
 	),
 	history_trends: bool = typer.Option(
-		False, '--history-trends',
+		False,
+		'--history-trends',
 		help='📈 Show update trends over time. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_HISTORY,
 	),
 	history_stale: int = typer.Option(
-		0, '--history-stale',
+		0,
+		'--history-stale',
 		help='🕰️  Show packages not updated in N days. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_HISTORY,
 	),
 	report: Optional[str] = typer.Option(
-		None, '--report',
+		None,
+		'--report',
 		help='🧾 Generate a history report: [cyan]text, html, json[/cyan]. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_HISTORY,
 	),
 	report_output: Optional[str] = typer.Option(
-		None, '--report-output',
+		None,
+		'--report-output',
 		help='💾 Output file for the history report.',
 		rich_help_panel=PANEL_HISTORY,
 	),
 	# 🕸️ Dependency Graph (6.3)
 	dependency_graph: Optional[str] = typer.Option(
-		None, '--dependency-graph',
+		None,
+		'--dependency-graph',
 		help='🕸️  Dependency graph action: [cyan]dot, conflicts, minimal, help[/cyan]. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_EXPORT,
 	),
 	graph_output: Optional[str] = typer.Option(
-		None, '--graph-output',
+		None,
+		'--graph-output',
 		help='💾 Output path for [cyan]--dependency-graph dot[/cyan].',
 		rich_help_panel=PANEL_EXPORT,
 	),
 	# 🔄 Data Sharing (5.4)
 	import_files: Optional[List[str]] = typer.Option(
-		None, '--import',
+		None,
+		'--import',
 		help='📥 Import scan data from JSON/CSV file(s). Repeatable; multiple files are merged. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_DATA,
 	),
 	merge_with_cache: bool = typer.Option(
-		False, '--merge',
+		False,
+		'--merge',
 		help='🧬 Merge imported scan(s) with the existing cache instead of replacing it.',
 		rich_help_panel=PANEL_DATA,
 	),
+	list_plugins: bool = typer.Option(
+		False,
+		'--list-plugins',
+		help='🧩 Show loaded custom scanners and notification plugins.',
+		rich_help_panel=PANEL_DATA,
+	),
 	cloud_sync: Optional[str] = typer.Option(
-		None, '--cloud-sync',
+		None,
+		'--cloud-sync',
 		help='☁️  Cloud-sync action: [cyan]push, pull, status[/cyan]. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_DATA,
 	),
 	explain: Optional[str] = typer.Option(
-		None, '--explain',
+		None,
+		'--explain',
 		help='📖 Show detailed help for any flag (e.g. [cyan]--explain interactive[/cyan]). Use [cyan]--explain list[/cyan] to see all topics.',
 	),
 	# 🗓️  Scheduled Tasks (6.1)
 	schedule: Optional[str] = typer.Option(
-		None, '--schedule',
+		None,
+		'--schedule',
 		help='🗓️  Scheduled-task action: [cyan]create, delete, list, status, run, eval, help[/cyan]. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_SCHEDULE,
 	),
 	schedule_name: Optional[str] = typer.Option(
-		'SystemUpdate_Scan', '--schedule-name',
+		'SystemUpdate_Scan',
+		'--schedule-name',
 		help='🏷️  Task name (default [yellow]SystemUpdate_Scan[/yellow]).',
 		rich_help_panel=PANEL_SCHEDULE,
 	),
 	schedule_when: Optional[str] = typer.Option(
-		'daily', '--schedule-when',
+		'daily',
+		'--schedule-when',
 		help='🔁 Recurrence: [cyan]daily, weekly, hourly, monthly, onstart, onlogon[/cyan].',
 		rich_help_panel=PANEL_SCHEDULE,
 	),
 	schedule_time: Optional[str] = typer.Option(
-		'09:00', '--schedule-time',
+		'09:00',
+		'--schedule-time',
 		help='⏰ Time of day for daily/weekly/monthly schedules (HH:MM).',
 		rich_help_panel=PANEL_SCHEDULE,
 	),
 	schedule_days: Optional[str] = typer.Option(
-		'', '--schedule-days',
+		'',
+		'--schedule-days',
 		help='📅 Days for weekly schedule (e.g. [cyan]MON,WED,FRI[/cyan]).',
 		rich_help_panel=PANEL_SCHEDULE,
 	),
 	schedule_args: Optional[str] = typer.Option(
-		'--no-cache --notify', '--schedule-args',
+		'--no-cache --notify',
+		'--schedule-args',
 		help='🧰 Arguments the scheduled task will pass to system-update.',
 		rich_help_panel=PANEL_SCHEDULE,
 	),
 	# ⏪ Snapshots & Rollback (6.2)
 	snapshot: Optional[str] = typer.Option(
-		None, '--snapshot',
+		None,
+		'--snapshot',
 		help='📸 Snapshot action: [cyan]list, show, delete, help[/cyan]. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_ROLLBACK,
 	),
 	snapshot_id: Optional[str] = typer.Option(
-		None, '--snapshot-id',
+		None,
+		'--snapshot-id',
 		help='🆔 Target a specific snapshot id (used with [cyan]show[/cyan] / [cyan]delete[/cyan]).',
 		rich_help_panel=PANEL_ROLLBACK,
 	),
 	rollback: Optional[str] = typer.Option(
-		None, '--rollback',
+		None,
+		'--rollback',
 		help='⏪ Rollback to a snapshot: pass the snapshot id, [cyan]last[/cyan], or [cyan]help[/cyan]. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_ROLLBACK,
 	),
 	# 🌐 Remote Management (6.4)
 	remote: Optional[str] = typer.Option(
-		None, '--remote',
+		None,
+		'--remote',
 		help='🌐 Remote action: [cyan]list, add, remove, scan, update, report, help[/cyan]. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_REMOTE,
 	),
 	remote_host: Optional[str] = typer.Option(
-		None, '--remote-host',
+		None,
+		'--remote-host',
 		help='🖥️  Target a single inventory host by name.',
 		rich_help_panel=PANEL_REMOTE,
 	),
 	remote_group: Optional[str] = typer.Option(
-		None, '--remote-group',
+		None,
+		'--remote-group',
 		help='👥 Target every host in a named group.',
 		rich_help_panel=PANEL_REMOTE,
 	),
 	remote_address: Optional[str] = typer.Option(
-		None, '--remote-address',
+		None,
+		'--remote-address',
 		help='📡 Hostname / IP for [cyan]--remote add[/cyan] (defaults to the host name).',
 		rich_help_panel=PANEL_REMOTE,
 	),
 	remote_user: Optional[str] = typer.Option(
-		None, '--remote-user',
+		None,
+		'--remote-user',
 		help='👤 Username used by [cyan]winrs[/cyan] for [cyan]--remote add[/cyan].',
 		rich_help_panel=PANEL_REMOTE,
 	),
 	remote_groups: Optional[str] = typer.Option(
-		None, '--remote-groups',
+		None,
+		'--remote-groups',
 		help='🏷️  Comma-separated groups for [cyan]--remote add[/cyan].',
 		rich_help_panel=PANEL_REMOTE,
 	),
 	remote_args: Optional[str] = typer.Option(
-		None, '--remote-args',
+		None,
+		'--remote-args',
 		help='🧰 Extra args to append to the remote [cyan]system-update[/cyan] command.',
 		rich_help_panel=PANEL_REMOTE,
 	),
 	remote_output: Optional[str] = typer.Option(
-		None, '--remote-output',
+		None,
+		'--remote-output',
 		help='💾 Write the consolidated remote report to this file.',
 		rich_help_panel=PANEL_REMOTE,
 	),
 	remote_timeout: int = typer.Option(
-		600, '--remote-timeout',
+		600,
+		'--remote-timeout',
 		help='⏱️  Per-host timeout in seconds.',
 		rich_help_panel=PANEL_REMOTE,
 	),
 	remote_verbose: bool = typer.Option(
-		False, '--remote-verbose',
-		help='🔊 Show the remote command and stream each host\'s stdout/stderr as it completes.',
+		False,
+		'--remote-verbose',
+		help="🔊 Show the remote command and stream each host's stdout/stderr as it completes.",
 		rich_help_panel=PANEL_REMOTE,
 	),
 	remote_debug: bool = typer.Option(
-		False, '--remote-debug',
+		False,
+		'--remote-debug',
 		help='🐛 Show redacted winrs argv, timeout, target metadata, and completion output.',
 		rich_help_panel=PANEL_REMOTE,
 	),
 	# 🪵 Logging & Debug
 	debug: bool = typer.Option(
-		False, '--debug',
+		False,
+		'--debug',
 		help='🐛 Verbose debug logging to stderr.',
 		rich_help_panel=PANEL_LOG,
 	),
 	log: bool = typer.Option(
-		False, '--log',
+		False,
+		'--log',
 		help='🗒️  Write INFO logs to [yellow]~/.system_update/system.log[/yellow].',
 		rich_help_panel=PANEL_LOG,
 	),
@@ -470,8 +551,7 @@ def main(
 			raise typer.Exit(code=0)
 		if not subhelp.show(explain):
 			raise typer.BadParameter(
-				f"No detailed help for {explain!r}. "
-				f"Available: {', '.join(subhelp.list_topics())}",
+				f'No detailed help for {explain!r}. Available: {", ".join(subhelp.list_topics())}',
 				param_hint='--explain',
 			)
 		raise typer.Exit(code=0)
@@ -510,7 +590,7 @@ def main(
 		hint = difflib.get_close_matches(value, valid, n=1)
 		suggestion = f" Did you mean '{hint[0]}'?" if hint else ''
 		raise typer.BadParameter(
-			f"{value!r} is not one of {valid}.{suggestion}",
+			f'{value!r} is not one of {valid}.{suggestion}',
 			param_hint=flag,
 		)
 
@@ -580,6 +660,7 @@ def main(
 		graph_output=graph_output,
 		import_files=import_files,
 		merge_with_cache=merge_with_cache,
+		list_plugins=list_plugins,
 		cloud_sync=cloud_sync,
 		schedule=schedule,
 		schedule_name=schedule_name,

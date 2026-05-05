@@ -1,6 +1,7 @@
 import sys
 import subprocess
 import functools
+import re
 import pytest
 
 PYTHON = sys.executable
@@ -33,6 +34,13 @@ def test_help_flag_shows_usage(help_output):
 	output = help_output['stdout'] + help_output['stderr']
 	assert help_output['code'] == 0
 	assert 'usage' in output.lower() or 'system' in output.lower()
+
+
+def test_help_panels_are_width_capped(help_output):
+	output = re.sub(r'\x1b\[[0-9;]*m', '', help_output['stdout'] + help_output['stderr'])
+	panel_lines = [line for line in output.splitlines() if line.startswith(('┌', '│', '└'))]
+	assert panel_lines
+	assert max(len(line) for line in panel_lines) <= 120
 
 
 def test_no_args_shows_error():

@@ -11,6 +11,7 @@ import urllib.request
 from typing import Dict, Optional
 
 from system_update.config import SystemConfig
+from system_update.plugins import PluginRegistry, dispatch_notifiers
 from system_update.utils import run_command
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ class NotificationManager:
 	def __init__(self, config: Optional[SystemConfig] = None) -> None:
 		self.config = config or SystemConfig()
 		self.settings = self.config.settings.get('notifications', {})
+		self.plugin_registry: Optional[PluginRegistry] = None
 
 	# ── channel: Windows toast ────────────────────────────────────────────
 
@@ -215,7 +217,13 @@ $icon.Dispose()
 
 	# ── high-level dispatchers ────────────────────────────────────────────
 
-	def _dispatch_all(self, title: str, message: str, extra_payload: Optional[Dict] = None) -> None:
+	def _dispatch_all(
+		self,
+		title: str,
+		message: str,
+		extra_payload: Optional[Dict] = None,
+		event: str = 'notification',
+	) -> None:
 		"""Fan out ``(title, message)`` across every enabled channel."""
 		if self.settings.get('system_notifications'):
 			self.send_system_notification(title, message)
@@ -226,6 +234,18 @@ $icon.Dispose()
 			if extra_payload:
 				payload.update(extra_payload)
 			self.send_webhook(self.settings.get('webhook_url'), payload)
+		self._dispatch_plugin_notifiers(event, title, message, extra_payload)
+
+	def _dispatch_plugin_notifiers(
+		self,
+		event: str,
+		title: str,
+		message: str,
+		payload: Optional[Dict] = None,
+	) -> None:
+		"""Invoke custom notification channels registered by plugins."""
+		if self.plugin_registry:
+			dispatch_notifiers(self.plugin_registry, event, title, message, payload, self.config)
 
 	def notify_updates_available(
 		self, updates_count: int, vulnerable_count: int = 0, force: bool = False
@@ -251,8 +271,19 @@ $icon.Dispose()
 					self.settings.get('webhook_url'),
 					{'title': title, 'message': message},
 				)
+			self._dispatch_plugin_notifiers(
+				'updates_available',
+				title,
+				message,
+				{'updates': updates_count, 'vulnerable': vulnerable_count},
+			)
 		elif self.settings.get('notify_on_updates', True):
-			self._dispatch_all(title, message)
+			self._dispatch_all(
+				title,
+				message,
+				{'updates': updates_count, 'vulnerable': vulnerable_count},
+				event='updates_available',
+			)
 
 		# Custom script hook runs on both branches when enabled.
 		if (force or self.settings.get('notify_on_updates', True)) and self.settings.get(
@@ -282,4 +313,11 @@ $icon.Dispose()
 					'total_apps': total_apps,
 					'scan_time': scan_time,
 				},
+			)
+		if force or notify_enabled:
+			self._dispatch_plugin_notifiers(
+				'scan_complete',
+				title,
+				message,
+				{'total_apps': total_apps, 'scan_time': scan_time},
 			)
