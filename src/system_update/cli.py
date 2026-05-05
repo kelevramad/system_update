@@ -279,12 +279,6 @@ def main(
 		help='🌈 UI theme: [cyan]default, vibrant, minimal, dark, neon[/cyan]. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_UI,
 	),
-	icons: bool = typer.Option(
-		False,
-		'--icons',
-		help='✨ Show source and status icons in tables.',
-		rich_help_panel=PANEL_UI,
-	),
 	# 🧭 Profiles & Config
 	profile: Optional[str] = typer.Option(
 		None,
@@ -307,7 +301,7 @@ def main(
 	save_config: bool = typer.Option(
 		False,
 		'--save-config',
-		help="💾 Persist this run's flag overrides ([cyan]--source[/cyan], [cyan]--theme[/cyan], [cyan]--format[/cyan], [cyan]--icons[/cyan]) into the active profile's config.json.",
+		help="💾 Persist this run's flag overrides ([cyan]--source[/cyan], [cyan]--theme[/cyan], [cyan]--format[/cyan]) into the active profile's config.json.",
 		rich_help_panel=PANEL_PROFILE,
 	),
 	# 📜 History & Trends
@@ -638,7 +632,6 @@ def main(
 		save_config=save_config,
 		format=format_mode,
 		theme=theme,
-		icons=icons,
 		interactive=interactive,
 		show_all=show_all,
 		notify=notify,

@@ -13,6 +13,8 @@ from system_update import (
 	UpdateStatus,
 	SecurityInfo,
 	source_badge,
+	source_chip,
+	source_icon,
 	run_command,
 	SOURCE_ICONS,
 	CommandError,
@@ -77,6 +79,11 @@ def test_theme_manager_get_source_color():
 def test_theme_manager_get_source_icon():
 	assert ThemeManager.get_source_icon('npm') == '📚'
 	assert ThemeManager.get_source_icon('winget') == '📦'
+
+
+def test_source_icon_falls_back_for_plugin_sources():
+	assert source_icon('demo') == '🧩'
+	assert source_chip('demo') == '🧩 [bright_white]demo[/bright_white]'
 
 
 def test_error_category_classification():
@@ -193,7 +200,7 @@ def test_display_formatter_auto_with_show_all():
 
 def test_display_formatter_compact_with_icons():
 	apps = [AppInfo(name='test', source='winget', version='1.0')]
-	table = DisplayFormatter.format_table(apps, 'compact', use_icons=True)
+	table = DisplayFormatter.format_table(apps, 'compact')
 	assert table is not None
 
 

@@ -4,7 +4,7 @@
 
 A comprehensive Python-based system package management tool that scans, checks, and updates software from multiple sources.
 
-**Version:** 6.5.0
+**Version:** 7.1.0
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
 **Layout:** Modular package at `src/system_update/` (typer CLI)
@@ -15,7 +15,7 @@ A comprehensive Python-based system package management tool that scans, checks, 
 
 - **Multi-source Package Discovery**: Scan applications installed via Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Scoop, system PATH executables, and Windows Registry.
 - **Security Scanning**: Real-time vulnerability checking for NPM (`npm audit`) and PIP (`pip check`) packages.
-- **Intelligent Caching**: 2-hour caching mechanism to drastically speed up repetitive runs.
+- **Smart Caching**: 2-hour cache with per-source freshness, incremental rescans, delta records, a bounded hot-package LRU cache, and optional prefetch.
 - **Dry-run & Output Options**: Safely preview updates before applying them and export reports to JSON or CSV formats.
 - **Rich Terminal UI**: Beautiful, colorful console output built with the `rich` library, featuring spinners, progress bars, and emoji indicators.
 - **Parallel Processing**: ThreadPoolExecutor for optimal performance.
@@ -268,7 +268,12 @@ The script uses the following default settings stored in `~/.system_update/confi
 {
     "cache": {
         "duration_hours": 2,
-        "enabled": true
+        "enabled": true,
+        "incremental_enabled": true,
+        "delta_enabled": true,
+        "lru_max_items": 512,
+        "prefetch_enabled": false,
+        "prefetch_threshold_minutes": 15
     },
     "performance": {
         "parallel_scan": true,

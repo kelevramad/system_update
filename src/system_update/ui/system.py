@@ -12,9 +12,9 @@ from rich.text import Text
 from system_update.config import SystemConfig
 from system_update.models import AppInfo, UpdateStatus
 from system_update.ui.theme import ThemeManager
-from system_update.utils import console, display_source, source_badge
+from system_update.utils import console, display_source, source_chip, source_icon
 
-_VERSION = '6.5.0'
+_VERSION = '7.1.0'
 _SEVERITY_PRIORITY = {'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3, 'UNKNOWN': 4}
 _SEVERITY_COLORS = {
 	'CRITICAL': 'bold red',
@@ -260,7 +260,7 @@ def display_summary(
 
 	# ── Source distribution chips ────────────────────────────────────────
 	chip_parts = [
-		f'{source_badge(s)}[bold white]:{c}[/bold white]'
+		f'{source_chip(s)}[bold white]:{c}[/bold white]'
 		for s, c in sorted(sources_count.items(), key=lambda kv: -kv[1])
 		if c > 0
 	]
@@ -311,6 +311,11 @@ def _latest_cell(app: AppInfo) -> object:
 	return app.latest_version or '-'
 
 
+def _source_icon(source: str) -> str:
+	"""Return a package-source icon, using a plugin glyph for custom sources."""
+	return source_icon(source)
+
+
 def create_apps_table(
 	apps: List[AppInfo],
 	title: str = 'Installed Applications',  # noqa: ARG001 — kept for API compat
@@ -348,7 +353,7 @@ def create_apps_table(
 
 	for app in sorted(display_apps, key=lambda x: (x.source, x.name)):
 		src_color = ThemeManager.get_source_color(app.source, theme)
-		src_icon = ThemeManager.get_source_icon(app.source) + ' ' if use_icons else ''
+		src_icon = f'{_source_icon(app.source)} '
 		status_color = ThemeManager.get_status_color(app.update_status.name.lower(), theme)
 
 		table.add_row(

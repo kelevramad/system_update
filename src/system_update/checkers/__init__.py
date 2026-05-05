@@ -28,7 +28,7 @@ from system_update.checkers import (
 	yarn,
 )
 from system_update.models import AppInfo, UpdateStatus
-from system_update.utils import source_badge
+from system_update.utils import source_chip
 
 # Sources whose checkers call ``run_command``/remote APIs to set status
 # themselves. Apps from these sources without a confirmed update should be
@@ -93,7 +93,7 @@ def check_all_updates(apps: List[AppInfo]) -> int:
 
 	with make_progress() as progress:
 		tasks = {
-			source: progress.add_task(f'🔄 {source_badge(source)}', total=1)
+			source: progress.add_task(f'🔄 {source_chip(source)}', total=1)
 			for source in active_sources
 		}
 
@@ -107,11 +107,11 @@ def check_all_updates(apps: List[AppInfo]) -> int:
 			total_updates += source_total
 
 			if source_total == 0:
-				desc = f'✓ {source_badge(source)} [0]'
+				desc = f'✓ {source_chip(source)} [0]'
 			elif security > 0:
-				desc = f'✅ {source_badge(source)} [{regular}+{security}]'
+				desc = f'✅ {source_chip(source)} [{regular}+{security}]'
 			else:
-				desc = f'✅ {source_badge(source)} [{source_total}]'
+				desc = f'✅ {source_chip(source)} [{source_total}]'
 			progress.update(tasks[source], completed=1, description=desc)
 
 	_reconcile_final_status(apps)

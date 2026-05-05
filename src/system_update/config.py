@@ -56,6 +56,11 @@ class SystemConfig:
 			'cache': {
 				'duration_hours': 2,
 				'enabled': True,
+				'incremental_enabled': True,
+				'delta_enabled': True,
+				'lru_max_items': 512,
+				'prefetch_enabled': False,
+				'prefetch_threshold_minutes': 15,
 			},
 			'performance': {
 				'parallel_scan': True,
@@ -89,7 +94,6 @@ class SystemConfig:
 				'compact_view': False,
 				'color_scheme': 'vibrant',
 				'display_format': 'auto',
-				'use_icons': False,
 			},
 			'export': {
 				'default_format': 'json',
@@ -361,6 +365,27 @@ class SystemConfig:
 			self.settings['security']['severity_threshold'] = 'medium'
 
 		self.settings['cache']['enabled'] = bool(self.settings['cache']['enabled'])
+		if (
+			not isinstance(self.settings['cache'].get('lru_max_items'), int)
+			or self.settings['cache']['lru_max_items'] < 1
+		):
+			logging.warning('Invalid cache.lru_max_items. Resetting to default (512).')
+			self.settings['cache']['lru_max_items'] = 512
+		if (
+			not isinstance(self.settings['cache'].get('prefetch_threshold_minutes'), int)
+			or self.settings['cache']['prefetch_threshold_minutes'] < 1
+		):
+			logging.warning('Invalid cache.prefetch_threshold_minutes. Resetting to default (15).')
+			self.settings['cache']['prefetch_threshold_minutes'] = 15
+		self.settings['cache']['incremental_enabled'] = bool(
+			self.settings['cache'].get('incremental_enabled', True)
+		)
+		self.settings['cache']['delta_enabled'] = bool(
+			self.settings['cache'].get('delta_enabled', True)
+		)
+		self.settings['cache']['prefetch_enabled'] = bool(
+			self.settings['cache'].get('prefetch_enabled', False)
+		)
 		self.settings['security']['enabled'] = bool(self.settings['security']['enabled'])
 
 	def _merge_settings(self, base: Dict, loaded: Dict) -> None:
@@ -464,8 +489,7 @@ class _SuppressExecFailureFilter(logging.Filter):
 	def filter(self, record: logging.LogRecord) -> bool:
 		message = record.getMessage()
 		return not (
-			record.name == 'system_update.utils'
-			and message.startswith('[EXEC] Command failed')
+			record.name == 'system_update.utils' and message.startswith('[EXEC] Command failed')
 		)
 
 
@@ -492,9 +516,7 @@ class SystemLogFileHandler(logging.FileHandler):
 		divider = '=' * 100
 		prefix = '\n' if self.stream.tell() else ''
 		self.stream.write(
-			f'{prefix}{divider}\n'
-			f'System Update execution started: {started_at}\n'
-			f'{divider}\n'
+			f'{prefix}{divider}\nSystem Update execution started: {started_at}\n{divider}\n'
 		)
 		self.flush()
 

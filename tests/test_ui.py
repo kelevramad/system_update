@@ -3,6 +3,7 @@ import subprocess
 import functools
 import pytest
 from rich.console import Console
+import system_update.ui.system as ui_system
 from system_update import AppInfo, ThemeManager, DisplayFormatter, UpdateStatus
 
 PYTHON = sys.executable
@@ -50,9 +51,37 @@ def test_cli_formats_execution():
 	assert res['code'] == 0
 
 
-def test_cli_icons_execution():
-	res = run_cli(['--icons', '--source', 'chocolatey'], timeout=60)
-	assert res['code'] == 0
+def test_summary_source_chips_include_icons(monkeypatch):
+	console = Console(record=True, width=180)
+	monkeypatch.setattr(ui_system, 'console', console)
+
+	ui_system.display_summary(
+		total_apps=3,
+		updates=1,
+		scan_time=0.01,
+		sources_count={'winget': 2, 'demo': 1},
+	)
+
+	output = console.export_text()
+	assert '📦 winget:2' in output
+	assert '🧩 demo:1' in output
+
+
+def test_package_table_uses_plugin_fallback_icon():
+	apps = [
+		AppInfo(
+			name='Demo Package',
+			source='demo',
+			version='1.0.0',
+			latest_version='1.1.0',
+			update_status=UpdateStatus.UPDATE_AVAILABLE,
+		)
+	]
+	table = DisplayFormatter.format_table(apps, 'auto', show_all=True)
+	console = Console(record=True, width=120)
+	console.print(table)
+	output = console.export_text()
+	assert '🧩 demo' in output
 
 
 def test_display_formatter_diff():

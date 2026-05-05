@@ -376,3 +376,13 @@ SOURCE_ICONS = {
 	'appx': '🪟',
 	'msix': '📱',
 }
+
+
+def source_icon(source: str) -> str:
+	"""Return the icon for a source, using the plugin glyph for custom sources."""
+	return SOURCE_ICONS.get(display_source(source), '🧩')
+
+
+def source_chip(source: str) -> str:
+	"""Return an icon plus colored source badge for Rich progress labels."""
+	return f'{source_icon(source)} {source_badge(source)}'

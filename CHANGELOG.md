@@ -15,6 +15,16 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v7.1.0 (May 2026)
+- **Smart Caching (7.1)**: Added per-source cache freshness metadata so stale or missing sources can be rescanned incrementally while fresh sources remain cached.
+  - **Incremental Scan (7.1.1)**: Partial cache hits now merge refreshed source results back into cached packages and clearly show cached vs scanned sources.
+  - **Delta Cache (7.1.2)**: Cache writes include additive delta metadata for added, updated, and removed packages.
+  - **LRU Memory Cache (7.1.3)**: Added a bounded hot-package cache for recently loaded package entries.
+  - **Pre-fetch (7.1.4)**: Optional background cache prefetch can refresh near-expiry caches.
+- **Source icons always on**: Summary, package tables, scan progress, update-check progress, and partial-cache messages now render source emoji chips. Custom/plugin sources use the `🧩` fallback.
+- **CLI cleanup**: Removed `--icons`; icons now render by default.
+- **Tests**: Added smart-cache coverage for per-source metadata, stale detection, deltas, LRU eviction, prefetch, partial-cache messaging, and plugin-source icon fallback.
+
 ### v6.5.0 (May 2026)
 - **Plugin Architecture (6.5)**: Added local Python plugin loading from `~/.system_update/plugins` and configured `plugins.paths`.
   - **Custom Scanners (6.5.1)**: Plugins can register new package sources with `registry.register_scanner(...)`; custom sources work with `--source`, cache filtering, source labels, excludes, and `--save-config`.

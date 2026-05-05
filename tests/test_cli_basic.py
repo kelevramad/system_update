@@ -97,9 +97,9 @@ def test_format_flag(help_output):
 	assert '--format' in output
 
 
-def test_icons_flag(help_output):
+def test_icons_flag_removed(help_output):
 	output = help_output['stdout'] + help_output['stderr']
-	assert '--icons' in output
+	assert '--icons' not in output
 
 
 def test_main_with_invalid_args():

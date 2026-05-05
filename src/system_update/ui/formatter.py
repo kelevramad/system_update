@@ -11,7 +11,12 @@ from rich.table import Table
 
 from system_update.models import AppInfo
 from system_update.ui.theme import ThemeManager
-from system_update.utils import display_source
+from system_update.utils import display_source, source_icon
+
+
+def _source_icon(source: str) -> str:
+	"""Return a package-source icon, using a plugin glyph for custom sources."""
+	return source_icon(source)
 
 
 def _compact_table(apps: List[AppInfo], theme: str, use_icons: bool) -> Table:
@@ -56,7 +61,7 @@ def _compact_table(apps: List[AppInfo], theme: str, use_icons: bool) -> Table:
 		return ('? unknown', 'dim')
 
 	for app in sorted(apps, key=lambda x: (x.source, x.name.lower())):
-		icon = ThemeManager.get_source_icon(app.source) if use_icons else ''
+		icon = _source_icon(app.source)
 		src_color = ThemeManager.get_source_color(app.source, theme)
 		latest_text, latest_style = _state_marker(app)
 
@@ -99,7 +104,7 @@ def _verbose_table(apps: List[AppInfo], theme: str, use_icons: bool) -> Table:
 	table.add_column('Status', width=20)
 
 	for app in sorted(apps, key=lambda x: (x.source, x.name)):
-		icon = ThemeManager.get_source_icon(app.source) + ' ' if use_icons else ''
+		icon = f'{_source_icon(app.source)} '
 		src_color = ThemeManager.get_source_color(app.source, theme)
 		status_color = ThemeManager.get_status_color(app.update_status.name, theme)
 		table.add_row(

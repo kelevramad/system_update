@@ -38,6 +38,8 @@ from system_update.utils import (
 	display_source,
 	run_command,
 	source_badge,
+	source_chip,
+	source_icon,
 )
 
 __all__ = [
@@ -76,4 +78,6 @@ __all__ = [
 	'run_command',
 	'setup_logging',
 	'source_badge',
+	'source_chip',
+	'source_icon',
 ]
