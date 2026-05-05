@@ -15,6 +15,12 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v6.3.0 (May 2026)
+- **Dependency Graph (6.3)**: Added `--dependency-graph dot|conflicts|minimal|help`.
+  - **Graphviz DOT Export (6.3.1)**: `--dependency-graph dot --graph-output deps.dot` writes a DOT graph with package nodes and best-effort npm/pnpm/pip dependency edges.
+  - **Conflict Detection (6.3.2)**: `--dependency-graph conflicts` reports package names observed with multiple installed versions across sources.
+  - **Minimal Update Set (6.3.3)**: `--dependency-graph minimal` suggests direct updates, keeping vulnerable packages and omitting dependency updates covered by selected parent updates.
+
 ### v6.2.2 (May 2026)
 - **Unified progress UI**: Scan, update-check, and security phases now share `system_update.ui.progress.make_progress()` with a per-task duration column. Running tasks show `⏳`; finished rows lock in their actual task duration instead of all rows appearing to share the same elapsed time.
 - **Banner and summary panels**: Startup context and scan summaries now render as grouped Rich panels with aligned file inventory, profile chips, source distribution chips, and security severity breakdowns.

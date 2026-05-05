@@ -57,3 +57,7 @@ AGENTS.md
 .claude/settings.local.json
 .claude/worktrees/
 CLAUDE.md
+
+# Graphviz files
+.graphviz/
+*.dot

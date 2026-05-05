@@ -560,11 +560,42 @@ def _page_update_source(console: Console) -> None:
 	])
 
 
+def _page_dependency_graph(console: Console) -> None:
+	_header(
+		console,
+		'🕸️ --dependency-graph — Detailed Help',
+		'Build a best-effort dependency graph from the current scan/cache/import data. '
+		'The graph can be exported as Graphviz DOT, inspected for version conflicts, '
+		'or reduced to a minimal direct update set.',
+	)
+	t = Table(title='Actions', show_header=True, header_style='bold')
+	t.add_column('Action', style='cyan', no_wrap=True)
+	t.add_column('What it does')
+	t.add_row('dot', 'Write a Graphviz DOT file. Use --graph-output to choose the path.')
+	t.add_row('conflicts', 'Show packages observed with multiple installed versions.')
+	t.add_row('minimal', 'Suggest direct updates, omitting dependency updates covered by parent updates.')
+	console.print(t)
+	console.print()
+	console.print('[bold]Dependency metadata[/bold]')
+	console.print(
+		'  • [cyan]npm[/cyan] / [cyan]pnpm[/cyan]: reads global list output at depth 1.\n'
+		'  • [cyan]pip[/cyan]: reads [cyan]pip show[/cyan] metadata from the scanned interpreter.\n'
+		'  • Other sources are included as nodes; dependency edges are added when metadata is available.\n'
+		'  • Imported or cached scans work too, with graceful fallback to node-only graphs.\n'
+	)
+	_examples(console, [
+		('system-update --dependency-graph dot --graph-output deps.dot', '# Graphviz file'),
+		('system-update --dependency-graph conflicts --show-all', '# version conflicts'),
+		('system-update --dependency-graph minimal', '# direct update plan'),
+	])
+
+
 # ─── Registry ──────────────────────────────────────────────────────────────
 
 
 _REGISTRY: Dict[str, Callable[[Console], None]] = {
 	'cloud-sync': _page_cloud_sync,
+	'dependency-graph': _page_dependency_graph,
 	'report': _page_report,
 	'interactive': _page_interactive,
 	'export': _page_export,

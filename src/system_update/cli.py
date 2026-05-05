@@ -299,6 +299,17 @@ def main(
 		help='💾 Output file for the history report.',
 		rich_help_panel=PANEL_HISTORY,
 	),
+	# 🕸️ Dependency Graph (6.3)
+	dependency_graph: Optional[str] = typer.Option(
+		None, '--dependency-graph',
+		help='🕸️  Dependency graph action: [cyan]dot, conflicts, minimal, help[/cyan]. [bold green]📖[/bold green]',
+		rich_help_panel=PANEL_EXPORT,
+	),
+	graph_output: Optional[str] = typer.Option(
+		None, '--graph-output',
+		help='💾 Output path for [cyan]--dependency-graph dot[/cyan].',
+		rich_help_panel=PANEL_EXPORT,
+	),
 	# 🔄 Data Sharing (5.4)
 	import_files: Optional[List[str]] = typer.Option(
 		None, '--import',
@@ -411,6 +422,7 @@ def main(
 	# Choice flags that opt-in to "<flag> help" syntax — show page and exit.
 	for _flag, _val in (
 		('cloud-sync', cloud_sync),
+		('dependency-graph', dependency_graph),
 		('export', export_format),
 		('report', report),
 		('source', source),
@@ -451,6 +463,7 @@ def main(
 	_VALID_CLOUD = ['push', 'pull', 'status', 'help']
 	_VALID_SCHEDULE = ['create', 'delete', 'list', 'status', 'run', 'eval', 'help']
 	_VALID_SNAPSHOT = ['list', 'show', 'delete', 'help']
+	_VALID_DEP_GRAPH = ['dot', 'conflicts', 'minimal', 'help']
 
 	if export_format and export_format not in _VALID_EXPORTS:
 		_bail('--export', export_format, _VALID_EXPORTS)
@@ -462,6 +475,8 @@ def main(
 		_bail('--theme', theme, _VALID_THEMES)
 	if cloud_sync and cloud_sync not in _VALID_CLOUD:
 		_bail('--cloud-sync', cloud_sync, _VALID_CLOUD)
+	if dependency_graph and dependency_graph not in _VALID_DEP_GRAPH:
+		_bail('--dependency-graph', dependency_graph, _VALID_DEP_GRAPH)
 	if schedule and schedule not in _VALID_SCHEDULE:
 		_bail('--schedule', schedule, _VALID_SCHEDULE)
 	if snapshot and snapshot not in _VALID_SNAPSHOT:
@@ -500,6 +515,8 @@ def main(
 		history_stale=history_stale,
 		report=report,
 		report_output=report_output,
+		dependency_graph=dependency_graph,
+		graph_output=graph_output,
 		import_files=import_files,
 		merge_with_cache=merge_with_cache,
 		cloud_sync=cloud_sync,

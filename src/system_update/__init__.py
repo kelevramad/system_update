@@ -4,7 +4,7 @@ Public API for backward compatibility with the flat ``system_update.py`` layout.
 Every name listed in ``__all__`` is importable directly from :mod:`system_update`.
 """
 
-from system_update import export
+from system_update import dependency_graph, export
 from system_update.cache import CacheManager
 from system_update.config import SystemConfig, WarningFileHandler, setup_logging
 from system_update.history import HistoryDatabase, VulnerabilityHistory
@@ -56,6 +56,7 @@ __all__ = [
 	'WarningFileHandler',
 	'console',
 	'display_source',
+	'dependency_graph',
 	'export',
 	'main',
 	'run_command',

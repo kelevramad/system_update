@@ -634,6 +634,10 @@ class SystemUpdateApp:
 				)
 			total_updates = _count_updates(apps)
 
+		if getattr(args, 'dependency_graph', None):
+			self._handle_dependency_graph(apps, args)
+			return
+
 		# ── shared rendering path (cache hit OR fresh scan) ────────────────
 		sources_count: Dict[str, int] = {}
 		for app in apps:
@@ -1017,6 +1021,70 @@ class SystemUpdateApp:
 		from system_update import export as export_module
 
 		return export_module.export(apps, format_type, output_file)
+
+	def _handle_dependency_graph(self, apps: List[AppInfo], args: Namespace) -> None:
+		"""Handle ``--dependency-graph`` actions after scan/cache/import resolution."""
+		from rich.table import Table
+
+		from system_update import dependency_graph
+		from system_update import subhelp
+
+		action = (getattr(args, 'dependency_graph', '') or '').lower()
+		if action == 'help':
+			subhelp.show('dependency-graph')
+			return
+
+		graph = dependency_graph.build_graph(apps)
+		if action == 'dot':
+			output = getattr(args, 'graph_output', None) or 'dependency-graph.dot'
+			path = dependency_graph.export_dot(graph, output)
+			console.print(
+				f'[green]✓[/green] Dependency graph exported to [cyan]{path}[/cyan] '
+				f'[dim]({len(graph.nodes)} nodes, {len(graph.edges)} edges)[/dim]'
+			)
+			return
+
+		if action == 'conflicts':
+			conflicts = dependency_graph.detect_conflicts(graph)
+			table = Table(title='Dependency Version Conflicts', expand=True)
+			table.add_column('Package', style='bold')
+			table.add_column('Versions')
+			table.add_column('Locations')
+			for conflict in conflicts:
+				versions = ', '.join(sorted(conflict.versions))
+				locations = []
+				for version, nodes in sorted(conflict.versions.items()):
+					where = ', '.join(f'{n.source}:{n.name}' for n in nodes)
+					locations.append(f'{version} → {where}')
+				table.add_row(conflict.name, versions, '\n'.join(locations))
+			console.print(table)
+			if not conflicts:
+				console.print('[green]✓[/green] No dependency version conflicts detected.')
+			return
+
+		if action == 'minimal':
+			selected = dependency_graph.minimal_update_set(graph)
+			table = Table(title='Minimal Update Set', expand=True)
+			table.add_column('Package', style='bold')
+			table.add_column('Source', style='magenta')
+			table.add_column('Current', style='yellow')
+			table.add_column('Target', style='green')
+			table.add_column('Reason')
+			for node in selected:
+				reason = 'vulnerable' if node.vulnerable else 'update available'
+				table.add_row(
+					node.name,
+					display_source(node.source),
+					node.version or '-',
+					node.latest_version or 'latest',
+					reason,
+				)
+			console.print(table)
+			if not selected:
+				console.print('[green]✓[/green] No direct updates needed.')
+			return
+
+		console.print(f'[red]✗ Unknown dependency graph action:[/red] {action}')
 
 	# ── Meta commands (history / report / interactive) ─────────────────────
 

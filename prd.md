@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 6.2.2
-**Last Updated:** May 4, 2026
-**Author:** Qwen Code
-**Based On:** `src/system_update/` package (v6.2.2)
+**Document Version:** 6.3.0
+**Last Updated:** May 5, 2026
+**Author:** Kelevra Mad
+**Based On:** `src/system_update/` package (v6.3.0)
 
 ---
 
@@ -914,6 +914,7 @@ Errors are displayed with appropriate styling:
 | 6.2.0 | April 2026 | Rollback Support (6.2): version snapshots auto-recorded for every batch update (`snapshots.py`, SQLite); `--rollback <id>\|last` re-installs `version_before` per package; `--snapshot list\|show\|delete`. Cross-interpreter pip safety: scanner records originating interpreter, update/rollback target it; `pip-audit` filtered against installed version. Context-aware pip default (venv-only / system-only); cache pip-context invalidation on env switch; `VIRTUAL_ENV` scrub for global Python under `uv run`. CVE table surfaced before update prompts; `--update-source` no longer auto-`--yes`. New `--exclude`, `--save-config`, profile import/export wired through |
 | 6.2.1 | May 2026 | Structured `errors.log` format (timestamp, level, logger, file:line, function, pid/tid, traceback). `--format compact` redesigned as a 3-column dense view with status markers (✓ up-to-date / ↑ update / 🔥 vulnerable / ✗ error) and ellipsis truncation — no more mid-line wrap. `--format verbose` Source column widened so `🍫 chocolatey` and `🖥️ registry` fit on one line |
 | 6.2.2 | May 2026 | Unified Rich progress helper with per-task durations for scan/check/security phases; grouped banner and summary panels with aligned file inventory, profile chips, source chips, and security breakdowns; failed subprocess stdout/stderr captured in `system.log` while CLI output and `errors.log` remain concise; banner version display updated to current release |
+| 6.3.0 | May 2026 | Dependency Graph (6.3): `--dependency-graph dot\|conflicts\|minimal\|help`; Graphviz DOT export via `--graph-output`; best-effort npm/pnpm/pip dependency edges; conflict detection for multiple installed versions; minimal direct update set suggestions that preserve vulnerable packages |
 
 ## Appendix B: Glossary
 

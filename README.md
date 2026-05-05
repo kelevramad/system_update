@@ -4,7 +4,7 @@
 
 A comprehensive Python-based system package management tool that scans, checks, and updates software from multiple sources.
 
-**Version:** 6.2.2
+**Version:** 6.3.0
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
 **Layout:** Modular package at `src/system_update/` (typer CLI)
@@ -95,6 +95,8 @@ python -m system_update --export json --output report.json
 | `--clear-cache` | Remove cache file and exit |
 | `--export <json\|csv\|html\|xml\|md\|diff>` | Export scan results to file |
 | `--output <file>` | Output path for export |
+| `--dependency-graph <dot\|conflicts\|minimal>` | Generate Graphviz DOT, show version conflicts, or suggest minimal direct updates |
+| `--graph-output <file>` | Output path for `--dependency-graph dot` |
 | `--source <csv>` | Limit scan to specific sources (e.g., `winget,npm,pip`) |
 | `--yes`, `-y` | Skip confirmation prompts |
 | `--help`, `-h` | Show help message |
@@ -150,6 +152,15 @@ python -m system_update --export md --output updates.md
 
 # Export results to Diff
 python -m system_update --export diff --output updates.diff
+
+# Export dependency graph to Graphviz DOT
+python -m system_update --dependency-graph dot --graph-output deps.dot
+
+# Detect package version conflicts
+python -m system_update --dependency-graph conflicts --show-all
+
+# Suggest a minimal direct update set
+python -m system_update --dependency-graph minimal
 
 # Force fresh scan and export
 python -m system_update --no-cache --export json
@@ -369,6 +380,7 @@ src/system_update/
 ├── models.py                # AppInfo, SecurityInfo, UpdateStatus, CommandError
 ├── config.py                # SystemConfig, setup_logging
 ├── cache.py                 # CacheManager
+├── dependency_graph.py      # Graphviz DOT, conflict detection, minimal update set
 ├── history.py               # HistoryDatabase, VulnerabilityHistory (SQLite + JSON)
 ├── notifications.py         # NotificationManager
 ├── export.py                # JSON/CSV/HTML/XML/MD/diff exporters
@@ -390,6 +402,7 @@ SystemUpdateApp          - Orchestrator (scan → check → security → display
 ├── UpdateExecutor       - Update execution
 ├── SecurityChecker      - Facade over security/* per-source checkers
 ├── CacheManager         - 2-hour JSON cache
+├── DependencyGraph      - Graphviz DOT, conflict detection, minimal update set
 ├── HistoryDatabase      - SQLite history (scans, package_snapshots, version_history)
 ├── VulnerabilityHistory - Persistent CVE tracking (JSON)
 └── NotificationManager  - Toast/email/webhook/hook dispatch
