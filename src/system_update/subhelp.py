@@ -482,6 +482,65 @@ def _page_schedule(console: Console) -> None:
 	])
 
 
+def _page_remote(console: Console) -> None:
+	_header(
+		console,
+		'🌐 --remote — Detailed Help',
+		'Manage and run [bold]system-update[/bold] across multiple Windows '
+		'machines via [cyan]winrs[/cyan] (built into Windows). Inventory lives '
+		'at [yellow]~/.system_update/inventory.json[/yellow].',
+	)
+	_action_table(console, [
+		('list',   'Show all hosts in the inventory.'),
+		('add',    'Add or replace a host (use [cyan]--remote-host NAME[/cyan]).'),
+		('remove', 'Remove a host by name.'),
+		('scan',   'Run a JSON scan on the target host(s) and print per-host summary.'),
+		('update', 'Run [cyan]--update-all --yes[/cyan] on the target host(s).'),
+		('report', 'Scan + emit consolidated JSON across hosts ([cyan]--remote-output[/cyan]).'),
+		('help',   'Print this page.'),
+	])
+	t = Table(title='Companion flags', show_header=True, header_style='bold')
+	t.add_column('Flag', style='cyan', no_wrap=True)
+	t.add_column('Notes')
+	t.add_row('--remote-host NAME', 'Single target. Required for add / remove.')
+	t.add_row('--remote-group NAME', 'Run against every host whose ``groups`` includes NAME.')
+	t.add_row('--remote-address ADDR', 'Hostname/IP for [cyan]add[/cyan] (defaults to NAME).')
+	t.add_row('--remote-user USER', 'Username for winrs (e.g. [yellow]DOMAIN\\\\admin[/yellow]).')
+	t.add_row('--remote-groups CSV', 'Comma-list of groups for [cyan]add[/cyan].')
+	t.add_row('--remote-args "..."', 'Extra args appended to the remote system-update call.')
+	t.add_row('--remote-output PATH', 'Where [cyan]report[/cyan] writes its JSON.')
+	t.add_row('--remote-timeout SECS', 'Per-host timeout (default 600).')
+	t.add_row(
+		'--remote-verbose',
+		'Stream each host\'s stdout/stderr tail as it completes (great for '
+		'debugging WinRM auth or trust failures).',
+	)
+	t.add_row(
+		'--remote-debug',
+		'Print redacted winrs argv, target metadata, timeout, and completion output. '
+		'Use when a host appears stuck.',
+	)
+	console.print(t)
+	console.print()
+	console.print('[bold]Credentials[/bold]')
+	console.print(
+		'  • Set [yellow]SYSTEM_UPDATE_REMOTE_PASS[/yellow] in env to avoid '
+		'embedding passwords on the command line.\n'
+		'  • [cyan]winrs[/cyan] requires WinRM to be enabled on the target '
+		'([cyan]winrm quickconfig[/cyan]) and a trusted-hosts entry on the '
+		'caller ([cyan]winrm set winrm/config/client \'@{TrustedHosts="*"}\'[/cyan]).\n'
+	)
+	_examples(console, [
+		('system-update --remote add --remote-host build01 --remote-user "DOMAIN\\\\admin" --remote-groups builders,windows', '# register'),
+		('system-update --remote list', ''),
+		('system-update --remote scan --remote-group builders', '# fan-out scan'),
+		('system-update --remote scan --remote-host build01 --remote-debug', '# show winrs argv'),
+		('system-update --remote update --remote-host build01 --remote-args "--source winget"', ''),
+		('system-update --remote report --remote-group builders --remote-output fleet.json', ''),
+		('system-update --remote remove --remote-host build01', ''),
+	])
+
+
 def _page_snapshot(console: Console) -> None:
 	_header(
 		console,
@@ -613,6 +672,7 @@ _REGISTRY: Dict[str, Callable[[Console], None]] = {
 	'schedule': _page_schedule,
 	'snapshot': _page_snapshot,
 	'rollback': _page_rollback,
+	'remote': _page_remote,
 }
 
 

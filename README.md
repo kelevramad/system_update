@@ -4,7 +4,7 @@
 
 A comprehensive Python-based system package management tool that scans, checks, and updates software from multiple sources.
 
-**Version:** 6.3.0
+**Version:** 6.4.0
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
 **Layout:** Modular package at `src/system_update/` (typer CLI)
@@ -22,6 +22,7 @@ A comprehensive Python-based system package management tool that scans, checks, 
 - **Modular Architecture**: Clean separation of concerns with dataclasses.
 - **Smart Version Comparison**: Handles preview/stable version detection.
 - **Interactive TUI**: Fuzzy search, multi-select, and preview for package selection.
+- **Remote Management**: Manage a Windows host inventory and run scans, updates, and consolidated reports over WinRS/WinRM.
 
 ---
 
@@ -97,6 +98,17 @@ python -m system_update --export json --output report.json
 | `--output <file>` | Output path for export |
 | `--dependency-graph <dot\|conflicts\|minimal>` | Generate Graphviz DOT, show version conflicts, or suggest minimal direct updates |
 | `--graph-output <file>` | Output path for `--dependency-graph dot` |
+| `--remote <action>` | Remote action: `list`, `add`, `remove`, `scan`, `update`, `report`, or `help` |
+| `--remote-host <name>` | Target one inventory host, or name the host for `--remote add/remove` |
+| `--remote-group <name>` | Target every host assigned to a group |
+| `--remote-address <addr>` | Hostname or IP address for `--remote add`; defaults to `--remote-host` |
+| `--remote-user <user>` | Username used by `winrs` for `--remote add` |
+| `--remote-groups <csv>` | Comma-separated groups for `--remote add` |
+| `--remote-args "<args>"` | Extra arguments appended to the remote `system-update` command |
+| `--remote-output <file>` | Output path for `--remote report` consolidated JSON |
+| `--remote-timeout <seconds>` | Per-host remote execution timeout; default is `600` |
+| `--remote-verbose` | Show each host's stdout/stderr tail when it completes |
+| `--remote-debug` | Print target metadata, timeout, redacted `winrs` command, progress heartbeat, and completion output |
 | `--source <csv>` | Limit scan to specific sources (e.g., `winget,npm,pip`) |
 | `--yes`, `-y` | Skip confirmation prompts |
 | `--help`, `-h` | Show help message |
@@ -162,6 +174,9 @@ python -m system_update --dependency-graph conflicts --show-all
 # Suggest a minimal direct update set
 python -m system_update --dependency-graph minimal
 
+# Debug a remote host that appears stuck
+python -m system_update --remote scan --remote-host build01 --remote-debug
+
 # Force fresh scan and export
 python -m system_update --no-cache --export json
 
@@ -171,6 +186,74 @@ python -m system_update --show-all
 # Interactive package selection
 python -m system_update --interactive
 ```
+
+---
+
+## 🌐 Remote Management
+
+Remote management lets one machine run `system-update` on other Windows hosts through `winrs`. The local machine keeps an inventory at `~/.system_update/inventory.json`, then fans out scan/update/report commands to a single host or to a group.
+
+### Requirements
+
+- `winrs` must be available on the local machine.
+- WinRM must be enabled on target hosts, usually with `winrm quickconfig`.
+- The caller must be allowed to connect to the target host. In simple lab setups, that often means configuring TrustedHosts on the caller:
+
+```powershell
+winrm set winrm/config/client '@{TrustedHosts="build01"}'
+```
+
+- `system-update` must be installed and available in `PATH` on each remote host.
+- Set `SYSTEM_UPDATE_REMOTE_PASS` in the environment to provide the `winrs` password without putting it in the command line.
+
+### Actions
+
+| Action | Description |
+|--------|-------------|
+| `--remote list` | Show all hosts in the inventory |
+| `--remote add` | Add or replace a host; requires `--remote-host` |
+| `--remote remove` | Remove a host; requires `--remote-host` |
+| `--remote scan` | Run `system-update --no-cache --export json -o -` remotely and summarize results |
+| `--remote update` | Run `system-update --update-all --yes` remotely |
+| `--remote report` | Run remote scans and write/print a consolidated fleet report |
+| `--remote help` | Show detailed in-app remote help |
+
+### Remote Examples
+
+```powershell
+# Add a host to the inventory
+python -m system_update --remote add --remote-host build01 --remote-address build01.corp --remote-user "DOMAIN\admin" --remote-groups builders,windows
+
+# List configured hosts
+python -m system_update --remote list
+
+# Scan one host
+python -m system_update --remote scan --remote-host build01
+
+# Scan all hosts in a group
+python -m system_update --remote scan --remote-group builders
+
+# Pass extra flags to the command executed on the remote host
+python -m system_update --remote scan --remote-group builders --remote-args "--source winget --show-all"
+
+# Update one host, with a shorter timeout
+python -m system_update --remote update --remote-host build01 --remote-timeout 300
+
+# Create a consolidated JSON report
+python -m system_update --remote report --remote-group builders --remote-output fleet-report.json
+
+# Show stdout/stderr tails when each host finishes
+python -m system_update --remote scan --remote-group builders --remote-verbose
+
+# Debug a host that appears stuck
+python -m system_update --remote scan --remote-host build01 --remote-debug
+```
+
+### Verbose vs Debug
+
+Use `--remote-verbose` when you want completion details: the command still runs normally, and each host prints stdout/stderr tails after it finishes.
+
+Use `--remote-debug` when a host appears frozen. It implies verbose output and additionally prints the remote command, timeout, host metadata, redacted local `winrs` argv, a start message, and a heartbeat every 30 seconds until completion or timeout. Password values are masked as `-p:***`.
 
 ---
 
@@ -227,6 +310,7 @@ The script uses the following default settings stored in `~/.system_update/confi
 - **Cache File:** `~/.system_update/cache.json`
 - **Log File:** `~/.system_update/system.log`
 - **Config File:** `~/.system_update/config.json`
+- **Remote Inventory:** `~/.system_update/inventory.json`
 
 ---
 

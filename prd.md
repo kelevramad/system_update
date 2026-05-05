@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 6.3.0
+**Document Version:** 6.4.0
 **Last Updated:** May 5, 2026
 **Author:** Kelevra Mad
-**Based On:** `src/system_update/` package (v6.3.0)
+**Based On:** `src/system_update/` package (v6.4.0)
 
 ---
 
@@ -915,6 +915,7 @@ Errors are displayed with appropriate styling:
 | 6.2.1 | May 2026 | Structured `errors.log` format (timestamp, level, logger, file:line, function, pid/tid, traceback). `--format compact` redesigned as a 3-column dense view with status markers (✓ up-to-date / ↑ update / 🔥 vulnerable / ✗ error) and ellipsis truncation — no more mid-line wrap. `--format verbose` Source column widened so `🍫 chocolatey` and `🖥️ registry` fit on one line |
 | 6.2.2 | May 2026 | Unified Rich progress helper with per-task durations for scan/check/security phases; grouped banner and summary panels with aligned file inventory, profile chips, source chips, and security breakdowns; failed subprocess stdout/stderr captured in `system.log` while CLI output and `errors.log` remain concise; banner version display updated to current release |
 | 6.3.0 | May 2026 | Dependency Graph (6.3): `--dependency-graph dot\|conflicts\|minimal\|help`; Graphviz DOT export via `--graph-output`; best-effort npm/pnpm/pip dependency edges; conflict detection for multiple installed versions; minimal direct update set suggestions that preserve vulnerable packages |
+| 6.4.0 | May 2026 | Remote Management (6.4): WinRM execution via Windows-native `winrs` (6.4.1), `~/.system_update/inventory.json` host inventory with groups (6.4.2), consolidated multi-host JSON reports with cross-host version-drift detection (6.4.3), parallel mass update fan-out (6.4.4); new `--remote list\|add\|remove\|scan\|update\|report\|help` plus `--remote-host\|-group\|-address\|-user\|-groups\|-args\|-output\|-timeout\|-verbose\|-debug` flags; new `🌐 Remote Management` help panel and `remote` sub-help topic |
 
 ## Appendix B: Glossary
 

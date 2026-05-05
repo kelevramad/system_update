@@ -34,6 +34,7 @@ PANEL_HISTORY = '📜 History & Trends'
 PANEL_DATA = '🔄 Data Sharing'
 PANEL_SCHEDULE = '🗓️  Scheduled Tasks'
 PANEL_ROLLBACK = '⏪ Snapshots & Rollback'
+PANEL_REMOTE = '🌐 Remote Management'
 PANEL_LOG = '🪵 Logging & Debug'
 
 
@@ -377,6 +378,62 @@ def main(
 		help='⏪ Rollback to a snapshot: pass the snapshot id, [cyan]last[/cyan], or [cyan]help[/cyan]. [bold green]📖[/bold green]',
 		rich_help_panel=PANEL_ROLLBACK,
 	),
+	# 🌐 Remote Management (6.4)
+	remote: Optional[str] = typer.Option(
+		None, '--remote',
+		help='🌐 Remote action: [cyan]list, add, remove, scan, update, report, help[/cyan]. [bold green]📖[/bold green]',
+		rich_help_panel=PANEL_REMOTE,
+	),
+	remote_host: Optional[str] = typer.Option(
+		None, '--remote-host',
+		help='🖥️  Target a single inventory host by name.',
+		rich_help_panel=PANEL_REMOTE,
+	),
+	remote_group: Optional[str] = typer.Option(
+		None, '--remote-group',
+		help='👥 Target every host in a named group.',
+		rich_help_panel=PANEL_REMOTE,
+	),
+	remote_address: Optional[str] = typer.Option(
+		None, '--remote-address',
+		help='📡 Hostname / IP for [cyan]--remote add[/cyan] (defaults to the host name).',
+		rich_help_panel=PANEL_REMOTE,
+	),
+	remote_user: Optional[str] = typer.Option(
+		None, '--remote-user',
+		help='👤 Username used by [cyan]winrs[/cyan] for [cyan]--remote add[/cyan].',
+		rich_help_panel=PANEL_REMOTE,
+	),
+	remote_groups: Optional[str] = typer.Option(
+		None, '--remote-groups',
+		help='🏷️  Comma-separated groups for [cyan]--remote add[/cyan].',
+		rich_help_panel=PANEL_REMOTE,
+	),
+	remote_args: Optional[str] = typer.Option(
+		None, '--remote-args',
+		help='🧰 Extra args to append to the remote [cyan]system-update[/cyan] command.',
+		rich_help_panel=PANEL_REMOTE,
+	),
+	remote_output: Optional[str] = typer.Option(
+		None, '--remote-output',
+		help='💾 Write the consolidated remote report to this file.',
+		rich_help_panel=PANEL_REMOTE,
+	),
+	remote_timeout: int = typer.Option(
+		600, '--remote-timeout',
+		help='⏱️  Per-host timeout in seconds.',
+		rich_help_panel=PANEL_REMOTE,
+	),
+	remote_verbose: bool = typer.Option(
+		False, '--remote-verbose',
+		help='🔊 Show the remote command and stream each host\'s stdout/stderr as it completes.',
+		rich_help_panel=PANEL_REMOTE,
+	),
+	remote_debug: bool = typer.Option(
+		False, '--remote-debug',
+		help='🐛 Show redacted winrs argv, timeout, target metadata, and completion output.',
+		rich_help_panel=PANEL_REMOTE,
+	),
 	# 🪵 Logging & Debug
 	debug: bool = typer.Option(
 		False, '--debug',
@@ -430,6 +487,7 @@ def main(
 		('theme', theme),
 		('schedule', schedule),
 		('snapshot', snapshot),
+		('remote', remote),
 		('rollback', rollback),
 		('update-source', update_source),
 		('profile', profile),
@@ -463,6 +521,7 @@ def main(
 	_VALID_CLOUD = ['push', 'pull', 'status', 'help']
 	_VALID_SCHEDULE = ['create', 'delete', 'list', 'status', 'run', 'eval', 'help']
 	_VALID_SNAPSHOT = ['list', 'show', 'delete', 'help']
+	_VALID_REMOTE = ['list', 'add', 'remove', 'scan', 'update', 'report', 'help']
 	_VALID_DEP_GRAPH = ['dot', 'conflicts', 'minimal', 'help']
 
 	if export_format and export_format not in _VALID_EXPORTS:
@@ -481,6 +540,8 @@ def main(
 		_bail('--schedule', schedule, _VALID_SCHEDULE)
 	if snapshot and snapshot not in _VALID_SNAPSHOT:
 		_bail('--snapshot', snapshot, _VALID_SNAPSHOT)
+	if remote and remote not in _VALID_REMOTE:
+		_bail('--remote', remote, _VALID_REMOTE)
 
 	args = Namespace(
 		source=source,
@@ -529,6 +590,17 @@ def main(
 		snapshot=snapshot,
 		snapshot_id=snapshot_id,
 		rollback=rollback,
+		remote=remote,
+		remote_host=remote_host,
+		remote_group=remote_group,
+		remote_address=remote_address,
+		remote_user=remote_user,
+		remote_groups=remote_groups,
+		remote_args=remote_args,
+		remote_output=remote_output,
+		remote_timeout=remote_timeout,
+		remote_verbose=remote_verbose,
+		remote_debug=remote_debug,
 		debug=debug,
 		log=log,
 	)

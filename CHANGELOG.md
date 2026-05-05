@@ -15,6 +15,17 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v6.4.0 (May 2026)
+- **Remote Management (6.4)**: Run `system-update` across multiple Windows machines from a single host
+  - **WinRM Remote Execution (6.4.1)**: Uses Windows-native `winrs` (no extra dependencies). Password supplied via `SYSTEM_UPDATE_REMOTE_PASS` env var or `-p:` argv. Per-host duration / exit code / parsed JSON returned in a `RemoteResult` dataclass; transparent timeout + missing-`winrs` handling.
+  - **Inventory Management (6.4.2)**: New `~/.system_update/inventory.json` with `RemoteHost` (name, address, user, transport, groups, description) + `Inventory` CRUD class. CLI `--remote add | remove | list` for management; case-insensitive name match replaces existing entries on `add`. `inventory.resolve(host, group)` precedence: single host → group → all hosts.
+  - **Consolidated Reports (6.4.3)**: New `aggregate_scans()` merges per-host JSON exports into a unified report with `summary_per_host`, a `package_index` (host_count, hosts, versions, `consistent` flag flagging cross-host version drift), and an `errors` list. `--remote report --remote-output PATH` writes the full JSON; bare `--remote scan` prints the per-host summary table.
+  - **Mass Update (6.4.4)**: `--remote update` fans out `--update-all --yes` to every targeted host in parallel (configurable via `--remote-timeout`); per-host pass/fail rendered in a Rich table. Also accepts `--remote-args "..."` to pass extra args to the remote `system-update` invocation.
+- **New `🌐 Remote Management` help panel** with all `--remote-*` flags grouped together; new sub-help topic `remote` (`--explain remote` / `--remote help`) covering all 7 actions, the companion-flag matrix, credential handling, WinRM trusted-hosts setup, and 6 worked examples.
+- **Remote verbose diagnostics**: Added `--remote-verbose` to print each host's stdout/stderr tail as soon as that host completes, making WinRM authentication failures, remote command errors, and timeout stderr easier to see directly in the CLI.
+- **Remote debug diagnostics**: Added `--remote-debug` for stuck or silent hosts. It implies `--remote-verbose` and also prints target metadata, timeout, the remote `system-update` command, the redacted local `winrs` argv, a start message, and a periodic running heartbeat until the host completes or times out.
+- **Tests**: +24 new tests in `tests/test_remote.py` covering `RemoteHost` round-trip, `Inventory` CRUD/persistence/groups/resolve precedence, `winrs` argv assembly, env-based password injection, missing-binary and timeout handling, parallel `execute_many` ordering, `aggregate_scans` merge / version-drift detection / error collection / bare-list payload tolerance.
+
 ### v6.3.0 (May 2026)
 - **Dependency Graph (6.3)**: Added `--dependency-graph dot|conflicts|minimal|help`.
   - **Graphviz DOT Export (6.3.1)**: `--dependency-graph dot --graph-output deps.dot` writes a DOT graph with package nodes and best-effort npm/pnpm/pip dependency edges.
