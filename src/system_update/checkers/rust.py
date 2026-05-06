@@ -2,21 +2,18 @@
 
 from __future__ import annotations
 
-import json
-import urllib.request
 from typing import List, Optional
 
 from system_update.models import AppInfo, UpdateStatus
+from system_update.network import fetch_json
 from system_update.utils import console, run_command  # noqa: F401
 
 
 def _fetch_crate_latest(name: str) -> Optional[str]:
 	"""Return the newest version number for ``name`` from crates.io, or ``None``."""
 	url = f'https://crates.io/api/v1/crates/{name}'
-	req = urllib.request.Request(url, headers={'User-Agent': 'SystemUpdateCLI'})
 	try:
-		with urllib.request.urlopen(req, timeout=10) as response:
-			data = json.loads(response.read().decode())
+		data = fetch_json(url)
 		versions = data.get('versions', []) if isinstance(data, dict) else []
 		return versions[0].get('num') if versions else None
 	except Exception:

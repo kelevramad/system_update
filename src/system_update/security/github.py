@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import json
-import urllib.request
 from typing import Dict, List
 
 from system_update.models import AppInfo, UpdateStatus
+from system_update.network import fetch_json
 
 
 _ECOSYSTEM_MAP = {
@@ -31,15 +30,13 @@ def check(apps: List[AppInfo]) -> List[Dict]:
 
 		try:
 			url = f'https://api.github.com/advisories?ecosystem={ecosystem}&package={app.name}'
-			req = urllib.request.Request(
+			data = fetch_json(
 				url,
 				headers={
 					'Accept': 'application/vnd.github+json',
 					'X-GitHub-Api-Version': '2022-11-28',
 				},
 			)
-			with urllib.request.urlopen(req, timeout=10) as resp:
-				data = json.loads(resp.read().decode('utf-8'))
 		except Exception:
 			continue
 

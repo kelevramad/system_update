@@ -7,21 +7,18 @@ dispatch-by-name switch. All network calls go through :func:`_fetch_json`.
 
 from __future__ import annotations
 
-import json
 import re
-import urllib.request
 from typing import Callable, Dict, List, Optional, Tuple
 
 from system_update.models import AppInfo, UpdateStatus
+from system_update.network import fetch_json
 from system_update.utils import run_command
 
 
 def _fetch_json(url: str):
 	"""GET ``url`` with a User-Agent header and return decoded JSON (``None`` on failure)."""
-	req = urllib.request.Request(url, headers={'User-Agent': 'SystemUpdateCLI'})
 	try:
-		with urllib.request.urlopen(req, timeout=10) as response:
-			return json.loads(response.read().decode())
+		return fetch_json(url)
 	except Exception:
 		return None
 

@@ -67,6 +67,65 @@ def test_summary_source_chips_include_icons(monkeypatch):
 	assert '🧩 demo:1' in output
 
 
+def test_summary_wraps_source_chips_inside_panel(monkeypatch):
+	console = Console(record=True, width=220)
+	monkeypatch.setattr(ui_system, 'console', console)
+
+	ui_system.display_summary(
+		total_apps=625,
+		updates=105,
+		scan_time=0,
+		sources_count={
+			'winget': 243,
+			'registry': 105,
+			'pip': 85,
+			'appx': 78,
+			'msix': 57,
+			'chocolatey': 21,
+			'npm': 20,
+			'path': 12,
+			'demo': 1,
+			'dotnet': 1,
+			'rust': 1,
+			'yarn': 1,
+		},
+		security_stats={
+			'total_vulnerabilities': 2,
+			'packages_affected': 2,
+			'persistent_vulnerabilities': 0,
+			'severity_breakdown': {'MEDIUM': 2},
+		},
+	)
+
+	output = console.export_text()
+	all_lines = output.splitlines()
+	border_lines = [
+		line for line in all_lines
+		if line.startswith('┌') or line.startswith('├') or line.startswith('└')
+	]
+	content_lines = [line for line in all_lines if line.startswith('│')]
+
+	# Real regression: top and bottom panel borders must agree on width.
+	# The previous pre-wrapping helper miscounted emoji-with-variation-
+	# selector cells and let the title/border drift apart by one cell.
+	# (Note: content-line ``len()`` legitimately differs from border length
+	# because Python counts code points but terminals render most emoji as
+	# two cells; Rich pads to its own measurement, which is what the
+	# terminal sees once rendered.)
+	assert border_lines, 'panel produced no border lines'
+	assert content_lines, 'panel produced no content lines'
+	border_widths = {len(line) for line in border_lines}
+	assert len(border_widths) == 1, (
+		f'panel borders disagree on width: {border_widths}'
+	)
+	assert all(line.endswith('│') for line in content_lines)
+
+	# All chip data is rendered (across however many lines Rich chose).
+	assert '📚 npm:20' in output
+	assert '🧶 yarn:1' in output
+	assert 'sources:' in output
+
+
 def test_package_table_uses_plugin_fallback_icon():
 	apps = [
 		AppInfo(

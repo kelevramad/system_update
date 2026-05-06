@@ -371,6 +371,10 @@ THEMES = {
 }
 
 
+# Bare emojis (no U+FE0F variation selector). Rich miscounts cell-width
+# for VS-augmented emoji vs. how the terminal renders them, which would
+# desynchronise panel borders from their content. ``registry`` previously
+# used ``🖥️`` with a VS — replaced with the unqualified ``🖥``.
 SOURCE_ICONS = {
 	'winget': '📦',
 	'chocolatey': '🍫',
@@ -381,7 +385,7 @@ SOURCE_ICONS = {
 	'yarn': '🧶',
 	'rust': '🦀',
 	'path': '📁',
-	'registry': '🖥️',
+	'registry': '🖥',
 	'scoop': '🥄',
 	'dotnet': '🔷',
 	'appx': '🪟',

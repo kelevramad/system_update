@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 import os
 import sys
-import urllib.request
 from typing import List
 
 from system_update.models import AppInfo, UpdateStatus
+from system_update.network import fetch_json
 from system_update.utils import run_command
 
 _OUTDATED_COMMANDS = [
@@ -29,10 +29,8 @@ _GLOBAL_PYTHON_EXES = [
 def _pypi_latest(name: str) -> str:
 	"""Return the ``info.version`` field for ``name`` from PyPI, or ``''`` on failure."""
 	url = f'https://pypi.org/pypi/{name}/json'
-	req = urllib.request.Request(url, headers={'User-Agent': 'SystemUpdateCLI'})
 	try:
-		with urllib.request.urlopen(req, timeout=10) as response:
-			data = json.loads(response.read().decode())
+		data = fetch_json(url)
 		return data.get('info', {}).get('version', '') if isinstance(data, dict) else ''
 	except Exception:
 		return ''

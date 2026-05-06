@@ -2,41 +2,49 @@
 
 from __future__ import annotations
 
-import json
-import urllib.request
 from typing import Dict, List
 
 from system_update.models import AppInfo, UpdateStatus
+from system_update.network import fetch_json
 from system_update.security.common import OSV_ECOSYSTEM_MAP, score_to_severity
 
 
 def check(apps: List[AppInfo]) -> List[Dict]:
-	"""Query ``api.osv.dev/v1/query`` for every app whose source maps to an OSV ecosystem."""
+	"""Query OSV in batches for every app whose source maps to an OSV ecosystem."""
 	vulns: List[Dict] = []
 	unique_apps = {a.name.lower(): a for a in apps}
+	requests = []
+	request_apps: List[AppInfo] = []
 
 	for _, app in unique_apps.items():
 		ecosystem = OSV_ECOSYSTEM_MAP.get(app.source.lower())
 		if not ecosystem or not app.version:
 			continue
+		request_apps.append(app)
+		requests.append(
+			{
+				'package': {'name': app.name, 'ecosystem': ecosystem},
+				'version': app.version,
+			}
+		)
 
-		payload = {
-			'package': {'name': app.name, 'ecosystem': ecosystem},
-			'version': app.version,
-		}
+	try:
+		data = fetch_json(
+			'https://api.osv.dev/v1/querybatch',
+			method='POST',
+			payload={'queries': requests},
+		) if requests else {}
+	except Exception:
+		data = {}
 
-		try:
-			req = urllib.request.Request(
-				'https://api.osv.dev/v1/query',
-				data=json.dumps(payload).encode('utf-8'),
-				headers={'Content-Type': 'application/json'},
-			)
-			with urllib.request.urlopen(req, timeout=10) as resp:
-				data = json.loads(resp.read().decode('utf-8'))
-		except Exception:
+	results = data.get('results') if isinstance(data, dict) else []
+	if not isinstance(results, list):
+		results = []
+
+	for app, result in zip(request_apps, results):
+		if not isinstance(result, dict):
 			continue
-
-		for vuln in data.get('vulns') or []:
+		for vuln in result.get('vulns') or []:
 			severity = 'MEDIUM'
 			cvss_score = None
 

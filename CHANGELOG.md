@@ -15,6 +15,14 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v7.3.0 (May 2026)
+- **Network Optimization (7.3)**: Added a shared JSON HTTP client with configurable API caching, timeout handling, and per-host rate limiting.
+  - **Batch API Requests (7.3.1)**: OSV security checks now use the querybatch endpoint for multiple packages in one request.
+  - **Rate Limiting (7.3.2)**: API calls are throttled per host via the new `network.rate_limit_seconds` setting.
+  - **Response Caching (7.3.3)**: JSON API responses are cached in `api_cache.json` with configurable TTL.
+- **UI polish**: Summary source rows now wrap inside the panel so emoji-rich source chips do not overwrite borders.
+- **Tests**: Added network coverage for response caching, rate limiting, and OSV batch payloads.
+
 ### v7.2.0 (May 2026)
 - **Parallel Processing (7.2)**: Added bounded per-source worker pools for update checks, matching the scanner's parallel source execution.
   - **Worker Pool (7.2.1)**: `check_all_updates()` now dispatches source checkers through `ThreadPoolExecutor` and honors configured worker limits from the app.

@@ -15,6 +15,7 @@ from system_update.models import (
 	SecurityInfo,
 	UpdateStatus,
 )
+from system_update.network import clear_response_cache, configure_network, fetch_json
 from system_update.notifications import NotificationManager
 from system_update.plugins import (
 	PluginContext,
@@ -47,8 +48,11 @@ __all__ = [
 	'AppInfo',
 	'CacheManager',
 	'CommandError',
+	'clear_response_cache',
+	'configure_network',
 	'DisplayFormatter',
 	'ErrorCategory',
+	'fetch_json',
 	'HistoryDatabase',
 	'NotificationManager',
 	'PackageScanner',

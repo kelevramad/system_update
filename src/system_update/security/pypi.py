@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import json
-import urllib.request
 from typing import Dict, List
 
 from system_update.models import AppInfo, UpdateStatus
+from system_update.network import fetch_json
 
 
 def check(apps: List[AppInfo]) -> List[Dict]:
@@ -20,9 +19,7 @@ def check(apps: List[AppInfo]) -> List[Dict]:
 
 		try:
 			url = f'https://pypi.org/pypi/{app.name}/{app.version}/json'
-			req = urllib.request.Request(url, headers={'Accept': 'application/json'})
-			with urllib.request.urlopen(req, timeout=10) as resp:
-				data = json.loads(resp.read().decode('utf-8'))
+			data = fetch_json(url, headers={'Accept': 'application/json'})
 		except Exception:
 			continue
 

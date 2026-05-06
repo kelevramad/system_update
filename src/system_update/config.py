@@ -67,6 +67,13 @@ class SystemConfig:
 				'max_workers': 6,
 				'timeout_seconds': 45,
 			},
+			'network': {
+				'enabled': True,
+				'cache_enabled': True,
+				'cache_ttl_seconds': 3600,
+				'rate_limit_seconds': 0.2,
+				'timeout_seconds': 10,
+			},
 			'sources': {
 				'winget': True,
 				'chocolatey': True,
@@ -355,6 +362,23 @@ class SystemConfig:
 		):
 			logging.warning('Invalid performance.timeout_seconds. Resetting to default (45).')
 			self.settings['performance']['timeout_seconds'] = 45
+
+		network = self.settings.setdefault('network', {})
+		network['enabled'] = bool(network.get('enabled', True))
+		network['cache_enabled'] = bool(network.get('cache_enabled', True))
+		for key, default in (
+			('cache_ttl_seconds', 3600),
+			('timeout_seconds', 10),
+		):
+			if not isinstance(network.get(key), (int, float)) or network[key] < 1:
+				logging.warning(f'Invalid network.{key}. Resetting to default ({default}).')
+				network[key] = default
+		if (
+			not isinstance(network.get('rate_limit_seconds'), (int, float))
+			or network['rate_limit_seconds'] < 0
+		):
+			logging.warning('Invalid network.rate_limit_seconds. Resetting to default (0.2).')
+			network['rate_limit_seconds'] = 0.2
 
 		valid_thresholds = ['low', 'medium', 'high', 'critical']
 		try:

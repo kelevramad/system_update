@@ -13,7 +13,6 @@ import logging
 import os
 import threading
 import time
-import urllib.request
 from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -28,6 +27,7 @@ from system_update.config import SystemConfig, setup_logging
 from system_update.executors import UpdateExecutor
 from system_update.history import HistoryDatabase, VulnerabilityHistory
 from system_update.models import AppInfo, UpdateStatus
+from system_update.network import configure_network, fetch_json
 from system_update.notifications import NotificationManager
 from system_update.plugins import PluginRegistry, load_plugins, scanner_map
 from system_update.scanners import PackageScanner
@@ -131,10 +131,7 @@ def _pypi_fallback_latest(apps: List[AppInfo]) -> None:
             continue
         try:
             url = f'https://pypi.org/pypi/{app.name}/json'
-            req = urllib.request.Request(
-                url, headers={'User-Agent': 'SystemUpdateCLI'})
-            with urllib.request.urlopen(req, timeout=10) as response:
-                data = json.loads(response.read().decode())
+            data = fetch_json(url)
             if 'info' in data:
                 app.latest_version = data['info'].get('version', '')
         except Exception:
@@ -217,6 +214,7 @@ class SystemUpdateApp:
     def __init__(self) -> None:
         self.config = SystemConfig()
         self.settings = self.config.settings
+        configure_network(self.settings.get('network', {}), self.config.config_dir)
         self.ui = UISystem()
         self.scanner = PackageScanner()
         self.checker = UpdateChecker()
@@ -414,7 +412,8 @@ class SystemUpdateApp:
         self._save_cache_with_context(merged, missing)
         console.print(
             f'[dim]💾 Cache updated ({len(merged)} items across '
-            f'{len({a.source.lower() for a in merged})} sources).[/dim]\n'
+            f'{len({a.source.lower() for a in merged})} sources) '
+            f'{self._cache_expiry_hint()}[/dim]\n'
         )
         # Bare run with no source filter → return EVERYTHING; only filter when
         # the caller explicitly scoped the run to specific sources.
@@ -435,6 +434,7 @@ class SystemUpdateApp:
         if isinstance(profile, str) and profile:
             self.config.reinit(profile)
             self.settings = self.config.settings
+            configure_network(self.settings.get('network', {}), self.config.config_dir)
             # Re-bind any sub-system that captured an old path.
             from system_update.cache import CacheManager
             from system_update.history import HistoryDatabase, VulnerabilityHistory
@@ -698,6 +698,11 @@ class SystemUpdateApp:
             else:
                 self._save_cache_with_context(
                     apps, self._fresh_scan_sources(args, apps))
+                console.print(
+                    f'[dim]💾 Cache updated ({len(apps)} items across '
+                    f'{len({a.source.lower() for a in apps})} sources) '
+                    f'{self._cache_expiry_hint()}[/dim]\n'
+                )
         else:
             total_updates = _count_updates(apps)
             scan_time = 0.0
@@ -1078,7 +1083,8 @@ class SystemUpdateApp:
             if not dry_run:
                 self._save_cache_with_context(apps)
                 console.print(
-                    '[bold green]✓[/bold green] [dim]Cache updated with package result.[/dim]'
+                    '[bold green]✓[/bold green] '
+                    f'[dim]Cache updated with package result {self._cache_expiry_hint()}[/dim]'
                 )
         finally:
             if store is not None:
@@ -1869,6 +1875,7 @@ class SystemUpdateApp:
             profile_label = self.config.current_profile or 'imported'
             # Re-bind subsystems to the new profile's paths.
             self.settings = self.config.settings
+            configure_network(self.settings.get('network', {}), self.config.config_dir)
             from system_update.cache import CacheManager
             from system_update.history import HistoryDatabase, VulnerabilityHistory
 
@@ -2102,7 +2109,9 @@ class SystemUpdateApp:
             cached = self.cache_mgr.load() or []
             if cached:
                 console.print(
-                    f'[bold cyan]⚡ Cache Hit![/bold cyan] [dim]Merging with {len(cached)} cached package(s)...[/dim]'
+                    f'[bold cyan]⚡ Cache Hit![/bold cyan] '
+                    f'[dim]Merging with {len(cached)} cached package(s) '
+                    f'{self._cache_expiry_hint()}...[/dim]'
                 )
                 batches.append(cached)
 
@@ -2116,7 +2125,8 @@ class SystemUpdateApp:
         try:
             self._save_cache_with_context(merged)
             console.print(
-                '[bold green]✓[/bold green] [dim]Cache updated with merged data.[/dim]')
+                '[bold green]✓[/bold green] '
+                f'[dim]Cache updated with merged data {self._cache_expiry_hint()}[/dim]')
         except Exception as e:
             logger.warning(f'Failed to persist merged cache: {e}')
         return merged

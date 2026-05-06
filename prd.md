@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 7.2.0
+**Document Version:** 7.3.0
 **Last Updated:** May 5, 2026
 **Author:** Kelevra Mad
-**Based On:** `src/system_update/` package (v7.2.0)
+**Based On:** `src/system_update/` package (v7.3.0)
 
 ---
 
@@ -919,6 +919,7 @@ Errors are displayed with appropriate styling:
 | 6.5.0 | May 2026 | Plugin Architecture (6.5): local Python plugins loaded from `~/.system_update/plugins` or configured `plugins.paths`; custom package scanners can add new `--source` providers (6.5.1); custom notifiers receive update and scan-complete events (6.5.2); public plugin API exports `PluginRegistry`, `PluginContext`, `PluginScanner`, `PluginNotifier`, and `load_plugins` (6.5.3); new `--list-plugins` command lists loaded scanners/notifiers and load errors |
 | 7.1.0 | May 2026 | Smart Caching (7.1): per-source freshness metadata enables incremental rescans for stale/missing sources while fresh sources remain cached (7.1.1); cache writes include delta metadata for added/updated/removed packages (7.1.2); bounded hot-package LRU cache tracks recently loaded packages (7.1.3); optional prefetch can refresh near-expiry caches in the background (7.1.4). Source emoji chips now render by default in summaries, package tables, scan/update progress, and partial-cache messages; `--icons` was removed because icons are always shown |
 | 7.2.0 | May 2026 | Parallel Processing (7.2): per-source scanner and update-checker work now use bounded worker pools (7.2.1); package deduplication uses a shared helper across scan paths (7.2.2); update-check failures are isolated per source so healthy sources continue and report results (7.2.3) |
+| 7.3.0 | May 2026 | Network Optimization (7.3): OSV vulnerability checks use batched API requests (7.3.1); shared JSON API calls honor configurable per-host rate limits (7.3.2); API responses are cached in `api_cache.json` with configurable TTL (7.3.3). Summary panel source rows wrap safely inside borders on emoji-rich terminals |
 
 ## Appendix B: Glossary
 
