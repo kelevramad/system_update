@@ -207,6 +207,12 @@ def test_partial_cache_message_shows_hits_and_missing(monkeypatch, tmp_path):
 	output = console.export_text()
 	assert 'cached source(s): 📦 winget' in output
 	assert 'Scanning missing source(s): 📚 npm' in output
+	assert '⏱  Scanning sources completed in ' in output
+	assert '⏱  Checking for updates completed in ' in output
+	assert '⏱  Checking security vulnerabilities completed in ' in output
+	assert 'Scanning sources completed in ' in output
+	assert 'Checking for updates completed in ' in output
+	assert 'Checking security vulnerabilities completed in ' in output
 	assert 'Cache updated' in output
 	assert 'expires' in output
 	assert 'in ' in output

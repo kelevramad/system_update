@@ -51,7 +51,7 @@ PANEL_LOG = '🪵 Logging & Debug'
 
 APP_HELP = """[bold cyan]system-update[/bold cyan] — cross-platform package scanner & updater.
 
-Scans [yellow]winget, choco, scoop, npm, pnpm, yarn, bun, pip, cargo, PATH, registry[/yellow],
+Scans [yellow]winget, choco, scoop, npm, pnpm, yarn, bun, pip, cargo, PATH, registry, AppX, drivers, services[/yellow],
 checks for updates, runs [red]security audits[/red] (OSV, pip-audit, npm audit, PyPI, GH Advisory),
 and can [green]apply updates[/green] or export branded [magenta]HTML/JSON/CSV/XML/Markdown[/magenta] reports.
 """

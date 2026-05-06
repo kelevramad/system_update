@@ -41,6 +41,10 @@ _SOURCE_HEX = {
 	'dotnet': '#512bd4',
 	'appx': '#0078d4',
 	'msix': '#0078d4',
+	'drivers': '#0288d1',
+	'services': '#2e7d32',
+	'psmodules': '#7b1fa2',
+	'vsextensions': '#007acc',
 }
 
 

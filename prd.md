@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 7.4.0
-**Last Updated:** May 5, 2026
+**Document Version:** 8.1.0
+**Last Updated:** May 6, 2026
 **Author:** Kelevra Mad
-**Based On:** `src/system_update/` package (v7.4.0)
+**Based On:** `src/system_update/` package (v8.1.0)
 
 ---
 
@@ -460,7 +460,15 @@ Each source is displayed with a unique color badge:
     pip: boolean,
     path: boolean,
     registry: boolean,
-    rust: boolean
+    rust: boolean,
+    scoop: boolean,
+    dotnet: boolean,
+    appx: boolean,
+    msix: boolean,
+    drivers: boolean,
+    services: boolean,
+    psmodules: boolean,
+    vsextensions: boolean
   },
   security: {
     enabled: boolean,
@@ -656,6 +664,12 @@ python -m system_update [options]
 - `rust`
 - `scoop`
 - `dotnet`
+- `appx`
+- `msix`
+- `drivers`
+- `services`
+- `psmodules`
+- `vsextensions`
 
 ### 12.4 Example Commands
 
@@ -921,6 +935,7 @@ Errors are displayed with appropriate styling:
 | 7.2.0 | May 2026 | Parallel Processing (7.2): per-source scanner and update-checker work now use bounded worker pools (7.2.1); package deduplication uses a shared helper across scan paths (7.2.2); update-check failures are isolated per source so healthy sources continue and report results (7.2.3) |
 | 7.3.0 | May 2026 | Network Optimization (7.3): OSV vulnerability checks use batched API requests (7.3.1); shared JSON API calls honor configurable per-host rate limits (7.3.2); API responses are cached in `api_cache.json` with configurable TTL (7.3.3). Summary panel source rows wrap safely inside borders on emoji-rich terminals |
 | 7.4.0 | May 2026 | Size Reduction (7.4): scan caches are gzip-compressed by default while preserving plain-JSON read compatibility (7.4.1); old source metadata, stale source package rows, and expired deltas are pruned automatically (7.4.2); cache field storage is configurable and empty optional fields are omitted by default (7.4.3) |
+| 8.1.0 | May 2026 | Windows-Specific Enhancements (8.1): AppX Store packages can be checked for `msstore` updates through winget (8.1.1-8.1.2); Windows drivers are inventoried via `pnputil` (8.1.3); service executable versions are discovered via CIM (8.1.4); PowerShell modules and VS Code extensions now scan and check available versions (8.1.5-8.1.6) |
 
 ## Appendix B: Glossary
 

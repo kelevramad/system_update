@@ -82,6 +82,10 @@ _SUBMODULES = [
 	'system_update.checkers.rust',
 	'system_update.checkers.scoop',
 	'system_update.checkers.dotnet',
+	'system_update.checkers.appx',
+	'system_update.checkers.drivers',
+	'system_update.checkers.services',
+	'system_update.checkers.psmodules',
 	'system_update.checkers._npm_registry',
 	# scanners
 	'system_update.scanners.bun',
@@ -97,6 +101,10 @@ _SUBMODULES = [
 	'system_update.scanners.winget',
 	'system_update.scanners.yarn',
 	'system_update.scanners._appx_common',
+	'system_update.scanners.drivers',
+	'system_update.scanners.services',
+	'system_update.scanners.psmodules',
+	'system_update.scanners.vsextensions',
 	# executors + security
 	'system_update.executors',
 	'system_update.security.npm',

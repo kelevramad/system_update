@@ -12,6 +12,10 @@ _SCANNER_MOCKS = {
 	'registry': json.dumps([{'Name': 'test', 'Version': '1.0', 'InstallLocation': 'C:\\'}]),
 	'appx': json.dumps([{'Name': 'test', 'Version': '1.0'}]),
 	'msix': json.dumps([{'Name': 'test', 'Version': '1.0'}]),
+	'drivers': 'Published Name: oem1.inf\nDriver Package Provider: Vendor\nDriver Version: 01/01/2026 1.0.0\n',
+	'services': json.dumps([{'Name': 'Svc', 'ServiceName': 'svc', 'Version': '1.0'}]),
+	'psmodules': json.dumps([{'Name': 'Pester', 'Version': '5.0.0'}]),
+	'vsextensions': 'ms-python.python@2026.1.0',
 	'npm': json.dumps({'dependencies': {'test': {'version': '1.0.0'}}}),
 	'pnpm': json.dumps({'dependencies': {'test': {'version': '1.0.0'}}}),
 	'bun': json.dumps([{'name': 'test', 'version': '1.0.0'}]),
@@ -123,6 +127,51 @@ def test_scan_msix_parsing(mock_run):
 	mock_run.return_value = json.dumps([{'Name': 'App', 'Version': '1.0'}])
 	apps = PackageScanner.scan_msix()
 	assert isinstance(apps, list)
+
+
+@patch('platform.system', return_value='Windows')
+@patch('system_update.run_command')
+def test_scan_drivers_parsing(mock_run, _mock_platform):
+	mock_run.return_value = (
+		'Published Name: oem42.inf\n'
+		'Driver Package Provider: Contoso\n'
+		'Class Name: System\n'
+		'Driver Version: 05/01/2026 2.3.4\n'
+	)
+	apps = PackageScanner.scan_drivers()
+	assert apps[0].name == 'Contoso'
+	assert apps[0].source == 'drivers'
+	assert apps[0].version == '05/01/2026 2.3.4'
+	assert apps[0].app_id == 'oem42.inf'
+
+
+@patch('platform.system', return_value='Windows')
+@patch('system_update.run_command')
+def test_scan_services_parsing(mock_run, _mock_platform):
+	mock_run.return_value = json.dumps(
+		{'Name': 'Demo Service', 'ServiceName': 'demo', 'Version': '1.2.3', 'Path': 'C:\\demo.exe'}
+	)
+	apps = PackageScanner.scan_services()
+	assert apps[0].name == 'Demo Service'
+	assert apps[0].source == 'services'
+	assert apps[0].app_id == 'demo'
+
+
+@patch('platform.system', return_value='Windows')
+@patch('system_update.run_command')
+def test_scan_psmodules_parsing(mock_run, _mock_platform):
+	mock_run.return_value = json.dumps({'Name': 'Pester', 'Version': '5.6.1'})
+	apps = PackageScanner.scan_psmodules()
+	assert apps[0].name == 'Pester'
+	assert apps[0].source == 'psmodules'
+	assert apps[0].version == '5.6.1'
+
+
+@patch('system_update.run_command')
+def test_scan_vsextensions_parsing(mock_run):
+	mock_run.return_value = 'ms-python.python@2026.1.0\nredhat.vscode-yaml@1.15.0\n'
+	apps = PackageScanner.scan_vsextensions()
+	assert [app.name for app in apps] == ['ms-python.python', 'redhat.vscode-yaml']
 
 
 @patch('system_update.run_command')

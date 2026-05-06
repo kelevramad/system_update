@@ -4,7 +4,7 @@
 
 A comprehensive Python-based system package management tool that scans, checks, and updates software from multiple sources.
 
-**Version:** 7.4.0
+**Version:** 8.1.0
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
 **Layout:** Modular package at `src/system_update/` (typer CLI)
@@ -13,7 +13,7 @@ A comprehensive Python-based system package management tool that scans, checks, 
 
 ## 🌟 Features
 
-- **Multi-source Package Discovery**: Scan applications installed via Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Scoop, system PATH executables, and Windows Registry.
+- **Multi-source Package Discovery**: Scan applications installed via Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Scoop, system PATH executables, Windows Registry, AppX/MSIX, drivers, services, PowerShell modules, and VS Code extensions.
 - **Security Scanning**: Real-time vulnerability checking for NPM (`npm audit`) and PIP (`pip check`) packages.
 - **Smart Caching**: 2-hour compressed cache with per-source freshness, incremental rescans, delta records, pruning, selective storage, a bounded hot-package LRU cache, and optional prefetch.
 - **Network Optimization**: Batched OSV security lookups plus rate-limited, cached JSON API responses.
@@ -92,7 +92,7 @@ python -m system_update --export json --output report.json
 | `--update-source <source>` | Update all packages from a specific source |
 | `--update-package <name>` | Update a specific package by name |
 | `--version <ver>` | Target version (use with `--update-package`) |
-| `--source <source>` | Filter by source (winget\|chocolatey\|npm\|pnpm\|bun\|yarn\|pip\|path\|rust\|registry) |
+| `--source <source>` | Filter by source (winget\|chocolatey\|npm\|pnpm\|bun\|yarn\|pip\|path\|rust\|registry\|appx\|msix\|drivers\|services\|psmodules\|vsextensions) |
 | `--dry-run` | Show planned updates without executing |
 | `--no-cache` | Force fresh scan (ignore cache) |
 | `--clear-cache` | Remove cache file and exit |
@@ -313,7 +313,15 @@ The script uses the following default settings stored in `~/.system_update/confi
         "pip": true,
         "path": true,
         "registry": true,
-        "rust": true
+        "rust": true,
+        "scoop": true,
+        "dotnet": true,
+        "appx": true,
+        "msix": true,
+        "drivers": true,
+        "services": true,
+        "psmodules": true,
+        "vsextensions": true
     },
     "security": {
         "enabled": true,

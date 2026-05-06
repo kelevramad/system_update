@@ -55,6 +55,10 @@ _SCAN_ORDER = (
     'dotnet',
     'appx',
     'msix',
+    'drivers',
+    'services',
+    'psmodules',
+    'vsextensions',
 )
 
 _KNOWN_SOURCES: Set[str] = set(_SCAN_ORDER) | set(_SOURCE_ALIASES.keys())
@@ -70,6 +74,11 @@ def _confirm_default_no(message: str) -> bool:
         show_default=False,
     )
     return answer.lower() == 'y'
+
+
+def _phase_time_label(label: str, start_time: float) -> str:
+    """Return a consistent elapsed-time message for a completed CLI phase."""
+    return f'[dim]⏱  {label} completed in {time.time() - start_time:.2f}s[/dim]\n'
 
 
 def _build_scanner_map() -> Dict[str, Callable[[], List[AppInfo]]]:
@@ -88,6 +97,10 @@ def _build_scanner_map() -> Dict[str, Callable[[], List[AppInfo]]]:
         'dotnet': PackageScanner.scan_dotnet,
         'appx': PackageScanner.scan_appx,
         'msix': PackageScanner.scan_msix,
+        'drivers': PackageScanner.scan_drivers,
+        'services': PackageScanner.scan_services,
+        'psmodules': PackageScanner.scan_psmodules,
+        'vsextensions': PackageScanner.scan_vsextensions,
     }
 
 
@@ -214,7 +227,8 @@ class SystemUpdateApp:
     def __init__(self) -> None:
         self.config = SystemConfig()
         self.settings = self.config.settings
-        configure_network(self.settings.get('network', {}), self.config.config_dir)
+        configure_network(self.settings.get(
+            'network', {}), self.config.config_dir)
         self.ui = UISystem()
         self.scanner = PackageScanner()
         self.checker = UpdateChecker()
@@ -253,12 +267,18 @@ class SystemUpdateApp:
 
     def _configure_cache_manager(self) -> None:
         cache_settings = self.settings.get('cache', {})
-        self.cache_mgr.hot_cache_max_items = cache_settings.get('lru_max_items', 512)
-        self.cache_mgr.delta_enabled = cache_settings.get('delta_enabled', True)
-        self.cache_mgr.compression_enabled = cache_settings.get('compression_enabled', True)
-        self.cache_mgr.prune_after_days = cache_settings.get('prune_after_days', 14)
-        self.cache_mgr.storage_fields = cache_settings.get('storage_fields') or []
-        self.cache_mgr.omit_empty_fields = cache_settings.get('omit_empty_fields', True)
+        self.cache_mgr.hot_cache_max_items = cache_settings.get(
+            'lru_max_items', 512)
+        self.cache_mgr.delta_enabled = cache_settings.get(
+            'delta_enabled', True)
+        self.cache_mgr.compression_enabled = cache_settings.get(
+            'compression_enabled', True)
+        self.cache_mgr.prune_after_days = cache_settings.get(
+            'prune_after_days', 14)
+        self.cache_mgr.storage_fields = cache_settings.get(
+            'storage_fields') or []
+        self.cache_mgr.omit_empty_fields = cache_settings.get(
+            'omit_empty_fields', True)
 
     # ── scanning ────────────────────────────────────────────────────────────
 
@@ -282,7 +302,7 @@ class SystemUpdateApp:
         )
         if overridden:
             console.print(
-                f'[yellow]ℹ Source(s) disabled in config but requested via '
+                f'[yellow]ℹ  Source(s) disabled in config but requested via '
                 f'--source:[/yellow] [bold]{", ".join(overridden)}[/bold] '
                 f'[dim](scanning anyway — pass [cyan]--save-config[/cyan] '
                 f'to make this permanent)[/dim]'
@@ -365,14 +385,18 @@ class SystemUpdateApp:
         self._include_sources = set(missing)
         try:
             console.print('[bold cyan]🔎 Scanning sources...[/bold cyan]')
+            phase_start = time.time()
             new_apps = self.scan_system(','.join(sorted(missing)))
             console.print(
                 f'\n📦 [bold]Discovered {len(new_apps)} unique apps.[/bold]')
+            console.print(_phase_time_label('Scanning sources', phase_start))
 
             console.print('[bold cyan]🔄 Checking for updates...[/bold cyan]')
+            phase_start = time.time()
             self.checker.check_all_updates(
                 new_apps,
-                max_workers=self.settings.get('performance', {}).get('max_workers', 4),
+                max_workers=self.settings.get(
+                    'performance', {}).get('max_workers', 4),
             )
 
             regular_updates = sum(
@@ -391,9 +415,12 @@ class SystemUpdateApp:
                 console.print(
                     f'[bold magenta]📊 Detected {total_updates} update candidates.[/bold magenta]\n'
                 )
+            console.print(_phase_time_label(
+                'Checking for updates', phase_start))
 
             console.print(
                 '[bold magenta]🔒 Checking security vulnerabilities...[/bold magenta]')
+            phase_start = time.time()
             advisory_file = os.path.join(
                 os.path.expanduser('~'), '.system_update', 'advisories.json'
             )
@@ -406,6 +433,8 @@ class SystemUpdateApp:
             else:
                 console.print(
                     '[bold green]🛡️ No security vulnerabilities found.[/bold green]\n')
+            console.print(_phase_time_label(
+                'Checking security vulnerabilities', phase_start))
             _pypi_fallback_latest(new_apps)
         finally:
             self._include_sources = prev_include
@@ -439,7 +468,8 @@ class SystemUpdateApp:
         if isinstance(profile, str) and profile:
             self.config.reinit(profile)
             self.settings = self.config.settings
-            configure_network(self.settings.get('network', {}), self.config.config_dir)
+            configure_network(self.settings.get(
+                'network', {}), self.config.config_dir)
             # Re-bind any sub-system that captured an old path.
             from system_update.cache import CacheManager
             from system_update.history import HistoryDatabase, VulnerabilityHistory
@@ -631,15 +661,19 @@ class SystemUpdateApp:
 
             # Phase 1 — scan.
             console.print('[bold cyan]🔎 Scanning sources...[/bold cyan]')
+            phase_start = time.time()
             apps = self.scan_system(getattr(args, 'source', None))
             console.print(
                 f'\n📦 [bold]Discovered {len(apps)} unique apps.[/bold]')
+            console.print(_phase_time_label('Scanning sources', phase_start))
 
             # Phase 2 — update checking.
             console.print('[bold cyan]🔄 Checking for updates...[/bold cyan]')
+            phase_start = time.time()
             self.checker.check_all_updates(
                 apps,
-                max_workers=self.settings.get('performance', {}).get('max_workers', 4),
+                max_workers=self.settings.get(
+                    'performance', {}).get('max_workers', 4),
             )
 
             regular_updates = sum(
@@ -659,10 +693,13 @@ class SystemUpdateApp:
                 console.print(
                     f'[bold magenta]📊 Detected {total_updates} update candidates.[/bold magenta]\n'
                 )
+            console.print(_phase_time_label(
+                'Checking for updates', phase_start))
 
             # Phase 3 — security vulnerability check.
             console.print(
                 '[bold magenta]🔒 Checking security vulnerabilities...[/bold magenta]')
+            phase_start = time.time()
             advisory_file = os.path.join(
                 os.path.expanduser('~'), '.system_update', 'advisories.json'
             )
@@ -676,6 +713,8 @@ class SystemUpdateApp:
             else:
                 console.print(
                     '[bold green]🛡️ No security vulnerabilities found.[/bold green]\n')
+            console.print(_phase_time_label(
+                'Checking security vulnerabilities', phase_start))
 
             _pypi_fallback_latest(apps)
 
@@ -1876,7 +1915,8 @@ class SystemUpdateApp:
             profile_label = self.config.current_profile or 'imported'
             # Re-bind subsystems to the new profile's paths.
             self.settings = self.config.settings
-            configure_network(self.settings.get('network', {}), self.config.config_dir)
+            configure_network(self.settings.get(
+                'network', {}), self.config.config_dir)
             from system_update.cache import CacheManager
             from system_update.history import HistoryDatabase, VulnerabilityHistory
 
@@ -2026,7 +2066,8 @@ class SystemUpdateApp:
 
             check_all_updates(
                 apps,
-                max_workers=self.settings.get('performance', {}).get('max_workers', 4),
+                max_workers=self.settings.get(
+                    'performance', {}).get('max_workers', 4),
             )
         except Exception as e:
             logger.warning(f'check_all_updates failed during eval: {e}')

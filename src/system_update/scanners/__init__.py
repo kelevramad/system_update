@@ -13,6 +13,7 @@ from system_update.scanners import (
 	bun,
 	chocolatey,
 	dotnet,
+	drivers,
 	msix,
 	npm,
 	path,
@@ -21,6 +22,9 @@ from system_update.scanners import (
 	registry,
 	rust,
 	scoop,
+	services,
+	psmodules,
+	vsextensions,
 	winget,
 	yarn,
 )
@@ -43,6 +47,10 @@ class PackageScanner:
 	scan_registry = staticmethod(registry.scan)
 	scan_appx = staticmethod(appx.scan)
 	scan_msix = staticmethod(msix.scan)
+	scan_drivers = staticmethod(drivers.scan)
+	scan_services = staticmethod(services.scan)
+	scan_psmodules = staticmethod(psmodules.scan)
+	scan_vsextensions = staticmethod(vsextensions.scan)
 
 	_parse_pip_list = staticmethod(pip._parse_pip_list)
 

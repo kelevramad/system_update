@@ -19,13 +19,18 @@ from system_update.checkers import (
 	bun,
 	chocolatey,
 	dotnet,
+	drivers,
 	npm,
+	appx,
 	path,
 	pip,
 	pnpm,
+	psmodules,
 	registry,
 	rust,
 	scoop,
+	services,
+	vsextensions,
 	winget,
 	yarn,
 )
@@ -41,6 +46,7 @@ _CHECKED_SOURCES = frozenset(
 	{
 		'winget', 'chocolatey', 'npm', 'pnpm', 'bun', 'yarn',
 		'pip', 'registry', 'rust', 'path', 'dotnet', 'appx', 'msix',
+		'drivers', 'services', 'psmodules', 'vsextensions',
 	}
 )
 
@@ -57,6 +63,11 @@ _SOURCE_CHECKERS = {
 	'rust': rust.check,
 	'scoop': scoop.check,
 	'dotnet': dotnet.check,
+	'appx': appx.check,
+	'drivers': drivers.check,
+	'services': services.check,
+	'psmodules': psmodules.check,
+	'vsextensions': vsextensions.check,
 }
 
 
@@ -165,6 +176,11 @@ class UpdateChecker:
 	_check_rust_updates = staticmethod(rust.check)
 	_check_scoop_updates = staticmethod(scoop.check)
 	_check_dotnet_updates = staticmethod(dotnet.check)
+	_check_appx_updates = staticmethod(appx.check)
+	_check_drivers_updates = staticmethod(drivers.check)
+	_check_services_updates = staticmethod(services.check)
+	_check_psmodules_updates = staticmethod(psmodules.check)
+	_check_vsextensions_updates = staticmethod(vsextensions.check)
 
 
 __all__ = ['UpdateChecker', 'check_all_updates']

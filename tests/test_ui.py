@@ -123,7 +123,7 @@ def test_summary_wraps_source_chips_inside_panel(monkeypatch):
 	# All chip data is rendered (across however many lines Rich chose).
 	assert '📚 npm:20' in output
 	assert '🧶 yarn:1' in output
-	assert 'sources:' in output
+	assert '✨ Sources:' in output
 
 
 def test_package_table_uses_plugin_fallback_icon():

@@ -40,6 +40,7 @@ Get-AppxPackage |
 					name=item['Name'],
 					version=item['Version'],
 					source=source,
+					app_id=item.get('PackageFullName'),
 					install_path=item.get('InstallLocation', ''),
 				)
 			)

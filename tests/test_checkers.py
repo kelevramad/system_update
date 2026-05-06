@@ -1,7 +1,7 @@
 import pytest
 import json
 from unittest.mock import patch, MagicMock
-from system_update import UpdateChecker, UpdateExecutor, SystemUpdateApp, AppInfo
+from system_update import UpdateChecker, UpdateExecutor, SystemUpdateApp, AppInfo, UpdateStatus
 
 _CHECKER_MOCKS = [
 	(
@@ -116,6 +116,55 @@ def test_check_winget_updates(mock_run):
 
 
 @patch('system_update.run_command')
+def test_check_appx_updates_from_msstore(mock_run):
+	apps = [AppInfo(name='Windows Terminal', source='appx', version='1.0', app_id='Terminal.Package')]
+	header = 'Name                           Id                                         Version          Available        Source'
+	line1 = 'Windows Terminal               Microsoft.WindowsTerminal                  1.0              1.1              msstore'
+	mock_run.return_value = f'{header}\n---\n{line1}'
+	count = UpdateChecker._check_appx_updates(apps)
+	assert count == 1
+	assert apps[0].latest_version == '1.1'
+	assert apps[0].app_id == 'Microsoft.WindowsTerminal'
+
+
+def test_check_drivers_marks_up_to_date():
+	apps = [AppInfo(name='Driver', source='drivers', version='1.0')]
+	count = UpdateChecker._check_drivers_updates(apps)
+	assert count == 0
+	assert apps[0].update_status == UpdateStatus.UP_TO_DATE
+
+
+def test_check_services_marks_up_to_date():
+	apps = [AppInfo(name='Service', source='services', version='1.0')]
+	count = UpdateChecker._check_services_updates(apps)
+	assert count == 0
+	assert apps[0].update_status == UpdateStatus.UP_TO_DATE
+
+
+@patch('system_update.run_command')
+def test_check_psmodules_updates(mock_run):
+	apps = [AppInfo(name='Pester', source='psmodules', version='5.0.0')]
+	mock_run.return_value = '5.1.0'
+	count = UpdateChecker._check_psmodules_updates(apps)
+	assert count == 1
+	assert apps[0].latest_version == '5.1.0'
+
+
+def test_check_vsextensions_updates(monkeypatch):
+	from system_update.checkers import vsextensions
+
+	apps = [AppInfo(name='ms-python.python', source='vsextensions', version='2026.1.0')]
+	monkeypatch.setattr(
+		vsextensions,
+		'_latest_marketplace_version',
+		lambda extension_id: '2026.2.0',
+	)
+	count = UpdateChecker._check_vsextensions_updates(apps)
+	assert count == 1
+	assert apps[0].latest_version == '2026.2.0'
+
+
+@patch('system_update.run_command')
 def test_check_path_updates_exhaustive(mock_run):
 	def side_effect(cmd, **kwargs):
 		cmd_str = ' '.join(str(c) for c in cmd) if isinstance(cmd, list) else cmd
@@ -143,7 +192,7 @@ def test_check_path_updates_empty(mock_run):
 	mock_run.assert_not_called()
 
 
-@pytest.mark.parametrize('source', ['Scoop', 'PATH', 'Appx', 'Msix'])
+@pytest.mark.parametrize('source', ['Scoop', 'PATH', 'Appx', 'Msix', 'psmodules', 'vsextensions'])
 @patch('system_update.run_command', return_value='OK')
 def test_executor_additional_sources(mock_run, source):
 	app = AppInfo(name='pkg', source=source, version='1.0', latest_version='1.1', app_id='ID')
@@ -168,6 +217,10 @@ def test_executor_additional_sources(mock_run, source):
 		'registry',
 		'appx',
 		'msix',
+		'drivers',
+		'services',
+		'psmodules',
+		'vsextensions',
 	],
 )
 @patch('system_update.run_command', return_value='Updated successfully')

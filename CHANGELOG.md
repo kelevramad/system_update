@@ -15,6 +15,14 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.1.0 (May 2026)
+- **Windows-Specific Enhancements (8.1)**: Completed Windows source coverage with AppX Store updates, driver inventory, service inventory, PowerShell modules, and VS Code extensions.
+  - **AppX + Store Updates (8.1.1-8.1.2)**: AppX scanning now records package IDs and checks Store updates through `winget upgrade` with `msstore` results.
+  - **Driver and Service Inventory (8.1.3-8.1.4)**: Added Windows driver scanning via `pnputil /enum-drivers` and service executable version discovery via `Get-CimInstance Win32_Service`.
+  - **PowerShell and VS Extensions (8.1.5-8.1.6)**: Added PowerShell module scanning/update checks and VS Code extension scanning with Marketplace version checks.
+- **UI polish**: Summary source labels now use `✨ Sources:` and phase timing lines show consistent emoji spacing.
+- **Tests**: Added Windows scanner/checker coverage and kept summary border regression checks active.
+
 ### v7.4.0 (May 2026)
 - **Size Reduction (7.4)**: Reduced scan cache footprint with gzip compression, automatic pruning, and selective package-field storage.
   - **Compressed Cache (7.4.1)**: Cache writes now use gzip by default while reads remain compatible with older plain JSON caches.

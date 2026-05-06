@@ -84,6 +84,30 @@ def _dotnet(app: AppInfo) -> Optional[Command]:
 	return ['dotnet', 'tool', 'update', '-g', app.name]
 
 
+def _appx(app: AppInfo) -> Optional[Command]:
+	if not app.app_id:
+		return None
+	return [
+		'winget', 'upgrade', '--id', app.app_id, '--source', 'msstore',
+		'--accept-source-agreements', '--accept-package-agreements',
+	]
+
+
+def _ps_single_quote(value: str) -> str:
+	return "'" + value.replace("'", "''") + "'"
+
+
+def _psmodules(app: AppInfo) -> Optional[Command]:
+	return [
+		'powershell', '-NoProfile', '-Command',
+		f'Update-Module -Name {_ps_single_quote(app.name)} -Force',
+	]
+
+
+def _vsextensions(app: AppInfo) -> Optional[Command]:
+	return ['code', '--install-extension', app.app_id or app.name, '--force']
+
+
 _PATH_UPDATERS: Dict[str, Callable[[AppInfo], Optional[Command]]] = {
 	'bun': lambda app: ['bun', 'upgrade'],
 	'deno': lambda app: (
@@ -115,6 +139,9 @@ _BUILDERS: Dict[str, Callable[[AppInfo], Optional[Command]]] = {
 	'pip': _pip,
 	'rust': _rust,
 	'dotnet': _dotnet,
+	'appx': _appx,
+	'psmodules': _psmodules,
+	'vsextensions': _vsextensions,
 	'path': _path,
 }
 

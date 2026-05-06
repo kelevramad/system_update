@@ -14,8 +14,9 @@ from system_update.models import AppInfo, UpdateStatus
 from system_update.ui.theme import ThemeManager
 from system_update.utils import console, display_source, source_chip, source_icon
 
-_VERSION = '7.4.0'
-_SEVERITY_PRIORITY = {'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3, 'UNKNOWN': 4}
+_VERSION = '8.1.0'
+_SEVERITY_PRIORITY = {'CRITICAL': 0, 'HIGH': 1,
+                      'MEDIUM': 2, 'LOW': 3, 'UNKNOWN': 4}
 _SEVERITY_COLORS = {
     'CRITICAL': 'bold red',
     'HIGH': 'red',
@@ -261,7 +262,7 @@ def display_summary(
         f'📦 [bold white]{total_apps}[/bold white] [dim]total[/dim]   '
         f'🔄 [bold yellow]{updates}[/bold yellow] [dim]updates[/dim]   '
         f'🔥 [bold red]{vulns}[/bold red] [dim]vulns[/dim]   '
-        f'⏱ [bold white]{scan_time:.2f}s[/bold white]'
+        f'⏱  [bold white]{scan_time:.2f}s[/bold white]'
     )
     kpis.overflow = 'fold'
     kpis.no_wrap = False
@@ -279,7 +280,7 @@ def display_summary(
     ]
     if chip_parts:
         sources_text = Text.from_markup(
-            '⚙  [dim]sources:[/dim] ' + '   '.join(chip_parts)
+            '✨ [dim]Sources:[/dim] ' + '   '.join(chip_parts)
         )
     else:
         sources_text = Text.from_markup('[dim]No sources scanned.[/dim]')
@@ -301,7 +302,7 @@ def display_summary(
             if breakdown.get(sev, 0) > 0
         ]
         sec_line = Text.from_markup(
-            f'🛡  [dim]severity:[/dim] {"  ".join(sev_parts)}   '
+            f'🛡  [dim]Severity:[/dim] {"  ".join(sev_parts)}   '
             f'[dim]·[/dim]   📦 [bold white]{pkgs_affected}[/bold white] '
             f'[dim]packages affected[/dim]   '
             f'[dim]·[/dim]   🔁 [bold yellow]{persistent}[/bold yellow] '

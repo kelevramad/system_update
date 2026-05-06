@@ -104,6 +104,10 @@ class SystemConfig:
 				'dotnet': True,
 				'appx': True,
 				'msix': True,
+				'drivers': True,
+				'services': True,
+				'psmodules': True,
+				'vsextensions': True,
 			},
 			'security': {
 				'enabled': True,
