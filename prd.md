@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 8.1.1
+**Document Version:** 8.1.2
 **Last Updated:** May 6, 2026
 **Author:** Kelevra Mad
-**Based On:** `src/system_update/` package (v8.1.1)
+**Based On:** `src/system_update/` package (v8.1.2)
 
 ---
 
@@ -937,6 +937,7 @@ Errors are displayed with appropriate styling:
 | 7.4.0 | May 2026 | Size Reduction (7.4): old source metadata, stale source package rows, and expired deltas are pruned automatically (7.4.2); cache field storage is configurable and empty optional fields are omitted by default (7.4.3). Cache files remain readable plain JSON because they are small |
 | 8.1.0 | May 2026 | Windows-Specific Enhancements (8.1): AppX Store packages can be checked for `msstore` updates through winget (8.1.1-8.1.2); Windows drivers are inventoried via `pnputil` (8.1.3); service executable versions are discovered via CIM (8.1.4); PowerShell modules and VS Code extensions now scan and check available versions (8.1.5-8.1.6). Cache files are readable plain JSON |
 | 8.1.1 | May 2026 | Cache readability patch: removed cache compression code and the `compression_enabled` setting; `cache.json` is always written as plain, indented JSON |
+| 8.1.2 | May 2026 | Security hardening patch: custom notification script hooks execute without `shell=True`; PowerShell hooks are invoked explicitly with `powershell -File` on Windows |
 
 ## Appendix B: Glossary
 

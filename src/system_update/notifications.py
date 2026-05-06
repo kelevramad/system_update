@@ -8,13 +8,28 @@ import os
 import platform
 import subprocess
 import urllib.request
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from system_update.config import SystemConfig
 from system_update.plugins import PluginRegistry, dispatch_notifiers
 from system_update.utils import run_command
 
 logger = logging.getLogger(__name__)
+
+
+def _custom_script_command(script_path: str) -> List[str]:
+	"""Build a shell-free argv for custom notification hooks."""
+	resolved = os.path.abspath(os.path.expanduser(script_path))
+	if platform.system() == 'Windows' and os.path.splitext(resolved)[1].lower() == '.ps1':
+		return [
+			'powershell',
+			'-NoProfile',
+			'-ExecutionPolicy',
+			'Bypass',
+			'-File',
+			resolved,
+		]
+	return [resolved]
 
 
 class NotificationManager:
@@ -201,13 +216,13 @@ $icon.Dispose()
 			env.update(env_vars)
 
 		try:
+			command = _custom_script_command(script_path)
 			result = subprocess.run(
-				[script_path],
+				command,
 				env=env,
 				capture_output=True,
 				text=True,
 				timeout=30,
-				shell=True,
 			)
 			logger.debug(f'Custom script executed: {script_path}, exit code: {result.returncode}')
 			return result.returncode == 0

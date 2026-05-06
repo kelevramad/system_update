@@ -15,6 +15,10 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.1.2 (May 2026)
+- **Security Hardening**: Custom notification scripts now execute without `shell=True`; PowerShell hooks are invoked explicitly with `powershell -File` on Windows.
+- **Tests**: Added notification hook coverage to ensure custom scripts are launched with a shell-free argv.
+
 ### v8.1.1 (May 2026)
 - **Readable Cache Files**: Removed cache compression code and the `compression_enabled` setting. `cache.json` is always written as plain, indented JSON so it can be inspected and edited easily.
 - **Docs and Tests**: Updated cache documentation and smart-cache tests to reflect readable JSON-only cache files.

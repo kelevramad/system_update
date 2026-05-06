@@ -102,6 +102,42 @@ def test_run_custom_script_not_found(mock_exists):
 	assert result is False
 
 
+@patch('os.path.exists')
+@patch('subprocess.run')
+def test_run_custom_script_invokes_without_shell(mock_run, mock_exists):
+	nm = NotificationManager()
+	mock_exists.return_value = True
+	mock_run.return_value = MagicMock(returncode=0)
+
+	result = nm.run_custom_script('hook.bat', {'VAR': 'value'})
+
+	assert result is True
+	command = mock_run.call_args.args[0]
+	kwargs = mock_run.call_args.kwargs
+	assert isinstance(command, list)
+	assert command[0].endswith('hook.bat')
+	assert 'shell' not in kwargs
+	assert kwargs['env']['VAR'] == 'value'
+
+
+@patch('platform.system')
+@patch('os.path.exists')
+@patch('subprocess.run')
+def test_run_custom_script_invokes_powershell_for_ps1(mock_run, mock_exists, mock_system):
+	nm = NotificationManager()
+	mock_system.return_value = 'Windows'
+	mock_exists.return_value = True
+	mock_run.return_value = MagicMock(returncode=0)
+
+	result = nm.run_custom_script('hook.ps1')
+
+	assert result is True
+	command = mock_run.call_args.args[0]
+	assert command[:5] == ['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File']
+	assert command[5].endswith('hook.ps1')
+	assert 'shell' not in mock_run.call_args.kwargs
+
+
 @patch('system_update.NotificationManager.send_system_notification')
 def test_notify_updates_with_vulns(mock_notif):
 	nm = NotificationManager()
