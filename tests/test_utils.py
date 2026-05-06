@@ -86,6 +86,11 @@ def test_source_icon_falls_back_for_plugin_sources():
 	assert source_chip('demo') == '🧩 [bright_white]demo[/bright_white]'
 
 
+def test_vsextensions_icon_is_distinct_from_plugin_icon():
+	assert source_icon('vsextensions') == '🔌'
+	assert source_icon('vsextensions') != source_icon('demo')
+
+
 def test_error_category_classification():
 	err = CommandError.classify(FileNotFoundError(), 'test-command')
 	assert err.category == ErrorCategory.NOT_FOUND

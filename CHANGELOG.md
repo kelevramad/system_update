@@ -15,6 +15,12 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.1.3 (May 2026)
+- **MSIX Update Checks**: Added a real MSIX checker path so MSIX packages are no longer marked checked without running an update checker.
+- **Windows Version Cleanup**: Driver, service, and PowerShell module scanners now normalize noisy version values before rendering tables.
+- **UI Polish**: VS Code extensions now use a distinct `🔌` source icon instead of the plugin fallback icon.
+- **Tests**: Added regression coverage for MSIX checking, Windows scanner version normalization, and the VS extensions icon.
+
 ### v8.1.2 (May 2026)
 - **Security Hardening**: Custom notification scripts now execute without `shell=True`; PowerShell hooks are invoked explicitly with `powershell -File` on Windows.
 - **Tests**: Added notification hook coverage to ensure custom scripts are launched with a shell-free argv.

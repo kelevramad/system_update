@@ -7,6 +7,7 @@ import platform
 from typing import List
 
 from system_update.models import AppInfo
+from system_update.scanners._versions import clean_version
 from system_update.utils import run_command
 
 _PS_SCRIPT = r"""
@@ -40,7 +41,7 @@ def scan() -> List[AppInfo]:
 		items = [data] if isinstance(data, dict) else data
 		for item in items:
 			name = item.get('Name')
-			version = str(item.get('Version') or '')
+			version = clean_version(item.get('Version'), default='')
 			if not name or not version:
 				continue
 			apps.append(

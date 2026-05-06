@@ -64,6 +64,7 @@ _SOURCE_CHECKERS = {
 	'scoop': scoop.check,
 	'dotnet': dotnet.check,
 	'appx': appx.check,
+	'msix': appx.check_msix,
 	'drivers': drivers.check,
 	'services': services.check,
 	'psmodules': psmodules.check,
@@ -73,8 +74,6 @@ _SOURCE_CHECKERS = {
 
 def _group_by_source(apps: List[AppInfo]) -> Dict[str, List[AppInfo]]:
 	groups: Dict[str, List[AppInfo]] = {source: [] for source in _SOURCE_CHECKERS}
-	groups['appx'] = []
-	groups['msix'] = []
 	for app in apps:
 		source = app.source.lower()
 		if source in groups:
@@ -177,6 +176,7 @@ class UpdateChecker:
 	_check_scoop_updates = staticmethod(scoop.check)
 	_check_dotnet_updates = staticmethod(dotnet.check)
 	_check_appx_updates = staticmethod(appx.check)
+	_check_msix_updates = staticmethod(appx.check_msix)
 	_check_drivers_updates = staticmethod(drivers.check)
 	_check_services_updates = staticmethod(services.check)
 	_check_psmodules_updates = staticmethod(psmodules.check)

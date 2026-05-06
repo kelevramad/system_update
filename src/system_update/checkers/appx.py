@@ -68,15 +68,15 @@ def _matches(app: AppInfo, row: dict[str, str]) -> bool:
 	)
 
 
-def check(apps: List[AppInfo]) -> int:
-	"""Mark Store/AppX packages that appear in Winget's Store upgrade table."""
+def _check_winget_rows(apps: List[AppInfo], allowed_sources: set[str] | None) -> int:
+	"""Mark packages that appear in Winget's upgrade table."""
 	output = run_command(['winget', 'upgrade', '--accept-source-agreements'], allow_failure=True)
 	if not output:
 		return 0
 
 	rows = [
 		row for row in _parse_winget_upgrade_rows(output)
-		if row.get('source', '').lower() in {'msstore', 'store'}
+		if allowed_sources is None or row.get('source', '').lower() in allowed_sources
 	]
 	updates = 0
 	for app in apps:
@@ -88,3 +88,13 @@ def check(apps: List[AppInfo]) -> int:
 				updates += 1
 				break
 	return updates
+
+
+def check(apps: List[AppInfo]) -> int:
+	"""Mark Store/AppX packages that appear in Winget's Store upgrade table."""
+	return _check_winget_rows(apps, {'msstore', 'store'})
+
+
+def check_msix(apps: List[AppInfo]) -> int:
+	"""Mark MSIX packages that appear in Winget's upgrade table."""
+	return _check_winget_rows(apps, None)

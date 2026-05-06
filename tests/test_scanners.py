@@ -141,7 +141,7 @@ def test_scan_drivers_parsing(mock_run, _mock_platform):
 	apps = PackageScanner.scan_drivers()
 	assert apps[0].name == 'Contoso'
 	assert apps[0].source == 'drivers'
-	assert apps[0].version == '05/01/2026 2.3.4'
+	assert apps[0].version == '2.3.4'
 	assert apps[0].app_id == 'oem42.inf'
 
 
@@ -149,18 +149,36 @@ def test_scan_drivers_parsing(mock_run, _mock_platform):
 @patch('system_update.run_command')
 def test_scan_services_parsing(mock_run, _mock_platform):
 	mock_run.return_value = json.dumps(
-		{'Name': 'Demo Service', 'ServiceName': 'demo', 'Version': '1.2.3', 'Path': 'C:\\demo.exe'}
+		{
+			'Name': 'Demo Service',
+			'ServiceName': 'demo',
+			'Version': '1.2.3 (WinBuild.160101.0800)',
+			'Path': 'C:\\demo.exe',
+		}
 	)
 	apps = PackageScanner.scan_services()
 	assert apps[0].name == 'Demo Service'
 	assert apps[0].source == 'services'
+	assert apps[0].version == '1.2.3'
 	assert apps[0].app_id == 'demo'
 
 
 @patch('platform.system', return_value='Windows')
 @patch('system_update.run_command')
 def test_scan_psmodules_parsing(mock_run, _mock_platform):
-	mock_run.return_value = json.dumps({'Name': 'Pester', 'Version': '5.6.1'})
+	mock_run.return_value = json.dumps(
+		{
+			'Name': 'Pester',
+			'Version': {
+				'Major': 5,
+				'Minor': 6,
+				'Build': 1,
+				'Revision': -1,
+				'MajorRevision': -1,
+				'MinorRevision': -1,
+			},
+		}
+	)
 	apps = PackageScanner.scan_psmodules()
 	assert apps[0].name == 'Pester'
 	assert apps[0].source == 'psmodules'

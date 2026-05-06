@@ -7,6 +7,7 @@ import re
 from typing import Dict, List
 
 from system_update.models import AppInfo
+from system_update.scanners._versions import clean_version
 from system_update.utils import run_command
 
 
@@ -42,7 +43,7 @@ def scan() -> List[AppInfo]:
 		published_name = item.get('published_name', '')
 		provider = item.get('driver_package_provider', '')
 		driver_class = item.get('class_name', '')
-		version = item.get('driver_version', '')
+		version = clean_version(item.get('driver_version', ''), default='')
 		name = provider or published_name
 		if not name or not version:
 			continue

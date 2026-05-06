@@ -422,7 +422,7 @@ SOURCE_ICONS = {
     'drivers': '🧰',
     'services': '⚙ ',
     'psmodules': '💠',
-    'vsextensions': '🧩',
+    'vsextensions': '🔌',
 }
 
 

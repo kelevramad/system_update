@@ -127,6 +127,37 @@ def test_check_appx_updates_from_msstore(mock_run):
 	assert apps[0].app_id == 'Microsoft.WindowsTerminal'
 
 
+@patch('system_update.run_command')
+def test_check_msix_updates_from_winget_upgrade(mock_run):
+	apps = [AppInfo(name='Contoso App', source='msix', version='1.0', app_id='Contoso.App')]
+	header = 'Name                           Id                                         Version          Available        Source'
+	line1 = 'Contoso App                    Contoso.App                                1.0              1.2              winget'
+	mock_run.return_value = f'{header}\n---\n{line1}'
+	count = UpdateChecker._check_msix_updates(apps)
+	assert count == 1
+	assert apps[0].latest_version == '1.2'
+	assert apps[0].update_status == UpdateStatus.UPDATE_AVAILABLE
+
+
+def test_check_all_updates_runs_msix_checker(monkeypatch):
+	called = False
+	apps = [AppInfo(name='Contoso App', source='msix', version='1.0')]
+
+	def fake_msix(source_apps):
+		nonlocal called
+		called = True
+		source_apps[0].latest_version = '1.2'
+		source_apps[0].update_status = UpdateStatus.UPDATE_AVAILABLE
+
+	import system_update.checkers as checkers
+
+	monkeypatch.setitem(checkers._SOURCE_CHECKERS, 'msix', fake_msix)
+	count = checkers.check_all_updates(apps, max_workers=1)
+	assert called is True
+	assert count == 1
+	assert apps[0].latest_version == '1.2'
+
+
 def test_check_drivers_marks_up_to_date():
 	apps = [AppInfo(name='Driver', source='drivers', version='1.0')]
 	count = UpdateChecker._check_drivers_updates(apps)
