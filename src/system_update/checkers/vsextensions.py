@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import json
-import urllib.error
-import urllib.request
 from typing import List
 
 from system_update.models import AppInfo, UpdateStatus
+from system_update.network import fetch_json
 
 _MARKETPLACE_URL = 'https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery'
 _API_VERSION = '7.2-preview.1'
@@ -34,21 +32,18 @@ def _latest_marketplace_version(extension_id: str) -> str:
 		'assetTypes': [],
 		'flags': 0x1,
 	}
-	data = json.dumps(payload).encode('utf-8')
-	request = urllib.request.Request(
-		f'{_MARKETPLACE_URL}?api-version={_API_VERSION}',
-		data=data,
-		headers={
-			'Accept': 'application/json;api-version=3.0-preview.1',
-			'Content-Type': 'application/json',
-			'User-Agent': 'system-update-cli',
-		},
-		method='POST',
-	)
 	try:
-		with urllib.request.urlopen(request, timeout=10) as response:
-			body = json.loads(response.read().decode('utf-8'))
-	except (OSError, urllib.error.URLError, json.JSONDecodeError):
+		body = fetch_json(
+			f'{_MARKETPLACE_URL}?api-version={_API_VERSION}',
+			method='POST',
+			payload=payload,
+			headers={
+				'Accept': 'application/json;api-version=3.0-preview.1',
+			},
+		)
+	except Exception:
+		return ''
+	if not isinstance(body, dict):
 		return ''
 
 	results = body.get('results') or []

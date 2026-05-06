@@ -9,7 +9,7 @@ argv via :mod:`system_update.executors.commands` and invokes
 from __future__ import annotations
 
 import time
-from typing import List, Optional
+from typing import Callable, Dict, List, Optional
 
 from rich.progress import (
 	BarColumn,
@@ -49,10 +49,16 @@ def _needs_venv_scrub(app: AppInfo) -> bool:
 	return not hint.startswith(venv_root)
 
 
-def execute_single_update(app: AppInfo) -> bool:
+def execute_single_update(
+	app: AppInfo,
+	extra_updaters: Optional[Dict[str, Callable[[AppInfo], object]]] = None,
+) -> bool:
 	"""Run the update command for one package; return True on success or no-op."""
 	if app.latest_version and app.version and app.latest_version == app.version:
 		return True
+	updater = (extra_updaters or {}).get((app.source or '').lower())
+	if updater is not None:
+		return bool(updater(app))
 	cmd = build_update_command(app)
 	if cmd is None:
 		return False
@@ -77,15 +83,20 @@ def _progress() -> Progress:
 	)
 
 
-def _run_one(app: AppInfo, dry_run: bool) -> bool:
+def _run_one(
+	app: AppInfo,
+	dry_run: bool,
+	extra_updaters: Optional[Dict[str, Callable[[AppInfo], object]]] = None,
+) -> bool:
 	"""Apply or simulate one update; prints its own success/failure line."""
 	if dry_run:
 		time.sleep(0.3)
 		console.print(f'[yellow]🔍 DRY RUN[/yellow]: {app.name} → {app.latest_version}')
 		return True
 
-	if execute_single_update(app):
-		console.print(f'[green]✅[/green] {app.name} updated to {app.latest_version}')
+	target = app.latest_version or 'latest'
+	if execute_single_update(app, extra_updaters):
+		console.print(f'[green]✅[/green] {app.name} updated to {target}')
 		return True
 
 	console.print(f'[red]❌[/red] Failed to update {app.name}')
@@ -98,6 +109,7 @@ def execute_updates(
 	snapshot_store=None,
 	snapshot_label: str = '',
 	snapshot_command: str = '',
+	extra_updaters: Optional[Dict[str, Callable[[AppInfo], object]]] = None,
 ) -> Optional[str]:
 	"""Update every package in ``apps`` and emit a final success/total summary.
 
@@ -114,10 +126,11 @@ def execute_updates(
 		task = progress.add_task('⚙️ Applying updates', total=len(apps), extra='')
 		for app in apps:
 			label = f'{app.name} ({display_source(app.source)})'
-			ok = _run_one(app, dry_run)
-			if ok and not dry_run and app.latest_version and app.latest_version != app.version:
-				app.version = app.latest_version
-				app.latest_version = ''
+			ok = _run_one(app, dry_run, extra_updaters)
+			if ok and not dry_run:
+				if app.latest_version and app.latest_version != app.version:
+					app.version = app.latest_version
+					app.latest_version = ''
 				app.update_status = UpdateStatus.UP_TO_DATE
 			success_count += int(ok)
 			icon = '✅' if ok else '❌'

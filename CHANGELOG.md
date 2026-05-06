@@ -15,6 +15,11 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.1.4 (May 2026)
+- **Plugin Lifecycle**: Plugins can now register custom update checkers and package updaters, so custom sources participate in scan, check, and `--update-package` workflows.
+- **Network Consistency**: VS Code extension version checks now use the shared network client, honoring API cache, timeout, rate-limit, and `network.enabled` settings.
+- **Tests**: Added regression coverage for plugin checker/updater execution, shared-network VS extension checks, and smart-cache update-check mocks.
+
 ### v8.1.3 (May 2026)
 - **MSIX Update Checks**: Added a real MSIX checker path so MSIX packages are no longer marked checked without running an update checker.
 - **Windows Version Cleanup**: Driver, service, and PowerShell module scanners now normalize noisy version values before rendering tables.

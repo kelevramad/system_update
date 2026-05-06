@@ -16,6 +16,8 @@ from system_update.models import AppInfo, UpdateStatus
 logger = logging.getLogger(__name__)
 
 PluginScannerFunc = Callable[[], Iterable[AppInfo | Dict[str, Any]]]
+PluginCheckerFunc = Callable[[List[AppInfo]], Any]
+PluginUpdaterFunc = Callable[[AppInfo], Any]
 PluginNotifierFunc = Callable[..., Any]
 
 _SOURCE_RE = re.compile(r'^[a-z0-9][a-z0-9_.-]*$')
@@ -36,6 +38,28 @@ class PluginScanner:
 
 	source: str
 	scan: PluginScannerFunc
+	description: str = ''
+	plugin: str = ''
+	enabled: bool = True
+
+
+@dataclass
+class PluginChecker:
+	"""Registered custom update checker for a plugin source."""
+
+	source: str
+	check: PluginCheckerFunc
+	description: str = ''
+	plugin: str = ''
+	enabled: bool = True
+
+
+@dataclass
+class PluginUpdater:
+	"""Registered custom updater for a plugin source."""
+
+	source: str
+	update: PluginUpdaterFunc
 	description: str = ''
 	plugin: str = ''
 	enabled: bool = True
@@ -65,6 +89,8 @@ class PluginRegistry:
 	"""Registry exposed to extension modules from ``register_plugin``."""
 
 	scanners: Dict[str, PluginScanner] = field(default_factory=dict)
+	checkers: Dict[str, PluginChecker] = field(default_factory=dict)
+	updaters: Dict[str, PluginUpdater] = field(default_factory=dict)
 	notifiers: Dict[str, PluginNotifier] = field(default_factory=dict)
 	errors: List[PluginLoadError] = field(default_factory=list)
 	_active_plugin: str = ''
@@ -87,6 +113,44 @@ class PluginRegistry:
 		self.scanners[canonical] = PluginScanner(
 			source=canonical,
 			scan=scan,
+			description=description,
+			plugin=self._active_plugin,
+			enabled=bool(enabled),
+		)
+
+	def register_checker(
+		self,
+		source: str,
+		check: PluginCheckerFunc,
+		description: str = '',
+		enabled: bool = True,
+	) -> None:
+		"""Register an update checker for a custom package source."""
+		canonical = _normalize_source_name(source)
+		if not callable(check):
+			raise TypeError(f'checker for {canonical!r} must be callable')
+		self.checkers[canonical] = PluginChecker(
+			source=canonical,
+			check=check,
+			description=description,
+			plugin=self._active_plugin,
+			enabled=bool(enabled),
+		)
+
+	def register_updater(
+		self,
+		source: str,
+		update: PluginUpdaterFunc,
+		description: str = '',
+		enabled: bool = True,
+	) -> None:
+		"""Register an updater for a custom package source."""
+		canonical = _normalize_source_name(source)
+		if not callable(update):
+			raise TypeError(f'updater for {canonical!r} must be callable')
+		self.updaters[canonical] = PluginUpdater(
+			source=canonical,
+			update=update,
 			description=description,
 			plugin=self._active_plugin,
 			enabled=bool(enabled),
@@ -149,6 +213,24 @@ def scanner_map(registry: PluginRegistry) -> Dict[str, Callable[[], List[AppInfo
 		if scanner.enabled:
 			result[source] = _wrap_scanner(source, scanner.scan)
 	return result
+
+
+def checker_map(registry: PluginRegistry) -> Dict[str, Callable[[List[AppInfo]], Any]]:
+	"""Return enabled custom update checkers by source name."""
+	return {
+		source: checker.check
+		for source, checker in registry.checkers.items()
+		if checker.enabled
+	}
+
+
+def updater_map(registry: PluginRegistry) -> Dict[str, Callable[[AppInfo], Any]]:
+	"""Return enabled custom updaters by source name."""
+	return {
+		source: updater.update
+		for source, updater in registry.updaters.items()
+		if updater.enabled
+	}
 
 
 def dispatch_notifiers(
@@ -233,6 +315,10 @@ def _register_module(
 
 		for source, scan in (getattr(module, 'SCANNERS', {}) or {}).items():
 			registry.register_scanner(source, scan)
+		for source, check in (getattr(module, 'CHECKERS', {}) or {}).items():
+			registry.register_checker(source, check)
+		for source, update in (getattr(module, 'UPDATERS', {}) or {}).items():
+			registry.register_updater(source, update)
 		for name, notify in (getattr(module, 'NOTIFIERS', {}) or {}).items():
 			registry.register_notifier(name, notify)
 	finally:
@@ -307,11 +393,15 @@ def _normalize_source_name(name: str) -> str:
 
 __all__ = [
 	'PluginContext',
+	'PluginChecker',
 	'PluginLoadError',
 	'PluginNotifier',
 	'PluginRegistry',
 	'PluginScanner',
+	'PluginUpdater',
+	'checker_map',
 	'dispatch_notifiers',
 	'load_plugins',
 	'scanner_map',
+	'updater_map',
 ]

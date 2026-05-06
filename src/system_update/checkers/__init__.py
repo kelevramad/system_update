@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from system_update.ui.progress import make_progress
 
@@ -72,8 +72,11 @@ _SOURCE_CHECKERS = {
 }
 
 
-def _group_by_source(apps: List[AppInfo]) -> Dict[str, List[AppInfo]]:
-	groups: Dict[str, List[AppInfo]] = {source: [] for source in _SOURCE_CHECKERS}
+def _group_by_source(
+	apps: List[AppInfo],
+	source_checkers: Dict[str, Callable[[List[AppInfo]], object]],
+) -> Dict[str, List[AppInfo]]:
+	groups: Dict[str, List[AppInfo]] = {source: [] for source in source_checkers}
 	for app in apps:
 		source = app.source.lower()
 		if source in groups:
@@ -90,7 +93,17 @@ def _count_updates(source_apps: List[AppInfo]) -> tuple[int, int]:
 	return regular, security
 
 
-def _reconcile_final_status(apps: List[AppInfo]) -> None:
+def _normalize_statuses(apps: List[AppInfo]) -> None:
+	for app in apps:
+		if isinstance(app.update_status, str):
+			app.update_status = (
+				UpdateStatus(app.update_status)
+				if app.update_status in {status.value for status in UpdateStatus}
+				else UpdateStatus.UNKNOWN
+			)
+
+
+def _reconcile_final_status(apps: List[AppInfo], checked_sources: set[str]) -> None:
 	for app in apps:
 		if app.update_status in (
 			UpdateStatus.UPDATE_AVAILABLE,
@@ -98,22 +111,33 @@ def _reconcile_final_status(apps: List[AppInfo]) -> None:
 			UpdateStatus.ERROR,
 		):
 			continue
-		if app.latest_version or app.source.lower() in _CHECKED_SOURCES:
+		if app.latest_version or app.source.lower() in checked_sources:
 			app.update_status = UpdateStatus.UP_TO_DATE
 		else:
 			app.update_status = UpdateStatus.UNKNOWN
 
 
-def _check_source(source: str, source_apps: List[AppInfo]) -> tuple[int, int]:
-	checker = _SOURCE_CHECKERS.get(source)
+def _check_source(
+	source: str,
+	source_apps: List[AppInfo],
+	source_checkers: Dict[str, Callable[[List[AppInfo]], object]],
+) -> tuple[int, int]:
+	checker = source_checkers.get(source)
 	if checker is not None:
 		checker(source_apps)
+	_normalize_statuses(source_apps)
 	return _count_updates(source_apps)
 
 
-def check_all_updates(apps: List[AppInfo], max_workers: Optional[int] = None) -> int:
+def check_all_updates(
+	apps: List[AppInfo],
+	max_workers: Optional[int] = None,
+	extra_checkers: Optional[Dict[str, Callable[[List[AppInfo]], object]]] = None,
+) -> int:
 	"""Run every applicable checker against ``apps`` with a Rich progress bar."""
-	active_sources = _group_by_source(apps)
+	source_checkers = dict(_SOURCE_CHECKERS)
+	source_checkers.update({source.lower(): check for source, check in (extra_checkers or {}).items()})
+	active_sources = _group_by_source(apps, source_checkers)
 	total_updates = 0
 	if not active_sources:
 		return 0
@@ -128,7 +152,7 @@ def check_all_updates(apps: List[AppInfo], max_workers: Optional[int] = None) ->
 
 		with ThreadPoolExecutor(max_workers=workers) as executor:
 			future_to_source = {
-				executor.submit(_check_source, source, source_apps): source
+				executor.submit(_check_source, source, source_apps, source_checkers): source
 				for source, source_apps in active_sources.items()
 			}
 			for future in as_completed(future_to_source):
@@ -155,7 +179,7 @@ def check_all_updates(apps: List[AppInfo], max_workers: Optional[int] = None) ->
 						description=f'❌ {source_chip(source)} error',
 					)
 
-	_reconcile_final_status(apps)
+	_reconcile_final_status(apps, set(_CHECKED_SOURCES) | set(source_checkers))
 	return total_updates
 
 

@@ -29,7 +29,13 @@ from system_update.history import HistoryDatabase, VulnerabilityHistory
 from system_update.models import AppInfo, UpdateStatus
 from system_update.network import configure_network, fetch_json
 from system_update.notifications import NotificationManager
-from system_update.plugins import PluginRegistry, load_plugins, scanner_map
+from system_update.plugins import (
+    PluginRegistry,
+    checker_map,
+    load_plugins,
+    scanner_map,
+    updater_map,
+)
 from system_update.scanners import PackageScanner
 from system_update.security import SecurityChecker
 from system_update.ui import DisplayFormatter, UISystem
@@ -395,6 +401,7 @@ class SystemUpdateApp:
                 new_apps,
                 max_workers=self.settings.get(
                     'performance', {}).get('max_workers', 4),
+                extra_checkers=checker_map(self.plugins),
             )
 
             regular_updates = sum(
@@ -672,6 +679,7 @@ class SystemUpdateApp:
                 apps,
                 max_workers=self.settings.get(
                     'performance', {}).get('max_workers', 4),
+                extra_checkers=checker_map(self.plugins),
             )
 
             regular_updates = sum(
@@ -930,6 +938,7 @@ class SystemUpdateApp:
                         snapshot_store=store,
                         snapshot_label='security batch',
                         snapshot_command=cmd_label,
+                        extra_updaters=updater_map(self.plugins),
                     )
                 else:
                     console.print(
@@ -947,6 +956,7 @@ class SystemUpdateApp:
                         snapshot_store=store,
                         snapshot_label='regular batch',
                         snapshot_command=cmd_label,
+                        extra_updaters=updater_map(self.plugins),
                     )
                 else:
                     console.print(
@@ -1117,6 +1127,7 @@ class SystemUpdateApp:
                 snapshot_store=store,
                 snapshot_label=f'package:{target_app.name}',
                 snapshot_command=' '.join(_sys.argv),
+                extra_updaters=updater_map(self.plugins),
             )
             if not dry_run:
                 self._save_cache_with_context(apps)
@@ -1293,6 +1304,20 @@ class SystemUpdateApp:
                 scanner.plugin or '-',
                 scanner.description or '-',
             )
+        for checker in sorted(self.plugins.checkers.values(), key=lambda c: c.source):
+            table.add_row(
+                'checker',
+                checker.source,
+                checker.plugin or '-',
+                checker.description or '-',
+            )
+        for updater in sorted(self.plugins.updaters.values(), key=lambda u: u.source):
+            table.add_row(
+                'updater',
+                updater.source,
+                updater.plugin or '-',
+                updater.description or '-',
+            )
         for notifier in sorted(self.plugins.notifiers.values(), key=lambda n: n.name):
             table.add_row(
                 'notifier',
@@ -1301,7 +1326,12 @@ class SystemUpdateApp:
                 notifier.description or '-',
             )
 
-        if not self.plugins.scanners and not self.plugins.notifiers:
+        if (
+            not self.plugins.scanners
+            and not self.plugins.checkers
+            and not self.plugins.updaters
+            and not self.plugins.notifiers
+        ):
             console.print(
                 '[yellow]No plugins loaded.[/yellow] '
                 f'[dim]Add .py plugins under {Path(self.config.config_dir) / "plugins"} '
@@ -2066,6 +2096,7 @@ class SystemUpdateApp:
                 apps,
                 max_workers=self.settings.get(
                     'performance', {}).get('max_workers', 4),
+                extra_checkers=checker_map(self.plugins),
             )
         except Exception as e:
             logger.warning(f'check_all_updates failed during eval: {e}')
@@ -2288,6 +2319,7 @@ class SystemUpdateApp:
                 snapshot_store=store,
                 snapshot_label='interactive',
                 snapshot_command=' '.join(_sys.argv),
+                extra_updaters=updater_map(self.plugins),
             )
         finally:
             if store is not None:

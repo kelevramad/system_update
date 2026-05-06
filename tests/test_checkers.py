@@ -195,6 +195,42 @@ def test_check_vsextensions_updates(monkeypatch):
 	assert apps[0].latest_version == '2026.2.0'
 
 
+def test_vsextensions_uses_shared_network_client(monkeypatch):
+	from system_update.checkers import vsextensions
+
+	calls = []
+
+	def fake_fetch_json(url, **kwargs):
+		calls.append((url, kwargs))
+		return {'results': [{'extensions': [{'versions': [{'version': '2026.2.0'}]}]}]}
+
+	monkeypatch.setattr(vsextensions, 'fetch_json', fake_fetch_json)
+
+	latest = vsextensions._latest_marketplace_version('ms-python.python')
+
+	assert latest == '2026.2.0'
+	assert calls
+	url, kwargs = calls[0]
+	assert url.startswith('https://marketplace.visualstudio.com/')
+	assert kwargs['method'] == 'POST'
+	assert kwargs['payload']['filters'][0]['criteria'][0] == {
+		'filterType': 7,
+		'value': 'python',
+	}
+	assert kwargs['headers']['Accept'] == 'application/json;api-version=3.0-preview.1'
+
+
+def test_vsextensions_returns_empty_when_network_disabled(monkeypatch):
+	from system_update.checkers import vsextensions
+
+	def disabled_fetch_json(*_args, **_kwargs):
+		raise RuntimeError('Network access is disabled by configuration')
+
+	monkeypatch.setattr(vsextensions, 'fetch_json', disabled_fetch_json)
+
+	assert vsextensions._latest_marketplace_version('ms-python.python') == ''
+
+
 @patch('system_update.run_command')
 def test_check_path_updates_exhaustive(mock_run):
 	def side_effect(cmd, **kwargs):
