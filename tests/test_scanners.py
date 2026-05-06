@@ -122,6 +122,18 @@ def test_scan_appx_parsing(mock_run):
 	assert isinstance(apps, list)
 
 
+@patch('platform.system', return_value='Windows')
+@patch('system_update.run_command')
+def test_scan_appx_ignores_powershell_noise(mock_run, _mock_platform):
+	mock_run.return_value = (
+		'WARNING: [provider] warning\n'
+		+ json.dumps([{'Name': 'Store App', 'Version': '2.0', 'PackageFullName': 'Store.App_2.0'}])
+	)
+	apps = PackageScanner.scan_appx()
+	assert apps[0].name == 'Store App'
+	assert apps[0].version == '2.0'
+
+
 @patch('system_update.run_command')
 def test_scan_msix_parsing(mock_run):
 	mock_run.return_value = json.dumps([{'Name': 'App', 'Version': '1.0'}])
@@ -165,6 +177,21 @@ def test_scan_services_parsing(mock_run, _mock_platform):
 
 @patch('platform.system', return_value='Windows')
 @patch('system_update.run_command')
+def test_scan_services_handles_null_json(mock_run, _mock_platform):
+	mock_run.return_value = 'null'
+	assert PackageScanner.scan_services() == []
+
+
+def test_services_script_preserves_unquoted_exe_paths_with_spaces():
+	from system_update.scanners import services
+
+	assert r'^(.+?\.exe)(?:\s+.*)?$' in services._PS_SCRIPT
+	assert 'Test-Path -LiteralPath $exe' in services._PS_SCRIPT
+	assert 'Get-Item -LiteralPath $exe' in services._PS_SCRIPT
+
+
+@patch('platform.system', return_value='Windows')
+@patch('system_update.run_command')
 def test_scan_psmodules_parsing(mock_run, _mock_platform):
 	mock_run.return_value = json.dumps(
 		{
@@ -183,6 +210,18 @@ def test_scan_psmodules_parsing(mock_run, _mock_platform):
 	assert apps[0].name == 'Pester'
 	assert apps[0].source == 'psmodules'
 	assert apps[0].version == '5.6.1'
+
+
+@patch('platform.system', return_value='Windows')
+@patch('system_update.run_command')
+def test_scan_psmodules_ignores_powershell_noise(mock_run, _mock_platform):
+	mock_run.return_value = (
+		'WARNING: repository warning\n'
+		+ json.dumps([{'Name': 'ThreadJob', 'Version': {'Major': 2, 'Minor': 0, 'Build': 3}}])
+	)
+	apps = PackageScanner.scan_psmodules()
+	assert apps[0].name == 'ThreadJob'
+	assert apps[0].version == '2.0.3'
 
 
 @patch('system_update.run_command')

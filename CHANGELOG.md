@@ -15,6 +15,11 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.1.5 (May 2026)
+- **Windows Service Parsing**: Service executable paths without quotes now preserve spaces and arguments correctly, avoiding truncated `C:\Program` paths and `unknown` versions.
+- **PowerShell JSON Parsing**: AppX/MSIX, Registry, Services, and PowerShell module scanners now tolerate warning text before JSON output and `null` responses.
+- **Tests**: Added regression coverage for service executable path extraction and noisy PowerShell JSON output.
+
 ### v8.1.4 (May 2026)
 - **Plugin Lifecycle**: Plugins can now register custom update checkers and package updaters, so custom sources participate in scan, check, and `--update-package` workflows.
 - **Network Consistency**: VS Code extension version checks now use the shared network client, honoring API cache, timeout, rate-limit, and `network.enabled` settings.

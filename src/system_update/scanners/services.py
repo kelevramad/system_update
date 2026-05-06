@@ -2,28 +2,40 @@
 
 from __future__ import annotations
 
-import json
 import platform
 from typing import List
 
 from system_update.models import AppInfo
+from system_update.scanners._json import parse_json_items
 from system_update.scanners._versions import clean_version
 from system_update.utils import run_command
 
 _PS_SCRIPT = r"""
+function Resolve-ServiceExecutablePath {
+    param([string]$PathName)
+
+    if ([string]::IsNullOrWhiteSpace($PathName)) {
+        return ''
+    }
+
+    $expanded = [Environment]::ExpandEnvironmentVariables($PathName.Trim())
+    if ($expanded -match '^"([^"]+)"') {
+        return $Matches[1]
+    }
+    if ($expanded -match '^(.+?\.exe)(?:\s+.*)?$') {
+        return $Matches[1].Trim()
+    }
+
+    return ($expanded -split '\s+')[0]
+}
+
 Get-CimInstance Win32_Service |
     Where-Object { $_.Name -and $_.PathName } |
     ForEach-Object {
-        $rawPath = $_.PathName
-        $exe = $rawPath
-        if ($rawPath -match '^"([^"]+)"') {
-            $exe = $Matches[1]
-        } else {
-            $exe = ($rawPath -split '\s+')[0]
-        }
+        $exe = Resolve-ServiceExecutablePath $_.PathName
         $version = ''
-        if ($exe -and (Test-Path $exe)) {
-            $version = (Get-Item $exe).VersionInfo.FileVersion
+        if ($exe -and (Test-Path -LiteralPath $exe)) {
+            $version = (Get-Item -LiteralPath $exe).VersionInfo.FileVersion
         }
         [PSCustomObject]@{
             Name = $_.DisplayName
@@ -48,23 +60,18 @@ def scan() -> List[AppInfo]:
 		return []
 
 	apps: List[AppInfo] = []
-	try:
-		data = json.loads(output)
-		items = [data] if isinstance(data, dict) else data
-		for item in items:
-			name = item.get('Name') or item.get('ServiceName')
-			version = clean_version(item.get('Version'))
-			if not name:
-				continue
-			apps.append(
-				AppInfo(
-					name=name,
-					source='services',
-					version=version,
-					app_id=item.get('ServiceName'),
-					install_path=item.get('Path'),
-				)
+	for item in parse_json_items(output):
+		name = item.get('Name') or item.get('ServiceName')
+		version = clean_version(item.get('Version'))
+		if not name:
+			continue
+		apps.append(
+			AppInfo(
+				name=name,
+				source='services',
+				version=version,
+				app_id=item.get('ServiceName'),
+				install_path=item.get('Path'),
 			)
-	except (TypeError, json.JSONDecodeError):
-		return []
+		)
 	return apps

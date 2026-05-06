@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 8.1.4
+**Document Version:** 8.1.5
 **Last Updated:** May 6, 2026
 **Author:** Kelevra Mad
-**Based On:** `src/system_update/` package (v8.1.4)
+**Based On:** `src/system_update/` package (v8.1.5)
 
 ---
 
@@ -940,6 +940,7 @@ Errors are displayed with appropriate styling:
 | 8.1.2 | May 2026 | Security hardening patch: custom notification script hooks execute without `shell=True`; PowerShell hooks are invoked explicitly with `powershell -File` on Windows |
 | 8.1.3 | May 2026 | Windows source polish patch: MSIX packages now have a real update checker; driver/service/PowerShell module versions are normalized before display; VS Code extensions use a distinct `🔌` source icon |
 | 8.1.4 | May 2026 | Plugin lifecycle and network-consistency patch: plugin sources can register checkers and updaters so scan/check/update flows are fully pluggable; VS Code extension checks now use the shared network client |
+| 8.1.5 | May 2026 | Windows parsing patch: service executable paths without quotes preserve spaces and arguments correctly; PowerShell JSON scanners tolerate warning text and `null` output |
 
 ## Appendix B: Glossary
 

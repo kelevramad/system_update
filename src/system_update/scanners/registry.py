@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import platform
 from typing import List
 
 from system_update.models import AppInfo
+from system_update.scanners._json import parse_json_items
 from system_update.utils import run_command
 
 _PS_SCRIPT = """
@@ -34,19 +34,18 @@ def scan() -> List[AppInfo]:
 	if not output:
 		return apps
 
-	try:
-		data = json.loads(output)
-		data = [data] if isinstance(data, dict) else data
-		for item in data:
-			apps.append(
-				AppInfo(
-					name=item['Name'],
-					source='Registry',
-					version=item['Version'],
-					install_path=item.get('InstallLocation'),
-				)
+	for item in parse_json_items(output):
+		name = item.get('Name')
+		version = item.get('Version')
+		if not name or not version:
+			continue
+		apps.append(
+			AppInfo(
+				name=name,
+				source='Registry',
+				version=str(version),
+				install_path=item.get('InstallLocation'),
 			)
-	except Exception:
-		pass
+		)
 
 	return apps
