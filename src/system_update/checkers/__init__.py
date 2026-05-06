@@ -15,6 +15,7 @@ from typing import Callable, Dict, List, Optional
 
 from system_update.ui.progress import make_progress
 
+from system_update.checkers._winget_upgrade import cached_upgrade_rows
 from system_update.checkers import (
 	bun,
 	chocolatey,
@@ -144,40 +145,41 @@ def check_all_updates(
 
 	workers = max(1, min(max_workers or 6, len(active_sources)))
 
-	with make_progress() as progress:
-		tasks = {
-			source: progress.add_task(f'🔄 {source_chip(source)}', total=1)
-			for source in active_sources
-		}
-
-		with ThreadPoolExecutor(max_workers=workers) as executor:
-			future_to_source = {
-				executor.submit(_check_source, source, source_apps, source_checkers): source
-				for source, source_apps in active_sources.items()
+	with cached_upgrade_rows():
+		with make_progress() as progress:
+			tasks = {
+				source: progress.add_task(f'🔄 {source_chip(source)}', total=1)
+				for source in active_sources
 			}
-			for future in as_completed(future_to_source):
-				source = future_to_source[future]
-				try:
-					regular, security = future.result()
-					source_total = regular + security
-					total_updates += source_total
 
-					if source_total == 0:
-						desc = f'✓ {source_chip(source)} [0]'
-					elif security > 0:
-						desc = f'✅ {source_chip(source)} [{regular}+{security}]'
-					else:
-						desc = f'✅ {source_chip(source)} [{source_total}]'
-					progress.update(tasks[source], completed=1, description=desc)
-				except Exception as exc:  # noqa: BLE001 — keep other sources running
-					logger.warning('Update checker failed for %s: %s', source, exc)
-					for app in active_sources[source]:
-						app.update_status = UpdateStatus.ERROR
-					progress.update(
-						tasks[source],
-						completed=1,
-						description=f'❌ {source_chip(source)} error',
-					)
+			with ThreadPoolExecutor(max_workers=workers) as executor:
+				future_to_source = {
+					executor.submit(_check_source, source, source_apps, source_checkers): source
+					for source, source_apps in active_sources.items()
+				}
+				for future in as_completed(future_to_source):
+					source = future_to_source[future]
+					try:
+						regular, security = future.result()
+						source_total = regular + security
+						total_updates += source_total
+
+						if source_total == 0:
+							desc = f'✓ {source_chip(source)} [0]'
+						elif security > 0:
+							desc = f'✅ {source_chip(source)} [{regular}+{security}]'
+						else:
+							desc = f'✅ {source_chip(source)} [{source_total}]'
+						progress.update(tasks[source], completed=1, description=desc)
+					except Exception as exc:  # noqa: BLE001 — keep other sources running
+						logger.warning('Update checker failed for %s: %s', source, exc)
+						for app in active_sources[source]:
+							app.update_status = UpdateStatus.ERROR
+						progress.update(
+							tasks[source],
+							completed=1,
+							description=f'❌ {source_chip(source)} error',
+						)
 
 	_reconcile_final_status(apps, set(_CHECKED_SOURCES) | set(source_checkers))
 	return total_updates

@@ -158,6 +158,35 @@ def test_check_all_updates_runs_msix_checker(monkeypatch):
 	assert apps[0].latest_version == '1.2'
 
 
+@patch('system_update.run_command')
+def test_check_all_updates_reuses_winget_upgrade_output(mock_run):
+	header = 'Name                           Id                                         Version          Available        Source'
+	rows = [
+		'Git                            Git.Git                                    2.40.0           2.41.0           winget',
+		'test                           Test.App                                   1.0              2.0              winget',
+		'Windows Terminal               Microsoft.WindowsTerminal                  1.0              1.1              msstore',
+		'Contoso App                    Contoso.App                                1.0              1.2              winget',
+	]
+	mock_run.return_value = f'{header}\n---\n' + '\n'.join(rows)
+	apps = [
+		AppInfo(name='Git', source='winget', version='2.40.0', app_id='Git.Git'),
+		AppInfo(name='test', source='registry', version='1.0'),
+		AppInfo(name='Windows Terminal', source='appx', version='1.0'),
+		AppInfo(name='Contoso App', source='msix', version='1.0', app_id='Contoso.App'),
+	]
+
+	count = UpdateChecker.check_all_updates(apps, max_workers=4)
+
+	assert count == 4
+	assert mock_run.call_count == 1
+	assert {app.name: app.latest_version for app in apps} == {
+		'Git': '2.41.0',
+		'test': '2.0',
+		'Windows Terminal': '1.1',
+		'Contoso App': '1.2',
+	}
+
+
 def test_check_drivers_marks_up_to_date():
 	apps = [AppInfo(name='Driver', source='drivers', version='1.0')]
 	count = UpdateChecker._check_drivers_updates(apps)

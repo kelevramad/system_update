@@ -78,6 +78,7 @@ _SUBMODULES = [
 	'system_update.checkers.yarn',
 	'system_update.checkers.pip',
 	'system_update.checkers.path',
+	'system_update.checkers._winget_upgrade',
 	'system_update.checkers.registry',
 	'system_update.checkers.rust',
 	'system_update.checkers.scoop',

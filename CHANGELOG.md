@@ -15,6 +15,11 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.1.6 (May 2026)
+- **Winget Upgrade Cache**: Winget, Registry, AppX, and MSIX update checkers now share one parsed `winget upgrade` table per `check_all_updates` run.
+- **Parallel Consistency**: Parallel update checks no longer launch duplicate `winget upgrade` commands, reducing cost and avoiding inconsistent snapshots between sources.
+- **Tests**: Added regression coverage proving all Winget-backed sources reuse a single command result during one check run.
+
 ### v8.1.5 (May 2026)
 - **Windows Service Parsing**: Service executable paths without quotes now preserve spaces and arguments correctly, avoiding truncated `C:\Program` paths and `unknown` versions.
 - **PowerShell JSON Parsing**: AppX/MSIX, Registry, Services, and PowerShell module scanners now tolerate warning text before JSON output and `null` responses.

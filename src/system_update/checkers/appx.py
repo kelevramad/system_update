@@ -2,59 +2,10 @@
 
 from __future__ import annotations
 
-import re
 from typing import List
 
+from system_update.checkers._winget_upgrade import get_upgrade_rows
 from system_update.models import AppInfo, UpdateStatus
-from system_update.utils import run_command
-
-
-def _parse_winget_upgrade_rows(output: str) -> list[dict[str, str]]:
-	"""Parse the fixed-width table emitted by ``winget upgrade``."""
-	lines = output.splitlines()
-	header_index = next((i for i, line in enumerate(lines) if 'Name' in line and 'Id' in line), -1)
-	if header_index == -1:
-		return []
-
-	header = lines[header_index]
-	name_match = re.search(r'Name\s+Id', header)
-	if name_match:
-		header = header[name_match.start() :]
-
-	positions = {
-		'id': header.find('Id'),
-		'version': header.find('Version'),
-		'available': header.find('Available'),
-		'source': header.find('Source'),
-	}
-	if positions['id'] == -1 or positions['available'] == -1:
-		return []
-
-	rows: list[dict[str, str]] = []
-	for line in lines[header_index + 1 :]:
-		if not line.strip() or set(line.strip()) <= {'-'}:
-			continue
-		try:
-			source_end = len(line)
-			avail_end = positions['source'] if positions['source'] != -1 else source_end
-			rows.append(
-				{
-					'name': line[: positions['id']].strip(),
-					'id': line[positions['id'] : positions['version']].strip()
-					if positions['version'] > 0
-					else '',
-					'version': line[positions['version'] : positions['available']].strip()
-					if positions['version'] > 0
-					else '',
-					'available': line[positions['available'] : avail_end].strip(),
-					'source': line[positions['source'] : source_end].strip()
-					if positions['source'] != -1
-					else '',
-				}
-			)
-		except Exception:
-			continue
-	return rows
 
 
 def _matches(app: AppInfo, row: dict[str, str]) -> bool:
@@ -70,12 +21,8 @@ def _matches(app: AppInfo, row: dict[str, str]) -> bool:
 
 def _check_winget_rows(apps: List[AppInfo], allowed_sources: set[str] | None) -> int:
 	"""Mark packages that appear in Winget's upgrade table."""
-	output = run_command(['winget', 'upgrade', '--accept-source-agreements'], allow_failure=True)
-	if not output:
-		return 0
-
 	rows = [
-		row for row in _parse_winget_upgrade_rows(output)
+		row for row in get_upgrade_rows()
 		if allowed_sources is None or row.get('source', '').lower() in allowed_sources
 	]
 	updates = 0
