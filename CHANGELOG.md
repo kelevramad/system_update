@@ -15,6 +15,13 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v7.4.0 (May 2026)
+- **Size Reduction (7.4)**: Reduced scan cache footprint with gzip compression, automatic pruning, and selective package-field storage.
+  - **Compressed Cache (7.4.1)**: Cache writes now use gzip by default while reads remain compatible with older plain JSON caches.
+  - **Data Pruning (7.4.2)**: Old source metadata, stale source package entries, and expired delta records are pruned automatically.
+  - **Selective Storage (7.4.3)**: Cache storage fields are configurable and empty optional fields are omitted by default.
+- **Tests**: Added size-reduction coverage for compressed round trips, stale-source pruning, and selective field persistence.
+
 ### v7.3.0 (May 2026)
 - **Network Optimization (7.3)**: Added a shared JSON HTTP client with configurable API caching, timeout handling, and per-host rate limiting.
   - **Batch API Requests (7.3.1)**: OSV security checks now use the querybatch endpoint for multiple packages in one request.

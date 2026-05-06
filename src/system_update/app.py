@@ -224,11 +224,7 @@ class SystemUpdateApp:
             self.config.cache_file,
             self.settings.get('cache', {}).get('duration_hours', 2),
         )
-        self.cache_mgr.hot_cache_max_items = self.settings.get('cache', {}).get(
-            'lru_max_items', 512
-        )
-        self.cache_mgr.delta_enabled = self.settings.get(
-            'cache', {}).get('delta_enabled', True)
+        self._configure_cache_manager()
         self.notifier = NotificationManager(self.config)
         self.plugins: PluginRegistry = load_plugins(self.config)
         self.notifier.plugin_registry = self.plugins
@@ -254,6 +250,15 @@ class SystemUpdateApp:
                 self.history_db.close()
         except Exception:
             pass
+
+    def _configure_cache_manager(self) -> None:
+        cache_settings = self.settings.get('cache', {})
+        self.cache_mgr.hot_cache_max_items = cache_settings.get('lru_max_items', 512)
+        self.cache_mgr.delta_enabled = cache_settings.get('delta_enabled', True)
+        self.cache_mgr.compression_enabled = cache_settings.get('compression_enabled', True)
+        self.cache_mgr.prune_after_days = cache_settings.get('prune_after_days', 14)
+        self.cache_mgr.storage_fields = cache_settings.get('storage_fields') or []
+        self.cache_mgr.omit_empty_fields = cache_settings.get('omit_empty_fields', True)
 
     # ── scanning ────────────────────────────────────────────────────────────
 
@@ -443,11 +448,7 @@ class SystemUpdateApp:
                 self.config.cache_file,
                 self.settings.get('cache', {}).get('duration_hours', 2),
             )
-            self.cache_mgr.hot_cache_max_items = self.settings.get('cache', {}).get(
-                'lru_max_items', 512
-            )
-            self.cache_mgr.delta_enabled = self.settings.get(
-                'cache', {}).get('delta_enabled', True)
+            self._configure_cache_manager()
             self.notifier = NotificationManager(self.config)
             self.plugins = load_plugins(self.config)
             self.notifier.plugin_registry = self.plugins
@@ -1883,6 +1884,7 @@ class SystemUpdateApp:
                 self.config.cache_file,
                 self.settings.get('cache', {}).get('duration_hours', 2),
             )
+            self._configure_cache_manager()
             try:
                 if self.history_db:
                     self.history_db.close()

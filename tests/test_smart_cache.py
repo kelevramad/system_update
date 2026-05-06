@@ -1,3 +1,4 @@
+import gzip
 import json
 from datetime import datetime, timedelta
 from unittest.mock import patch
@@ -6,6 +7,13 @@ from rich.console import Console
 
 import system_update.app as app_module
 from system_update import AppInfo, CacheManager, SystemUpdateApp, UpdateStatus
+
+
+def _read_cache_json(path):
+	raw = path.read_bytes()
+	if raw.startswith(b'\x1f\x8b'):
+		raw = gzip.decompress(raw)
+	return json.loads(raw.decode('utf-8'))
 
 
 def test_cache_records_per_source_metadata(tmp_path):
@@ -28,10 +36,10 @@ def test_cache_stale_sources_uses_source_metadata(tmp_path):
 	cache = CacheManager(cache_file, duration_hours=2)
 	cache.save([AppInfo(name='Git', source='winget', version='1.0')], refreshed_sources={'winget'})
 
-	data = json.loads(cache_file.read_text(encoding='utf-8'))
+	data = _read_cache_json(cache_file)
 	old = (datetime.now() - timedelta(hours=3)).isoformat()
 	data['source_metadata']['winget']['timestamp'] = old
-	cache_file.write_text(json.dumps(data), encoding='utf-8')
+	cache_file.write_bytes(gzip.compress(json.dumps(data).encode('utf-8')))
 
 	assert cache.stale_sources({'winget', 'npm'}) == {'winget', 'npm'}
 
@@ -61,6 +69,87 @@ def test_delta_cache_tracks_added_updated_removed(tmp_path):
 	assert any('pip|new' in item for item in delta['added'])
 	assert any('winget|git' in item for item in delta['updated'])
 	assert any('npm|old' in item for item in delta['removed'])
+
+
+def test_cache_is_compressed_and_loads_roundtrip(tmp_path):
+	cache_file = tmp_path / 'cache.json'
+	cache = CacheManager(cache_file)
+
+	cache.save([AppInfo(name='Git', source='winget', version='1.0')])
+
+	assert cache_file.read_bytes().startswith(b'\x1f\x8b')
+	loaded = cache.load()
+	assert loaded is not None
+	assert loaded[0].name == 'Git'
+
+
+def test_cache_prunes_old_source_data(tmp_path):
+	cache_file = tmp_path / 'cache.json'
+	cache = CacheManager(cache_file)
+	cache.prune_after_days = 1
+	cache.compression_enabled = False
+	old = (datetime.now() - timedelta(days=3)).isoformat()
+	payload = {
+		'timestamp': old,
+		'version': '1.1.0',
+		'totalApps': 1,
+		'sources': ['winget'],
+		'source_metadata': {
+			'winget': {'timestamp': old, 'package_count': 1, 'duration_hours': 2},
+		},
+		'apps': [AppInfo(name='Old', source='winget', version='1.0').to_dict()],
+		'deltas': [{'timestamp': old, 'added': [], 'updated': [], 'removed': []}],
+	}
+	cache_file.write_text(json.dumps(payload), encoding='utf-8')
+
+	cache.save(
+		[
+			AppInfo(name='Old', source='winget', version='1.0'),
+			AppInfo(name='New', source='npm', version='1.0'),
+		],
+		refreshed_sources={'npm'},
+	)
+
+	data = _read_cache_json(cache_file)
+	assert data['sources'] == ['npm']
+	assert data['totalApps'] == 1
+	assert data['apps'][0]['source'] == 'npm'
+	assert len(data['deltas']) == 1
+	assert data['deltas'][0]['counts']['added'] == 1
+
+
+def test_cache_selective_storage_omits_unrequested_fields(tmp_path):
+	cache_file = tmp_path / 'cache.json'
+	cache = CacheManager(cache_file)
+	cache.compression_enabled = False
+	cache.storage_fields = ['name', 'source', 'version', 'status']
+
+	cache.save(
+		[
+			AppInfo(
+				name='Git',
+				source='winget',
+				version='1.0',
+				app_id='Git.Git',
+				install_path='C:/Git',
+			)
+		]
+	)
+
+	item = _read_cache_json(cache_file)['apps'][0]
+	assert set(item) == {'name', 'source', 'version', 'status'}
+	assert cache.load()[0].app_id is None
+
+
+def test_selective_storage_does_not_create_false_delta_updates(tmp_path):
+	cache = CacheManager(tmp_path / 'cache.json')
+	cache.storage_fields = ['name', 'source', 'version', 'status']
+
+	apps = [AppInfo(name='Git', source='winget', version='1.0')]
+	cache.save(apps)
+	cache.save(apps)
+
+	assert cache.last_delta()['counts'] == {'added': 0, 'updated': 0, 'removed': 0}
 
 
 def test_lru_hot_package_cache_evicts_oldest(tmp_path):

@@ -2,18 +2,32 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 from collections import OrderedDict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Set
+from typing import Dict, Iterable, List, Optional, Sequence, Set
 
 from system_update.models import AppInfo, UpdateStatus
 
 logger = logging.getLogger(__name__)
 
-CACHE_VERSION = '1.1.0'
+CACHE_VERSION = '1.2.0'
+_GZIP_MAGIC = b'\x1f\x8b'
+_DEFAULT_STORAGE_FIELDS = (
+	'name',
+	'source',
+	'version',
+	'latestVersion',
+	'appId',
+	'status',
+	'scanTime',
+	'errorMsg',
+	'installPath',
+	'securityFindings',
+)
 
 
 def _app_cache_key(app: AppInfo) -> str:
@@ -26,6 +40,13 @@ def _item_cache_key(item: Dict) -> str:
 		f'{str(item.get("name", "") or "").lower()}|'
 		f'{item.get("appId") or ""}'
 	)
+
+
+def _delta_value(item: Dict, key: str) -> str:
+	value = item.get(key)
+	if key == 'latestVersion' and value in (None, '', '-'):
+		return ''
+	return str(value or '')
 
 
 class CacheManager:
@@ -42,14 +63,20 @@ class CacheManager:
 		self._hot_packages: OrderedDict[str, AppInfo] = OrderedDict()
 		self.hot_cache_max_items = 512
 		self.delta_enabled = True
+		self.compression_enabled = True
+		self.prune_after_days = 14
+		self.storage_fields: Sequence[str] = _DEFAULT_STORAGE_FIELDS
+		self.omit_empty_fields = True
 
 	def _read_raw(self, *, require_valid: bool = False) -> Optional[Dict]:
 		"""Read raw cache JSON, optionally requiring at least one fresh source."""
 		if not self.cache_file.exists():
 			return None
 		try:
-			with open(self.cache_file, 'r', encoding='utf-8') as f:
-				data = json.load(f)
+			raw = self.cache_file.read_bytes()
+			if raw.startswith(_GZIP_MAGIC):
+				raw = gzip.decompress(raw)
+			data = json.loads(raw.decode('utf-8'))
 			if require_valid and not self.is_valid(data):
 				return None
 			return data
@@ -193,11 +220,8 @@ class CacheManager:
 		switched between venv and system Python — in which case the cached
 		pip data is stale and pip should be rescanned.
 		"""
-		if not self.cache_file.exists():
-			return {}
 		try:
-			with open(self.cache_file, 'r', encoding='utf-8') as f:
-				data = json.load(f)
+			data = self._read_raw() or {}
 			ctx = data.get('pip_context') or {}
 			return {
 				'interpreter': str(ctx.get('interpreter', '')),
@@ -250,21 +274,21 @@ class CacheManager:
 				'totalApps': len(apps),
 				'sources': sorted(sources_seen),
 				'source_metadata': source_metadata,
-				'apps': [app.to_dict() for app in apps],
+				'apps': [self._app_to_cache_dict(app) for app in apps],
 			}
 			if self.delta_enabled:
 				delta = self._build_delta(previous.get('apps', []), apps)
 				deltas = list(previous.get('deltas') or [])
 				deltas.append(delta)
 				data['lastDelta'] = delta
-				data['deltas'] = deltas[-20:]
+				data['deltas'] = self._prune_deltas(deltas)
 			if has_pip and pip_interpreter:
 				data['pip_context'] = {
 					'interpreter': pip_interpreter,
 					'in_venv': pip_in_venv,
 				}
-			with open(self.cache_file, 'w', encoding='utf-8') as f:
-				json.dump(data, f, indent=2)
+			data = self._prune_data(data, now)
+			self._write_raw(data)
 			for app in apps:
 				self._remember_hot_package(app)
 		except Exception as e:
@@ -275,6 +299,26 @@ class CacheManager:
 		if self.cache_file.exists():
 			self.cache_file.unlink()
 		self._hot_packages.clear()
+
+	def _write_raw(self, data: Dict) -> None:
+		self.cache_file.parent.mkdir(parents=True, exist_ok=True)
+		payload = json.dumps(data, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
+		if self.compression_enabled:
+			payload = gzip.compress(payload, compresslevel=6)
+		self.cache_file.write_bytes(payload)
+
+	def _app_to_cache_dict(self, app: AppInfo) -> Dict:
+		full = app.to_dict()
+		allowed = set(self.storage_fields or _DEFAULT_STORAGE_FIELDS)
+		allowed.update({'name', 'source', 'version'})
+		item = {key: value for key, value in full.items() if key in allowed}
+		if not self.omit_empty_fields:
+			return item
+		return {
+			key: value
+			for key, value in item.items()
+			if value not in (None, '', [], {}) and not (key == 'latestVersion' and value == '-')
+		}
 
 	@staticmethod
 	def _app_from_dict(item: Dict) -> AppInfo:
@@ -313,9 +357,11 @@ class CacheManager:
 		updated = sorted(
 			key
 			for key in set(current) & set(previous)
-			if current[key].get('version') != previous[key].get('version')
-			or current[key].get('latestVersion') != previous[key].get('latestVersion')
-			or current[key].get('status') != previous[key].get('status')
+			if _delta_value(current[key], 'version') != _delta_value(previous[key], 'version')
+			or _delta_value(current[key], 'latestVersion') != _delta_value(
+				previous[key], 'latestVersion'
+			)
+			or _delta_value(current[key], 'status') != _delta_value(previous[key], 'status')
 		)
 		return {
 			'timestamp': datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z',
@@ -328,3 +374,46 @@ class CacheManager:
 				'removed': len(removed),
 			},
 		}
+
+	def _prune_deltas(self, deltas: List[Dict]) -> List[Dict]:
+		kept = []
+		cutoff = datetime.now() - timedelta(days=self.prune_after_days)
+		for delta in deltas:
+			try:
+				raw = str(delta.get('timestamp', '')).replace('Z', '')
+				if raw and datetime.fromisoformat(raw) < cutoff:
+					continue
+			except Exception:
+				continue
+			kept.append(delta)
+		return kept[-20:]
+
+	def _prune_data(self, data: Dict, now: str) -> Dict:
+		if self.prune_after_days <= 0:
+			data['totalApps'] = len(data.get('apps') or [])
+			return data
+		cutoff = datetime.now() - timedelta(days=self.prune_after_days)
+		metadata = dict(data.get('source_metadata') or {})
+		pruned_sources = set()
+		for source, meta in list(metadata.items()):
+			try:
+				raw = str((meta or {}).get('timestamp') or now).replace('Z', '')
+				if datetime.fromisoformat(raw) < cutoff:
+					pruned_sources.add(str(source).lower())
+					metadata.pop(source, None)
+			except Exception:
+				pruned_sources.add(str(source).lower())
+				metadata.pop(source, None)
+
+		if pruned_sources:
+			data['apps'] = [
+				app for app in data.get('apps', [])
+				if str(app.get('source', '') or '').lower() not in pruned_sources
+			]
+			data['sources'] = [
+				source for source in data.get('sources', [])
+				if str(source).lower() not in pruned_sources
+			]
+		data['source_metadata'] = metadata
+		data['totalApps'] = len(data.get('apps') or [])
+		return data

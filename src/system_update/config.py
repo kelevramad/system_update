@@ -61,6 +61,21 @@ class SystemConfig:
 				'lru_max_items': 512,
 				'prefetch_enabled': False,
 				'prefetch_threshold_minutes': 15,
+				'compression_enabled': True,
+				'prune_after_days': 14,
+				'storage_fields': [
+					'name',
+					'source',
+					'version',
+					'latestVersion',
+					'appId',
+					'status',
+					'scanTime',
+					'errorMsg',
+					'installPath',
+					'securityFindings',
+				],
+				'omit_empty_fields': True,
 			},
 			'performance': {
 				'parallel_scan': True,
@@ -401,15 +416,32 @@ class SystemConfig:
 		):
 			logging.warning('Invalid cache.prefetch_threshold_minutes. Resetting to default (15).')
 			self.settings['cache']['prefetch_threshold_minutes'] = 15
+		if (
+			not isinstance(self.settings['cache'].get('prune_after_days'), int)
+			or self.settings['cache']['prune_after_days'] < 1
+		):
+			logging.warning('Invalid cache.prune_after_days. Resetting to default (14).')
+			self.settings['cache']['prune_after_days'] = 14
 		self.settings['cache']['incremental_enabled'] = bool(
 			self.settings['cache'].get('incremental_enabled', True)
 		)
 		self.settings['cache']['delta_enabled'] = bool(
 			self.settings['cache'].get('delta_enabled', True)
 		)
+		self.settings['cache']['compression_enabled'] = bool(
+			self.settings['cache'].get('compression_enabled', True)
+		)
+		self.settings['cache']['omit_empty_fields'] = bool(
+			self.settings['cache'].get('omit_empty_fields', True)
+		)
 		self.settings['cache']['prefetch_enabled'] = bool(
 			self.settings['cache'].get('prefetch_enabled', False)
 		)
+		if not isinstance(self.settings['cache'].get('storage_fields'), list):
+			logging.warning('Invalid cache.storage_fields. Resetting to default field list.')
+			self.settings['cache']['storage_fields'] = self._get_default_settings()['cache'][
+				'storage_fields'
+			]
 		self.settings['security']['enabled'] = bool(self.settings['security']['enabled'])
 
 	def _merge_settings(self, base: Dict, loaded: Dict) -> None:
