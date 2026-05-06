@@ -105,7 +105,7 @@ def test_partial_cache_message_shows_hits_and_missing(monkeypatch, tmp_path):
 	app.config.config_dir = tmp_path
 	app.cache_mgr = CacheManager(tmp_path / 'cache.json')
 	app.scan_system = lambda source: [AppInfo(name='Lib', source=source, version='1.0')]
-	app.checker.check_all_updates = lambda apps: None
+	app.checker.check_all_updates = lambda apps, max_workers=None: None
 	app.security.check_all = lambda apps, advisory_file: []
 	app._save_cache_with_context = lambda apps, refreshed_sources: None
 	console = Console(record=True, width=160)

@@ -33,7 +33,7 @@ from system_update.plugins import PluginRegistry, load_plugins, scanner_map
 from system_update.scanners import PackageScanner
 from system_update.security import SecurityChecker
 from system_update.ui import DisplayFormatter, UISystem
-from system_update.utils import console, display_source, source_chip
+from system_update.utils import console, dedupe_apps, display_source, source_chip
 
 logger = logging.getLogger(__name__)
 
@@ -323,10 +323,7 @@ class SystemUpdateApp:
                     name = future_to_source[future]
                     try:
                         apps = future.result()
-                        unique = list(
-                            {f'{a.source}|{a.name}|{a.version}'.lower()
-                                                                      : a for a in apps}.values()
-                        )
+                        unique = dedupe_apps(apps)
                         all_apps.extend(unique)
                         icon = '✓' if len(unique) == 0 else '✅'
                         progress.update(
@@ -370,7 +367,10 @@ class SystemUpdateApp:
                 f'\n📦 [bold]Discovered {len(new_apps)} unique apps.[/bold]')
 
             console.print('[bold cyan]🔄 Checking for updates...[/bold cyan]')
-            self.checker.check_all_updates(new_apps)
+            self.checker.check_all_updates(
+                new_apps,
+                max_workers=self.settings.get('performance', {}).get('max_workers', 4),
+            )
 
             regular_updates = sum(
                 1 for a in new_apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE
@@ -636,7 +636,10 @@ class SystemUpdateApp:
 
             # Phase 2 — update checking.
             console.print('[bold cyan]🔄 Checking for updates...[/bold cyan]')
-            self.checker.check_all_updates(apps)
+            self.checker.check_all_updates(
+                apps,
+                max_workers=self.settings.get('performance', {}).get('max_workers', 4),
+            )
 
             regular_updates = sum(
                 1 for a in apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE
@@ -2012,7 +2015,10 @@ class SystemUpdateApp:
         try:
             from system_update.checkers import check_all_updates
 
-            check_all_updates(apps)
+            check_all_updates(
+                apps,
+                max_workers=self.settings.get('performance', {}).get('max_workers', 4),
+            )
         except Exception as e:
             logger.warning(f'check_all_updates failed during eval: {e}')
 

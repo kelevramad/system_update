@@ -9,7 +9,9 @@ groups apps by source, dispatches to the per-source checker, and reconciles
 
 from __future__ import annotations
 
-from typing import Dict, List
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, List, Optional
 
 from system_update.ui.progress import make_progress
 
@@ -29,6 +31,8 @@ from system_update.checkers import (
 )
 from system_update.models import AppInfo, UpdateStatus
 from system_update.utils import source_chip
+
+logger = logging.getLogger(__name__)
 
 # Sources whose checkers call ``run_command``/remote APIs to set status
 # themselves. Apps from these sources without a confirmed update should be
@@ -78,7 +82,11 @@ def _count_updates(source_apps: List[AppInfo]) -> tuple[int, int]:
 
 def _reconcile_final_status(apps: List[AppInfo]) -> None:
 	for app in apps:
-		if app.update_status in (UpdateStatus.UPDATE_AVAILABLE, UpdateStatus.UP_TO_DATE):
+		if app.update_status in (
+			UpdateStatus.UPDATE_AVAILABLE,
+			UpdateStatus.UP_TO_DATE,
+			UpdateStatus.ERROR,
+		):
 			continue
 		if app.latest_version or app.source.lower() in _CHECKED_SOURCES:
 			app.update_status = UpdateStatus.UP_TO_DATE
@@ -86,10 +94,21 @@ def _reconcile_final_status(apps: List[AppInfo]) -> None:
 			app.update_status = UpdateStatus.UNKNOWN
 
 
-def check_all_updates(apps: List[AppInfo]) -> int:
+def _check_source(source: str, source_apps: List[AppInfo]) -> tuple[int, int]:
+	checker = _SOURCE_CHECKERS.get(source)
+	if checker is not None:
+		checker(source_apps)
+	return _count_updates(source_apps)
+
+
+def check_all_updates(apps: List[AppInfo], max_workers: Optional[int] = None) -> int:
 	"""Run every applicable checker against ``apps`` with a Rich progress bar."""
 	active_sources = _group_by_source(apps)
 	total_updates = 0
+	if not active_sources:
+		return 0
+
+	workers = max(1, min(max_workers or 6, len(active_sources)))
 
 	with make_progress() as progress:
 		tasks = {
@@ -97,22 +116,34 @@ def check_all_updates(apps: List[AppInfo]) -> int:
 			for source in active_sources
 		}
 
-		for source, source_apps in active_sources.items():
-			checker = _SOURCE_CHECKERS.get(source)
-			if checker is not None:
-				checker(source_apps)
+		with ThreadPoolExecutor(max_workers=workers) as executor:
+			future_to_source = {
+				executor.submit(_check_source, source, source_apps): source
+				for source, source_apps in active_sources.items()
+			}
+			for future in as_completed(future_to_source):
+				source = future_to_source[future]
+				try:
+					regular, security = future.result()
+					source_total = regular + security
+					total_updates += source_total
 
-			regular, security = _count_updates(source_apps)
-			source_total = regular + security
-			total_updates += source_total
-
-			if source_total == 0:
-				desc = f'✓ {source_chip(source)} [0]'
-			elif security > 0:
-				desc = f'✅ {source_chip(source)} [{regular}+{security}]'
-			else:
-				desc = f'✅ {source_chip(source)} [{source_total}]'
-			progress.update(tasks[source], completed=1, description=desc)
+					if source_total == 0:
+						desc = f'✓ {source_chip(source)} [0]'
+					elif security > 0:
+						desc = f'✅ {source_chip(source)} [{regular}+{security}]'
+					else:
+						desc = f'✅ {source_chip(source)} [{source_total}]'
+					progress.update(tasks[source], completed=1, description=desc)
+				except Exception as exc:  # noqa: BLE001 — keep other sources running
+					logger.warning('Update checker failed for %s: %s', source, exc)
+					for app in active_sources[source]:
+						app.update_status = UpdateStatus.ERROR
+					progress.update(
+						tasks[source],
+						completed=1,
+						description=f'❌ {source_chip(source)} error',
+					)
 
 	_reconcile_final_status(apps)
 	return total_updates

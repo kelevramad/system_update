@@ -4,7 +4,7 @@
 
 A comprehensive Python-based system package management tool that scans, checks, and updates software from multiple sources.
 
-**Version:** 7.1.0
+**Version:** 7.2.0
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
 **Layout:** Modular package at `src/system_update/` (typer CLI)
@@ -18,7 +18,7 @@ A comprehensive Python-based system package management tool that scans, checks, 
 - **Smart Caching**: 2-hour cache with per-source freshness, incremental rescans, delta records, a bounded hot-package LRU cache, and optional prefetch.
 - **Dry-run & Output Options**: Safely preview updates before applying them and export reports to JSON or CSV formats.
 - **Rich Terminal UI**: Beautiful, colorful console output built with the `rich` library, featuring spinners, progress bars, and emoji indicators.
-- **Parallel Processing**: ThreadPoolExecutor for optimal performance.
+- **Parallel Processing**: Per-source scanner and update-checker worker pools with graceful degradation when one source fails.
 - **Modular Architecture**: Clean separation of concerns with dataclasses.
 - **Smart Version Comparison**: Handles preview/stable version detection.
 - **Interactive TUI**: Fuzzy search, multi-select, and preview for package selection.

@@ -13,12 +13,12 @@ import os
 import platform
 import shutil
 import subprocess
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 from rich import box
 from rich.console import Console
 
-from system_update.models import CommandError
+from system_update.models import AppInfo, CommandError
 
 console = Console()
 
@@ -149,6 +149,7 @@ def run_command(
 		logger.warning(f'[EXEC] Timeout: {cmd_str} - {error.suggestion}')
 		logger.debug(f'[EXEC] Timeout details: {exc}')
 		return None
+
 	except FileNotFoundError as exc:
 		error = CommandError.classify(exc, cmd_str)
 		logger.debug(f'[EXEC] Not found: {cmd_str} - {error.suggestion}')
@@ -171,6 +172,16 @@ def run_command(
 		)
 		logger.debug(f'[EXEC] Exception details: {exc}')
 		return None
+
+
+def dedupe_apps(apps: Iterable[AppInfo]) -> List[AppInfo]:
+	"""Return apps deduplicated by source/name/version, preserving the last record."""
+	return list(
+		{
+			f'{app.source}|{app.name}|{app.version}'.lower(): app
+			for app in apps
+		}.values()
+	)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -15,6 +15,13 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v7.2.0 (May 2026)
+- **Parallel Processing (7.2)**: Added bounded per-source worker pools for update checks, matching the scanner's parallel source execution.
+  - **Worker Pool (7.2.1)**: `check_all_updates()` now dispatches source checkers through `ThreadPoolExecutor` and honors configured worker limits from the app.
+  - **Shared Deduplication (7.2.2)**: Added a shared package dedupe helper used by scanner aggregation.
+  - **Graceful Degradation (7.2.3)**: A failing source checker now marks that source as errored while other sources continue.
+- **Tests**: Added parallel-processing coverage for concurrent checker execution, partial checker failure, and shared deduplication.
+
 ### v7.1.0 (May 2026)
 - **Smart Caching (7.1)**: Added per-source cache freshness metadata so stale or missing sources can be rescanned incrementally while fresh sources remain cached.
   - **Incremental Scan (7.1.1)**: Partial cache hits now merge refreshed source results back into cached packages and clearly show cached vs scanned sources.
