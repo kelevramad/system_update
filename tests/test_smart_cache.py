@@ -1,4 +1,3 @@
-import gzip
 import json
 from datetime import datetime, timedelta
 from unittest.mock import patch
@@ -10,10 +9,7 @@ from system_update import AppInfo, CacheManager, SystemUpdateApp, UpdateStatus
 
 
 def _read_cache_json(path):
-	raw = path.read_bytes()
-	if raw.startswith(b'\x1f\x8b'):
-		raw = gzip.decompress(raw)
-	return json.loads(raw.decode('utf-8'))
+	return json.loads(path.read_text(encoding='utf-8'))
 
 
 def test_cache_records_per_source_metadata(tmp_path):
@@ -39,7 +35,7 @@ def test_cache_stale_sources_uses_source_metadata(tmp_path):
 	data = _read_cache_json(cache_file)
 	old = (datetime.now() - timedelta(hours=3)).isoformat()
 	data['source_metadata']['winget']['timestamp'] = old
-	cache_file.write_bytes(gzip.compress(json.dumps(data).encode('utf-8')))
+	cache_file.write_text(json.dumps(data), encoding='utf-8')
 
 	assert cache.stale_sources({'winget', 'npm'}) == {'winget', 'npm'}
 
@@ -71,13 +67,15 @@ def test_delta_cache_tracks_added_updated_removed(tmp_path):
 	assert any('npm|old' in item for item in delta['removed'])
 
 
-def test_cache_is_compressed_and_loads_roundtrip(tmp_path):
+def test_cache_writes_readable_json_and_loads_roundtrip(tmp_path):
 	cache_file = tmp_path / 'cache.json'
 	cache = CacheManager(cache_file)
 
 	cache.save([AppInfo(name='Git', source='winget', version='1.0')])
 
-	assert cache_file.read_bytes().startswith(b'\x1f\x8b')
+	raw = cache_file.read_bytes()
+	assert not raw.startswith(b'\x1f\x8b')
+	assert cache_file.read_text(encoding='utf-8').startswith('{\n')
 	loaded = cache.load()
 	assert loaded is not None
 	assert loaded[0].name == 'Git'
@@ -87,7 +85,6 @@ def test_cache_prunes_old_source_data(tmp_path):
 	cache_file = tmp_path / 'cache.json'
 	cache = CacheManager(cache_file)
 	cache.prune_after_days = 1
-	cache.compression_enabled = False
 	old = (datetime.now() - timedelta(days=3)).isoformat()
 	payload = {
 		'timestamp': old,
@@ -121,7 +118,6 @@ def test_cache_prunes_old_source_data(tmp_path):
 def test_cache_selective_storage_omits_unrequested_fields(tmp_path):
 	cache_file = tmp_path / 'cache.json'
 	cache = CacheManager(cache_file)
-	cache.compression_enabled = False
 	cache.storage_fields = ['name', 'source', 'version', 'status']
 
 	cache.save(

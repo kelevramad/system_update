@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import gzip
 import json
 import logging
 from collections import OrderedDict
@@ -15,7 +14,6 @@ from system_update.models import AppInfo, UpdateStatus
 logger = logging.getLogger(__name__)
 
 CACHE_VERSION = '1.2.0'
-_GZIP_MAGIC = b'\x1f\x8b'
 _DEFAULT_STORAGE_FIELDS = (
 	'name',
 	'source',
@@ -63,7 +61,6 @@ class CacheManager:
 		self._hot_packages: OrderedDict[str, AppInfo] = OrderedDict()
 		self.hot_cache_max_items = 512
 		self.delta_enabled = True
-		self.compression_enabled = True
 		self.prune_after_days = 14
 		self.storage_fields: Sequence[str] = _DEFAULT_STORAGE_FIELDS
 		self.omit_empty_fields = True
@@ -73,10 +70,7 @@ class CacheManager:
 		if not self.cache_file.exists():
 			return None
 		try:
-			raw = self.cache_file.read_bytes()
-			if raw.startswith(_GZIP_MAGIC):
-				raw = gzip.decompress(raw)
-			data = json.loads(raw.decode('utf-8'))
+			data = json.loads(self.cache_file.read_text(encoding='utf-8'))
 			if require_valid and not self.is_valid(data):
 				return None
 			return data
@@ -302,10 +296,10 @@ class CacheManager:
 
 	def _write_raw(self, data: Dict) -> None:
 		self.cache_file.parent.mkdir(parents=True, exist_ok=True)
-		payload = json.dumps(data, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
-		if self.compression_enabled:
-			payload = gzip.compress(payload, compresslevel=6)
-		self.cache_file.write_bytes(payload)
+		self.cache_file.write_text(
+			json.dumps(data, indent=2, ensure_ascii=False) + '\n',
+			encoding='utf-8',
+		)
 
 	def _app_to_cache_dict(self, app: AppInfo) -> Dict:
 		full = app.to_dict()

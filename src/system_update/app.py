@@ -271,8 +271,6 @@ class SystemUpdateApp:
             'lru_max_items', 512)
         self.cache_mgr.delta_enabled = cache_settings.get(
             'delta_enabled', True)
-        self.cache_mgr.compression_enabled = cache_settings.get(
-            'compression_enabled', True)
         self.cache_mgr.prune_after_days = cache_settings.get(
             'prune_after_days', 14)
         self.cache_mgr.storage_fields = cache_settings.get(

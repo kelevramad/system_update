@@ -61,7 +61,6 @@ class SystemConfig:
 				'lru_max_items': 512,
 				'prefetch_enabled': False,
 				'prefetch_threshold_minutes': 15,
-				'compression_enabled': True,
 				'prune_after_days': 14,
 				'storage_fields': [
 					'name',
@@ -431,9 +430,6 @@ class SystemConfig:
 		)
 		self.settings['cache']['delta_enabled'] = bool(
 			self.settings['cache'].get('delta_enabled', True)
-		)
-		self.settings['cache']['compression_enabled'] = bool(
-			self.settings['cache'].get('compression_enabled', True)
 		)
 		self.settings['cache']['omit_empty_fields'] = bool(
 			self.settings['cache'].get('omit_empty_fields', True)

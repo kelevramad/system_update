@@ -4,7 +4,7 @@
 
 A comprehensive Python-based system package management tool that scans, checks, and updates software from multiple sources.
 
-**Version:** 8.1.0
+**Version:** 8.1.1
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
 **Layout:** Modular package at `src/system_update/` (typer CLI)
@@ -15,7 +15,7 @@ A comprehensive Python-based system package management tool that scans, checks, 
 
 - **Multi-source Package Discovery**: Scan applications installed via Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Scoop, system PATH executables, Windows Registry, AppX/MSIX, drivers, services, PowerShell modules, and VS Code extensions.
 - **Security Scanning**: Real-time vulnerability checking for NPM (`npm audit`) and PIP (`pip check`) packages.
-- **Smart Caching**: 2-hour compressed cache with per-source freshness, incremental rescans, delta records, pruning, selective storage, a bounded hot-package LRU cache, and optional prefetch.
+- **Smart Caching**: 2-hour readable JSON cache with per-source freshness, incremental rescans, delta records, pruning, selective storage, a bounded hot-package LRU cache, and optional prefetch.
 - **Network Optimization**: Batched OSV security lookups plus rate-limited, cached JSON API responses.
 - **Dry-run & Output Options**: Safely preview updates before applying them and export reports to JSON or CSV formats.
 - **Rich Terminal UI**: Beautiful, colorful console output built with the `rich` library, featuring spinners, progress bars, and emoji indicators.
@@ -275,7 +275,6 @@ The script uses the following default settings stored in `~/.system_update/confi
         "lru_max_items": 512,
         "prefetch_enabled": false,
         "prefetch_threshold_minutes": 15,
-        "compression_enabled": true,
         "prune_after_days": 14,
         "storage_fields": [
             "name",
