@@ -14,17 +14,17 @@ A comprehensive Python-based system package management tool that scans, checks, 
 ## 🌟 Features
 
 - **Multi-source Package Discovery**: Scan applications installed via Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Scoop, system PATH executables, Windows Registry, AppX/MSIX, drivers, services, PowerShell modules, and VS Code extensions.
-- **Security Scanning**: Real-time vulnerability checking for NPM (`npm audit`) and PIP (`pip check`) packages.
+- **Security Scanning**: Vulnerability checking through npm audit, pip/pip-audit, OSV, PyPI, GitHub Advisory, and local advisory data.
 - **Smart Caching**: 2-hour readable JSON cache with per-source freshness, incremental rescans, delta records, pruning, selective storage, a bounded hot-package LRU cache, and optional prefetch.
-- **Network Optimization**: Batched OSV security lookups plus rate-limited, cached JSON API responses.
-- **Dry-run & Output Options**: Safely preview updates before applying them and export reports to JSON or CSV formats.
+- **Network Optimization**: Batched OSV security lookups, rate-limited/cached JSON API responses, and one shared `winget upgrade` table per update-check run.
+- **Dry-run & Output Options**: Safely preview updates before applying them and export reports to JSON, CSV, HTML, XML, Markdown, or diff formats.
 - **Rich Terminal UI**: Beautiful, colorful console output built with the `rich` library, featuring spinners, progress bars, and emoji indicators.
 - **Parallel Processing**: Per-source scanner and update-checker worker pools with graceful degradation when one source fails.
 - **Modular Architecture**: Clean separation of concerns with dataclasses.
 - **Smart Version Comparison**: Handles preview/stable version detection.
 - **Interactive TUI**: Fuzzy search, multi-select, and preview for package selection.
 - **Remote Management**: Manage a Windows host inventory and run scans, updates, and consolidated reports over WinRS/WinRM.
-- **Plugin Architecture**: Add custom package scanners and notification channels from local Python plugins.
+- **Plugin Architecture**: Add custom scanners, update checkers, package updaters, and notification channels from local Python plugins.
 
 ---
 
@@ -43,7 +43,7 @@ A comprehensive Python-based system package management tool that scans, checks, 
   - **Python** - For PIP package support
   - **Rust** - For Cargo package support (`cargo-update` required for updates)
   - **Git** - For Git version detection
-  - **PowerShell** - For Registry scanning and PS updates
+  - **PowerShell** - For Registry, AppX/MSIX, services, drivers, and PowerShell module scanning
 
 ---
 
@@ -64,7 +64,7 @@ pip install -e .
 
 ### Basic Usage
 
-All invocations go through `python -m system_update` (the module's `__main__` entry). The old `python -m system_update` flat-file layout was removed in 5.3.0.
+All invocations go through `python -m system_update` (the module's `__main__` entry) or the installed `system-update` command. The old `python system_update.py` flat-file layout was removed in 5.3.0.
 
 ```bash
 # Run a full system scan
@@ -111,6 +111,7 @@ python -m system_update --export json --output report.json
 | `--remote-timeout <seconds>` | Per-host remote execution timeout; default is `600` |
 | `--remote-verbose` | Show each host's stdout/stderr tail when it completes |
 | `--remote-debug` | Print target metadata, timeout, redacted `winrs` command, progress heartbeat, and completion output |
+| `--list-plugins` | Show loaded scanner/checker/updater/notifier plugins and load errors |
 | `--source <csv>` | Limit scan to specific sources (e.g., `winget,npm,pip`) |
 | `--yes`, `-y` | Skip confirmation prompts |
 | `--help`, `-h` | Show help message |
@@ -366,8 +367,13 @@ The script uses the following default settings stored in `~/.system_update/confi
 | Registry | ✅ | ✅ | ❌ |
 | Scoop | ✅ | ✅ | ❌ |
 | dotnet | ✅ | ✅ | ❌ |
-| AppX | ✅ | ❌ | ❌ |
-| MSIX | ✅ | ❌ | ❌ |
+| AppX | ✅ | ✅ | ❌ |
+| MSIX | ✅ | ✅ | ❌ |
+| Drivers | ✅ | ✅ | ❌ |
+| Services | ✅ | ✅ | ❌ |
+| PowerShell modules | ✅ | ✅ | ❌ |
+| VS Code extensions | ✅ | ✅ | ❌ |
+| Plugin sources | ✅ | ✅ | Plugin-defined |
 
 ---
 
@@ -378,7 +384,9 @@ The script uses the following default settings stored in `~/.system_update/confi
 The CLI automatically scans for security vulnerabilities in:
 
 - **NPM packages** - Uses `npm audit --json` to detect known CVEs
-- **PIP packages** - Uses `pip check --format=json` to identify security issues
+- **PIP packages** - Uses `pip check`, `pip-audit`, PyPI JSON, and OSV data where available
+- **OSV-supported ecosystems** - Batched OSV lookups cover supported package ecosystems such as npm, PyPI, and crates.io
+- **Local/GitHub advisories** - Advisory imports and GitHub Advisory data enrich package findings
 
 ### Severity Thresholds
 
@@ -500,6 +508,10 @@ src/system_update/
 ├── models.py                # AppInfo, SecurityInfo, UpdateStatus, CommandError
 ├── config.py                # SystemConfig, setup_logging
 ├── cache.py                 # CacheManager
+├── network.py               # Shared JSON HTTP cache/rate-limit helper
+├── remote.py                # WinRS/WinRM remote management
+├── plugins.py               # Plugin API and loader
+├── snapshots.py             # Update snapshots and rollback
 ├── dependency_graph.py      # Graphviz DOT, conflict detection, minimal update set
 ├── history.py               # HistoryDatabase, VulnerabilityHistory (SQLite + JSON)
 ├── notifications.py         # NotificationManager
@@ -518,14 +530,16 @@ src/system_update/
 SystemUpdateApp          - Orchestrator (scan → check → security → display → export → update)
 ├── UISystem             - Rich-based UI
 ├── PackageScanner       - Multi-source package discovery (parallel)
-├── UpdateChecker        - Update detection
+├── UpdateChecker        - Parallel update detection; Winget-backed sources share one winget upgrade table per run
 ├── UpdateExecutor       - Update execution
 ├── SecurityChecker      - Facade over security/* per-source checkers
 ├── CacheManager         - 2-hour JSON cache
 ├── DependencyGraph      - Graphviz DOT, conflict detection, minimal update set
 ├── HistoryDatabase      - SQLite history (scans, package_snapshots, version_history)
 ├── VulnerabilityHistory - Persistent CVE tracking (JSON)
-└── NotificationManager  - Toast/email/webhook/hook dispatch
+├── PluginRegistry       - Custom scanner/checker/updater/notifier registration
+├── RemoteManagement     - Inventory, remote scan/update/report fan-out
+└── NotificationManager  - Toast/email/webhook/hook/plugin dispatch
 ```
 
 ### Backward compatibility

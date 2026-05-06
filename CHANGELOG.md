@@ -89,8 +89,8 @@ This project is provided as-is for system administration and package management.
 - **Plugin Architecture (6.5)**: Added local Python plugin loading from `~/.system_update/plugins` and configured `plugins.paths`.
   - **Custom Scanners (6.5.1)**: Plugins can register new package sources with `registry.register_scanner(...)`; custom sources work with `--source`, cache filtering, source labels, excludes, and `--save-config`.
   - **Custom Notifiers (6.5.2)**: Plugins can register notification channels with `registry.register_notifier(...)`; notifier plugins receive `updates_available` and `scan_complete` events with structured payloads.
-  - **Plugin API (6.5.3)**: Public extension API exports `PluginRegistry`, `PluginContext`, `PluginScanner`, `PluginNotifier`, `PluginLoadError`, and `load_plugins` from `system_update`.
-- **Plugin visibility**: Added `--list-plugins` to show loaded scanner/notifier plugins and non-fatal load errors.
+  - **Plugin API (6.5.3)**: Public extension API exports `PluginRegistry`, `PluginContext`, `PluginScanner`, `PluginChecker`, `PluginUpdater`, `PluginNotifier`, `PluginLoadError`, and `load_plugins` from `system_update`.
+- **Plugin visibility**: Added `--list-plugins` to show loaded scanner/checker/updater/notifier plugins and non-fatal load errors.
 - **Help rendering fix**: Capped Typer/Rich help width to avoid clipped right borders in wide terminals with emoji-rich help panels.
 - **Tests**: Added plugin tests covering scanner loading, custom source scanning, custom notifier events, dict-to-`AppInfo` coercion, and help panel width regression.
 

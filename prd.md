@@ -31,7 +31,7 @@
 
 ## 1. Executive Summary
 
-**System Update Python CLI** is a comprehensive command-line tool designed to scan, discover, and update software packages across multiple package managers and system sources on Windows. It provides a unified interface for managing updates from Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Rust, system PATH tools, and Windows Registry installations.
+**System Update Python CLI** is a comprehensive command-line tool designed to scan, discover, and update software packages across multiple package managers and system sources on Windows. It provides a unified interface for managing updates from Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Rust, Scoop, dotnet global tools, system PATH tools, Windows Registry installations, AppX/MSIX packages, drivers, services, PowerShell modules, VS Code extensions, and plugin-defined sources.
 
 The tool features parallel scanning, security vulnerability detection, intelligent caching, flexible export options, detailed logging, debug mode, and a polished terminal UI with real-time progress indicators.
 
@@ -42,7 +42,7 @@ The tool features parallel scanning, security vulnerability detection, intellige
 ### 2.1 Problem Statement
 
 Developers and system administrators often need to manage software updates across multiple package managers:
-- Windows: Winget, Chocolatey
+- Windows: Winget, Chocolatey, Scoop, Registry, AppX/MSIX, drivers, services, PowerShell modules, VS Code extensions
 - JavaScript: NPM, PNPM, Bun, Yarn
 - Python: PIP
 - System tools: PATH-based installations
@@ -65,9 +65,9 @@ A single CLI tool that:
 
 ### 2.3 Key Differentiators
 
-- **Multi-source support**: 14+ different package sources including .NET and Windows Store apps
-- **Multi-implementation**: Available in Node.js, Python, and PowerShell (zero-dependency)
-- **Security-first**: Built-in vulnerability scanning for NPM, PIP, PyPI JSON, and OSV API
+- **Multi-source support**: 18+ built-in package/system sources plus plugin-defined sources
+- **Python package implementation**: Modular `src/system_update/` package with `python -m system_update` and `system-update` entry points
+- **Security-first**: Built-in vulnerability scanning through npm audit, pip/pip-audit, PyPI JSON, OSV, GitHub Advisory, and local advisories
 - **Performance**: Parallel scanning with configurable timeouts
 - **Developer experience**: Rich terminal UI with colors, emojis, and progress bars
 - **Flexibility**: Extensive CLI options for targeted operations
@@ -120,7 +120,7 @@ All features and CLI options are implemented in the Python version. The legacy m
 ### 4.2 User Environment
 
 - **Platforms**: Windows (primary), macOS, Linux
-- **Runtime**: Node.js 16+
+- **Runtime**: Python 3.8+
 - **Terminal**: TTY-capable (full UI) or pipe-friendly (CI/CD)
 
 ---
@@ -146,6 +146,11 @@ All features and CLI options are implemented in the Python version. The legacy m
 | F-11b | Scan Scoop packages | P1 | Implemented |
 | F-11c | Scan AppX/Windows Store apps | P1 | Implemented |
 | F-11d | Scan MSIX packages | P1 | Implemented |
+| F-11e | Scan Windows drivers | P2 | Implemented |
+| F-11f | Scan Windows services and executable versions | P2 | Implemented |
+| F-11g | Scan PowerShell modules | P2 | Implemented |
+| F-11h | Scan VS Code extensions | P2 | Implemented |
+| F-11i | Scan plugin-defined package sources | P3 | Implemented |
 
 ### 5.2 Update Detection
 
@@ -162,6 +167,12 @@ All features and CLI options are implemented in the Python version. The legacy m
 | F-20 | Cross-reference Registry with Winget | P1 | Implemented |
 | F-21 | Check Rust for updates (cargo install-update) | P1 | Implemented |
 | F-21a | Check .NET Global Tools for updates (dotnet tool list -g --outdated) | P1 | Implemented |
+| F-21b | Check AppX/MSIX updates through Winget Store/upgrade data | P1 | Implemented |
+| F-21c | Reconcile driver and service inventory status | P2 | Implemented |
+| F-21d | Check PowerShell module updates | P2 | Implemented |
+| F-21e | Check VS Code extension updates through the shared network client | P2 | Implemented |
+| F-21f | Check plugin-defined package sources | P3 | Implemented |
+| F-21g | Reuse one parsed `winget upgrade` table per update-check run | P3 | Implemented |
 
 ### 5.3 Security Features
 
@@ -188,6 +199,9 @@ All features and CLI options are implemented in the Python version. The legacy m
 | F-33 | Skip prompts with --yes flag | P1 | Implemented |
 | F-34 | Update Rust packages (cargo install-update) | P1 | Implemented |
 | F-34a | Update .NET Global Tools (dotnet tool update -g) | P1 | Implemented |
+| F-34b | Update PowerShell modules | P2 | Implemented |
+| F-34c | Update VS Code extensions | P2 | Implemented |
+| F-34d | Execute plugin-defined package updaters | P3 | Implemented |
 
 ### 5.5 Caching System
 
@@ -239,21 +253,22 @@ All features and CLI options are implemented in the Python version. The legacy m
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     CLI Entry Point                         │
-│                        (main.js)                            │
+│        (python -m system_update / system-update)            │
 ├─────────────────────────────────────────────────────────────┤
-│  Argument Parser  │  Config Manager  │  Cache Manager      │
+│  Typer CLI  │ Config Manager │ Cache/Network │ Plugins     │
 ├─────────────────────────────────────────────────────────────┤
-│                    Scanner Orchestrator                     │
+│        SystemUpdateApp Orchestrator + Rich UI               │
 │  ┌─────────┬─────────┬─────────┬─────────┬─────────────┐   │
 │  │ Winget  │ Choco   │  NPM    │  PNPM   │  Bun/Yarn   │   │
 │  ├─────────┼─────────┼─────────┼─────────┼─────────────┤   │
 │  │  PIP    │  PATH   │Registry │  Rust   │   Scoop     │   │
 │  ├─────────┼─────────┼─────────┼─────────┼─────────────┤   │
-│  │  dotnet │ AppX   │ MSIX    │  OSV    │   Security  │   │
+│  │ dotnet  │ AppX    │ MSIX    │Drivers  │ Services    │   │
+│  ├─────────┼─────────┼─────────┼─────────┼─────────────┤   │
+│  │ PSMods  │ VS Ext  │ Plugins │  OSV    │  Security   │   │
 │  └─────────┴─────────┴─────────┴─────────┴─────────────┘   │
 ├─────────────────────────────────────────────────────────────┤
-│                  Command Execution Layer                    │
-│              (spawn, timeout handling, parsing)             │
+│ Update Checkers │ Executors │ Remote │ Snapshots/Rollback  │
 ├─────────────────────────────────────────────────────────────┤
 │                    Output Layer                             │
 │         (UI rendering, logging, debug mode, file export)    │
@@ -262,21 +277,21 @@ All features and CLI options are implemented in the Python version. The legacy m
 
 ### 6.2 Module Dependencies
 
-| Module | Purpose | Node.js API |
-|--------|---------|-------------|
-| `fs/promises` | File I/O for cache, config, export | Async filesystem |
-| `child_process` | Execute package manager commands | spawn |
-| `https` | Fetch latest versions, vulnerability data | HTTPS client |
-| `readline` | Interactive prompts | Terminal input |
-| `path`, `os` | Cross-platform path handling | System utilities |
+| Module | Purpose |
+|--------|---------|
+| `pathlib`, `json`, `sqlite3` | File I/O for cache, config, history, snapshots, and exports |
+| `subprocess` | Execute package manager, PowerShell, Winget, and WinRS commands |
+| `urllib.request` | Shared JSON API calls through `network.py` |
+| `concurrent.futures` | Parallel scanner, checker, and remote fan-out workers |
+| `rich`, `typer` | Terminal UI and CLI parsing |
 
 ### 6.3 Data Flow
 
 1. **Initialization**: Parse args → Load config → Ensure data directory → Initialize logging
 2. **Cache Check**: Load cached results if valid
 3. **Scan Phase**: Parallel source scanning → Deduplication
-4. **Update Check**: Query each source for available updates
-5. **Security Check**: Run vulnerability scans (NPM audit, PIP check)
+4. **Update Check**: Query each source for available updates; Winget-backed sources reuse one parsed `winget upgrade` table per run
+5. **Security Check**: Run vulnerability scans (npm audit, pip/pip-audit, OSV, PyPI, GitHub, local advisories)
 6. **Display**: Render tables, summaries, security alerts
 7. **Execution**: Apply updates (if requested) with confirmation
 8. **Export**: Write results to file (if requested)
@@ -863,36 +878,30 @@ Errors are displayed with appropriate styling:
 
 ## 16. Future Enhancements
 
-### 16.1 Planned Features
+### 16.1 Remaining Planned Features
 
 | ID | Feature | Priority | Description |
 |----|---------|----------|-------------|
-| E-01 | Configuration file support | P1 | Persistent user configuration |
-| E-02 | Auto-update mode | P2 | Scheduled background updates |
-| E-03 | Rollback support | P2 | Revert to previous versions |
-| E-04 | Interactive selection | P2 | TUI for choosing updates |
-| E-05 | Plugin architecture | P3 | Custom source providers |
 | E-06 | Homebrew support | P2 | macOS package manager |
 | E-07 | APT/YUM support | P2 | Linux package managers |
 | E-08 | Update groups | P3 | Named package collections |
-| E-09 | Pre/post hooks | P3 | Custom scripts around updates |
-| E-10 | Progress persistence | P3 | Resume interrupted scans |
+| E-09 | Pre/post update hooks | P3 | Custom scripts around package update execution |
+| E-10 | Scan checkpoint persistence | P3 | Resume interrupted scans across process restarts |
+
+Configuration files, scheduled tasks, rollback, interactive selection, remote management, plugin architecture, smart caching, network optimization, and Windows-specific source coverage are implemented.
 
 ### 16.2 Known Limitations
 
-1. **Windows-centric**: Registry scanning only works on Windows
-2. **Global packages only**: Does not scan project-local dependencies
-3. **No dependency resolution**: Updates packages independently
-4. **Limited vulnerability sources**: Only NPM and PIP supported
-5. **No authentication**: Cannot access private registries
+1. **Windows-centric**: Registry, AppX/MSIX, driver, service, PowerShell module, VS Code extension, and WinRS remote features are Windows-focused.
+2. **Global packages only**: Does not scan project-local dependency trees as package sources.
+3. **No dependency resolver**: Updates are orchestrated per package/source; dependency graph output is advisory.
+4. **Authentication is source-specific**: Private registries/remotes depend on the underlying package manager, WinRS, or user-provided environment/config.
 
 ### 16.3 Technical Debt
 
-- Hardcoded source list (not extensible without code changes)
-- No unit tests
-- Limited integration tests
-- No TypeScript types
-- Sequential security checks (could be parallel)
+- Broaden non-Windows package source support.
+- Add stronger end-to-end tests for real remote hosts and package managers where CI environments permit it.
+- Expand plugin examples and compatibility guidance for third-party extensions.
 
 ---
 
@@ -930,7 +939,7 @@ Errors are displayed with appropriate styling:
 | 6.2.2 | May 2026 | Unified Rich progress helper with per-task durations for scan/check/security phases; grouped banner and summary panels with aligned file inventory, profile chips, source chips, and security breakdowns; failed subprocess stdout/stderr captured in `system.log` while CLI output and `errors.log` remain concise; banner version display updated to current release |
 | 6.3.0 | May 2026 | Dependency Graph (6.3): `--dependency-graph dot\|conflicts\|minimal\|help`; Graphviz DOT export via `--graph-output`; best-effort npm/pnpm/pip dependency edges; conflict detection for multiple installed versions; minimal direct update set suggestions that preserve vulnerable packages |
 | 6.4.0 | May 2026 | Remote Management (6.4): WinRM execution via Windows-native `winrs` (6.4.1), `~/.system_update/inventory.json` host inventory with groups (6.4.2), consolidated multi-host JSON reports with cross-host version-drift detection (6.4.3), parallel mass update fan-out (6.4.4); new `--remote list\|add\|remove\|scan\|update\|report\|help` plus `--remote-host\|-group\|-address\|-user\|-groups\|-args\|-output\|-timeout\|-verbose\|-debug` flags; new `🌐 Remote Management` help panel and `remote` sub-help topic |
-| 6.5.0 | May 2026 | Plugin Architecture (6.5): local Python plugins loaded from `~/.system_update/plugins` or configured `plugins.paths`; custom package scanners can add new `--source` providers (6.5.1); custom notifiers receive update and scan-complete events (6.5.2); public plugin API exports `PluginRegistry`, `PluginContext`, `PluginScanner`, `PluginNotifier`, and `load_plugins` (6.5.3); new `--list-plugins` command lists loaded scanners/notifiers and load errors |
+| 6.5.0 | May 2026 | Plugin Architecture (6.5): local Python plugins loaded from `~/.system_update/plugins` or configured `plugins.paths`; custom package scanners can add new `--source` providers (6.5.1); custom notifiers receive update and scan-complete events (6.5.2); public plugin API exports `PluginRegistry`, `PluginContext`, `PluginScanner`, `PluginChecker`, `PluginUpdater`, `PluginNotifier`, and `load_plugins` (6.5.3); new `--list-plugins` command lists loaded scanners/checkers/updaters/notifiers and load errors |
 | 7.1.0 | May 2026 | Smart Caching (7.1): per-source freshness metadata enables incremental rescans for stale/missing sources while fresh sources remain cached (7.1.1); cache writes include delta metadata for added/updated/removed packages (7.1.2); bounded hot-package LRU cache tracks recently loaded packages (7.1.3); optional prefetch can refresh near-expiry caches in the background (7.1.4). Source emoji chips now render by default in summaries, package tables, scan/update progress, and partial-cache messages; `--icons` was removed because icons are always shown |
 | 7.2.0 | May 2026 | Parallel Processing (7.2): per-source scanner and update-checker work now use bounded worker pools (7.2.1); package deduplication uses a shared helper across scan paths (7.2.2); update-check failures are isolated per source so healthy sources continue and report results (7.2.3) |
 | 7.3.0 | May 2026 | Network Optimization (7.3): OSV vulnerability checks use batched API requests (7.3.1); shared JSON API calls honor configurable per-host rate limits (7.3.2); API responses are cached in `api_cache.json` with configurable TTL (7.3.3). Summary panel source rows wrap safely inside borders on emoji-rich terminals |
