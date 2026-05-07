@@ -7,13 +7,31 @@ scan → check → security → display → export → update workflow.
 
 from __future__ import annotations
 
-import sys
+import platform
 import shutil
+import sys
 from argparse import Namespace
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
 from typing import List, Optional
 
 import typer
 import typer.rich_utils as typer_rich_utils
+
+
+def _resolve_version() -> str:
+	"""Best-effort package version, with fallback to the UI constant."""
+	try:
+		return _pkg_version('system-update-cli')
+	except PackageNotFoundError:
+		try:
+			from system_update.ui.system import _VERSION
+
+			return _VERSION
+		except Exception:
+			return '0.0.0'
+
+
+_APP_VERSION = _resolve_version()
 
 # Force UTF-8 on stdout/stderr so emoji-rich help/sub-help renders on
 # Windows cp1252 consoles. Applied here so it covers both the
@@ -55,6 +73,47 @@ Scans [yellow]winget, choco, scoop, npm, pnpm, yarn, bun, pip, cargo, PATH, regi
 checks for updates, runs [red]security audits[/red] (OSV, pip-audit, npm audit, PyPI, GH Advisory),
 and can [green]apply updates[/green] or export branded [magenta]HTML/JSON/CSV/XML/Markdown[/magenta] reports.
 """
+
+
+def print_banner() -> None:
+	"""Print a Rich-rendered banner with version and runtime info.
+
+	Called before ``--help`` renders so users see version/data-dir/cache
+	at a glance without re-flowing Typer's help layout.
+	"""
+	from rich.console import Console
+	from rich.panel import Panel
+	from rich.table import Table
+	from rich.text import Text
+
+	console = Console()
+	header = Text()
+	header.append('🚀 system-update', style='bold cyan')
+	header.append('  ·  ', style='dim')
+	header.append(f'v{_APP_VERSION}', style='bold green')
+	header.append('  ·  ', style='dim')
+	header.append(
+		f'Python {platform.python_version()} on {platform.system()}',
+		style='yellow',
+	)
+
+	info = Table.grid(padding=(0, 2))
+	info.add_column(style='bold', no_wrap=True)
+	info.add_column()
+	info.add_row('Data dir', '[yellow]~/.system_update/[/yellow] [dim](override: $SYSTEM_UPDATE_HOME)[/dim]')
+	info.add_row(
+		'Cache TTL',
+		'[magenta]2 hours[/magenta] [dim](override: --no-cache · --clear-cache)[/dim]',
+	)
+	info.add_row('Sources', '[dim]winget · choco · scoop · npm · pnpm · yarn · bun · pip · cargo · …[/dim]')
+	info.add_row('Security', '[dim]OSV · pip-audit · npm audit · PyPI · GitHub Advisory[/dim]')
+	info.add_row('Repo', '[blue]https://github.com/kelevramad/system_update[/blue]')
+
+	body = Table.grid()
+	body.add_row(header)
+	body.add_row('')
+	body.add_row(info)
+	console.print(Panel(body, border_style='cyan', padding=(0, 2)))
 
 
 EPILOG = """
@@ -689,6 +748,8 @@ def _main_entry() -> None:
 	"""
 	if _intercept_subhelp_argv():
 		sys.exit(0)
+	if any(arg in ('--help', '-h') for arg in sys.argv[1:]):
+		print_banner()
 	app()
 
 
