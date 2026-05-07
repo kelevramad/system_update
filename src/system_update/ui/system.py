@@ -14,7 +14,7 @@ from system_update.models import AppInfo, UpdateStatus
 from system_update.ui.theme import ThemeManager
 from system_update.utils import console, display_source, source_chip, source_icon
 
-_VERSION = '8.1.6'
+_VERSION = '8.2.0'
 _SEVERITY_PRIORITY = {'CRITICAL': 0, 'HIGH': 1,
                       'MEDIUM': 2, 'LOW': 3, 'UNKNOWN': 4}
 _SEVERITY_COLORS = {
@@ -137,28 +137,40 @@ def _profile_chip_row(profile: str | None, available: list) -> Text:
     return out
 
 
-def display_banner(config: SystemConfig) -> None:
-    """Render a single grouped panel: header · runtime · profile · files · profiles.
+# ── Static metadata shown both on --help and at runtime ──────────────────
 
-    Replaces the previous loose-output banner that printed five separate
-    blocks. Everything now lives inside one bordered Panel so the user sees
-    the whole startup context at a glance, and the file inventory uses a
-    right-aligned table so sizes / mtimes line up regardless of name length.
+_BANNER_SOURCES = (
+    'winget · choco · scoop · npm · pnpm · yarn · bun · pip · cargo · …'
+)
+_BANNER_SECURITY = 'OSV · pip-audit · npm audit · PyPI · GitHub Advisory'
+_BANNER_REPO = 'https://github.com/kelevramad/system_update'
+_BANNER_CACHE_TTL = '2 hours [dim](override: --no-cache · --clear-cache)[/dim]'
+_BANNER_DATA_DIR_HINT = '[dim](override: $SYSTEM_UPDATE_HOME)[/dim]'
+
+
+def build_system_panel(config: Optional[SystemConfig] = None):
+    """Build the unified ``System Update`` panel.
+
+    Shown on both ``--help`` and at runtime so the user sees the same
+    context (version, runtime, profile, data dir, cache TTL, sources,
+    security, repo). When ``config`` is ``None`` (e.g. early ``--help``
+    handling), a default :class:`SystemConfig` is constructed.
     """
     from rich.console import Group
     from rich.panel import Panel
 
+    if config is None:
+        config = SystemConfig()
+
     profile = getattr(config, 'current_profile', None)
     py_label, in_venv, py_path = _python_runtime_info()
 
-    # ── Top metadata row: title · version · runtime · profile ─────────────
+    # ── Top metadata: title · version · runtime · profile · static info ──
     header = Table(box=None, show_header=False, pad_edge=False, padding=(0, 2))
-    header.add_column(style='bold cyan', no_wrap=True)
-    header.add_column(no_wrap=True, overflow='fold')
+    header.add_column(style='bold cyan', no_wrap=True, min_width=18)
+    header.add_column(overflow='fold')
 
-    header.add_row(
-        '🚀 System Update', f'[bold cyan]v{_VERSION}[/bold cyan]'
-    )
+    header.add_row('🚀 System Update', f'[bold cyan]v{_VERSION}[/bold cyan]')
     venv_style = 'bold bright_white on green' if in_venv else 'bold bright_white on yellow'
     header.add_row(
         '🐍 Runtime',
@@ -171,8 +183,12 @@ def display_banner(config: SystemConfig) -> None:
     else:
         profile_pill = '[bright_white]👤 default[/bright_white]'
     header.add_row('📂 Profile', profile_pill)
+    header.add_row('🕐 Cache TTL', _BANNER_CACHE_TTL)
+    header.add_row('📦 Sources', f'[dim]{_BANNER_SOURCES}[/dim]')
+    header.add_row('🔐 Security', f'[dim]{_BANNER_SECURITY}[/dim]')
+    header.add_row('🔗 Repo', f'[blue]{_BANNER_REPO}[/blue]')
 
-    # ── File inventory ────────────────────────────────────────────────────
+    # ── File inventory ───────────────────────────────────────────────────
     if profile:
         profile_dir = Path(config.profiles_dir) / profile
         profile_rows = [
@@ -187,7 +203,9 @@ def display_banner(config: SystemConfig) -> None:
             ('errors.log', Path(config.config_dir) / 'errors.log'),
         ]
         files_block = Group(
-            Text(f'📁 Profile data → {profile_dir}', style='dim white'),
+            Text.from_markup(
+                f'[dim white]📁 Profile data → {profile_dir} {_BANNER_DATA_DIR_HINT}[/dim white]'
+            ),
             _file_inventory_table(profile_rows),
             Text(f'🌐 Shared data  → {config.config_dir}', style='dim white'),
             _file_inventory_table(shared_rows),
@@ -203,11 +221,13 @@ def display_banner(config: SystemConfig) -> None:
             ('errors.log', Path(config.config_dir) / 'errors.log'),
         ]
         files_block = Group(
-            Text(f'📁 {config.config_dir}', style='dim white'),
+            Text.from_markup(
+                f'[dim white]📁 {config.config_dir} {_BANNER_DATA_DIR_HINT}[/dim white]'
+            ),
             _file_inventory_table(shared_rows),
         )
 
-    # ── Profiles row ──────────────────────────────────────────────────────
+    # ── Profiles row ─────────────────────────────────────────────────────
     profiles_dir = Path(config.profiles_dir)
     if profiles_dir.is_dir():
         available = sorted(
@@ -217,20 +237,30 @@ def display_banner(config: SystemConfig) -> None:
 
     body = Group(
         header,
-        Text(),  # blank line
+        Text(),
         files_block,
         Text(),
         _profile_chip_row(profile, available),
     )
 
-    console.print(Panel(
+    return Panel(
         body,
         title='[bold cyan]System Update[/bold cyan]',
         title_align='left',
         border_style='cyan',
         padding=(0, 1),
         expand=True,
-    ))
+    )
+
+
+def display_banner(config: SystemConfig) -> None:
+    """Render the unified System Update panel.
+
+    Shows the same panel that ``--help`` displays at the top, so the user
+    sees identical context whether they ran ``system-update`` or
+    ``system-update --help``.
+    """
+    console.print(build_system_panel(config))
 
 
 def display_summary(

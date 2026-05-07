@@ -15,6 +15,12 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.2.0 (May 2026)
+- **Security — Credentials Off Argv (Hardening 1.1)**: Added optional `pywinrm` HTTPS transport for remote execution. The legacy `winrs` path still works but now emits a one-shot warning when a password is supplied — `winrs -p:<pass>` puts the password on the spawned process's command line, which is readable by other local users via `Get-CimInstance Win32_Process`. Install with `uv pip install 'system-update-cli[remote-secure]'` and set `host.transport='pywinrm'`.
+- **Security — Webhook Bearer Token Off Argv**: `_send_email_via_api` no longer shells out to `curl`. Bearer tokens now travel inside HTTP headers via `urllib.request`, so they never appear on a subprocess command line.
+- **UX — Unified System Update Banner**: `--help` and the runtime startup banner now render the same Rich panel: version, runtime/venv, active profile, data-dir file inventory (status, size, mtime), cache TTL, supported sources, security feeds, and repo URL. The panel width matches Typer's help panels.
+- **Tests**: Added regression coverage for both hardening items — the pywinrm path never spawns a subprocess, the missing-dep error message is actionable, the winrs fallback emits the security warning, and the email API path uses `urllib.request` with the `Authorization` header (no `curl`).
+
 ### v8.1.6 (May 2026)
 - **Winget Upgrade Cache**: Winget, Registry, AppX, and MSIX update checkers now share one parsed `winget upgrade` table per `check_all_updates` run.
 - **Parallel Consistency**: Parallel update checks no longer launch duplicate `winget upgrade` commands, reducing cost and avoiding inconsistent snapshots between sources.

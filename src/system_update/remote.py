@@ -192,8 +192,19 @@ class Inventory:
 _DEFAULT_REMOTE_TIMEOUT = 600
 
 
+_SUPPORTED_TRANSPORTS = ('winrs', 'pywinrm')
+
+# One-shot guard so the winrs-with-password warning fires once per process.
+_WINRS_WARNED = False
+
+
 def _build_winrs_argv(host: RemoteHost, command: str, password: str = '') -> List[str]:
-	"""Build the ``winrs`` argv. Password comes from env if not provided."""
+	"""Build the ``winrs`` argv. Password comes from env if not provided.
+
+	Note: the password ends up on the spawned process's command line. Other
+	local users can read it via ``Get-CimInstance Win32_Process``. The
+	``pywinrm`` transport (see :func:`_execute_via_pywinrm`) avoids this.
+	"""
 	target = host.address or host.name
 	argv = ['winrs', f'-r:{target}']
 	if host.user:
@@ -203,6 +214,10 @@ def _build_winrs_argv(host: RemoteHost, command: str, password: str = '') -> Lis
 		argv.append(f'-p:{pw}')
 	argv.append(command)
 	return argv
+
+
+def _password_for(host: RemoteHost, password: str) -> str:
+	return password or os.environ.get('SYSTEM_UPDATE_REMOTE_PASS', '')
 
 
 def build_debug_argv(host: RemoteHost, command: str) -> List[str]:
@@ -216,25 +231,97 @@ def argv_to_display(argv: List[str]) -> str:
 	return ' '.join(shlex.quote(part) if re.search(r'\s', part) else part for part in argv)
 
 
-def execute_remote(
+def _warn_winrs_password_in_argv() -> None:
+	"""Emit a one-shot warning that ``winrs`` leaks the password via argv."""
+	global _WINRS_WARNED
+	if _WINRS_WARNED:
+		return
+	_WINRS_WARNED = True
+	logger.warning(
+		"WinRS password is visible to other local users via Win32_Process. "
+		"Install 'pywinrm' and set host transport='pywinrm' for HTTPS-based delivery: "
+		"uv pip install 'system-update-cli[remote-secure]'"
+	)
+
+
+def _execute_via_pywinrm(
 	host: RemoteHost,
 	command: str,
-	timeout: int = _DEFAULT_REMOTE_TIMEOUT,
-	password: str = '',
+	timeout: int,
+	password: str,
 ) -> RemoteResult:
-	"""Run ``command`` on ``host`` and return a :class:`RemoteResult`.
+	"""Run ``command`` on ``host`` via the ``pywinrm`` HTTPS transport.
 
-	Currently only the ``winrs`` transport is implemented. Other values are
-	rejected with a clear error so the user knows what's missing.
+	The password is sent inside the SOAP request body and never appears on
+	the local process's command line.
 	"""
-	if host.transport != 'winrs':
+	try:
+		import winrm  # type: ignore[import-not-found]
+	except ImportError:
 		return RemoteResult(
-			host=host.name, ok=False,
+			host=host.name,
+			ok=False,
+			exit_code=-1,
 			stderr=(
-				f'Transport {host.transport!r} not supported yet — only "winrs". '
-				f'Patches welcome.'
+				"pywinrm is not installed. Install with: "
+				"uv pip install 'system-update-cli[remote-secure]'"
 			),
 		)
+
+	pw = _password_for(host, password)
+	target = host.address or host.name
+	port = host.port or 5986
+	endpoint = f'https://{target}:{port}/wsman'
+
+	start = time.monotonic()
+	try:
+		session = winrm.Session(
+			endpoint,
+			auth=(host.user, pw),
+			transport='ntlm',
+			server_cert_validation='validate',
+			operation_timeout_sec=max(1, timeout - 5),
+			read_timeout_sec=timeout,
+		)
+		response = session.run_cmd(command)
+	except Exception as e:
+		return RemoteResult(
+			host=host.name,
+			ok=False,
+			exit_code=-1,
+			stderr=f'pywinrm error: {type(e).__name__}: {e}',
+			duration=time.monotonic() - start,
+		)
+
+	duration = time.monotonic() - start
+	stdout = response.std_out.decode('utf-8', errors='replace') if response.std_out else ''
+	stderr = response.std_err.decode('utf-8', errors='replace') if response.std_err else ''
+	parsed = None
+	if stdout.strip().startswith(('{', '[')):
+		try:
+			parsed = json.loads(stdout)
+		except Exception:
+			parsed = None
+	return RemoteResult(
+		host=host.name,
+		ok=response.status_code == 0,
+		exit_code=response.status_code,
+		stdout=stdout,
+		stderr=stderr,
+		duration=duration,
+		parsed=parsed,
+	)
+
+
+def _execute_via_winrs(
+	host: RemoteHost,
+	command: str,
+	timeout: int,
+	password: str,
+) -> RemoteResult:
+	"""Legacy ``winrs`` transport — password ends up on argv (see warning)."""
+	if _password_for(host, password):
+		_warn_winrs_password_in_argv()
 
 	argv = _build_winrs_argv(host, command, password=password)
 	start = time.monotonic()
@@ -280,6 +367,31 @@ def execute_remote(
 			stderr=f'Unexpected error: {e}',
 			duration=time.monotonic() - start,
 		)
+
+
+def execute_remote(
+	host: RemoteHost,
+	command: str,
+	timeout: int = _DEFAULT_REMOTE_TIMEOUT,
+	password: str = '',
+) -> RemoteResult:
+	"""Run ``command`` on ``host`` and return a :class:`RemoteResult`.
+
+	Supported transports:
+	    * ``winrs`` (default, legacy) — password leaks on argv; warns once.
+	    * ``pywinrm`` — HTTPS WinRM via ``pywinrm`` extra; password kept off argv.
+	"""
+	if host.transport == 'pywinrm':
+		return _execute_via_pywinrm(host, command, timeout, password)
+	if host.transport == 'winrs':
+		return _execute_via_winrs(host, command, timeout, password)
+	return RemoteResult(
+		host=host.name, ok=False,
+		stderr=(
+			f'Transport {host.transport!r} not supported. '
+			f'Use one of: {", ".join(_SUPPORTED_TRANSPORTS)}.'
+		),
+	)
 
 
 def execute_many(
