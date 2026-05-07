@@ -7,7 +7,6 @@ scan → check → security → display → export → update workflow.
 
 from __future__ import annotations
 
-import platform
 import shutil
 import sys
 from argparse import Namespace
@@ -76,44 +75,26 @@ and can [green]apply updates[/green] or export branded [magenta]HTML/JSON/CSV/XM
 
 
 def print_banner() -> None:
-	"""Print a Rich-rendered banner with version and runtime info.
+	"""Print the unified System Update panel before Typer renders help.
 
-	Called before ``--help`` renders so users see version/data-dir/cache
-	at a glance without re-flowing Typer's help layout.
+	Reuses the same panel builder as the runtime banner so ``--help`` and
+	the regular run show identical context (version, runtime, profile,
+	data dir contents, cache TTL, sources, security, repo). The banner
+	is rendered with ``force_terminal=True`` and the same width Typer
+	uses, so its right edge aligns with the help panels.
 	"""
 	from rich.console import Console
-	from rich.panel import Panel
-	from rich.table import Table
-	from rich.text import Text
 
-	console = Console()
-	header = Text()
-	header.append('🚀 system-update', style='bold cyan')
-	header.append('  ·  ', style='dim')
-	header.append(f'v{_APP_VERSION}', style='bold green')
-	header.append('  ·  ', style='dim')
-	header.append(
-		f'Python {platform.python_version()} on {platform.system()}',
-		style='yellow',
+	from system_update.config import SystemConfig
+	from system_update.ui.system import build_system_panel
+
+	try:
+		config = SystemConfig()
+	except Exception:
+		config = None  # fall back to defaults inside build_system_panel
+	Console(force_terminal=True, width=typer_rich_utils.MAX_WIDTH).print(
+		build_system_panel(config)
 	)
-
-	info = Table.grid(padding=(0, 2))
-	info.add_column(style='bold', no_wrap=True)
-	info.add_column()
-	info.add_row('Data dir', '[yellow]~/.system_update/[/yellow] [dim](override: $SYSTEM_UPDATE_HOME)[/dim]')
-	info.add_row(
-		'Cache TTL',
-		'[magenta]2 hours[/magenta] [dim](override: --no-cache · --clear-cache)[/dim]',
-	)
-	info.add_row('Sources', '[dim]winget · choco · scoop · npm · pnpm · yarn · bun · pip · cargo · …[/dim]')
-	info.add_row('Security', '[dim]OSV · pip-audit · npm audit · PyPI · GitHub Advisory[/dim]')
-	info.add_row('Repo', '[blue]https://github.com/kelevramad/system_update[/blue]')
-
-	body = Table.grid()
-	body.add_row(header)
-	body.add_row('')
-	body.add_row(info)
-	console.print(Panel(body, border_style='cyan', padding=(0, 2)))
 
 
 EPILOG = """
