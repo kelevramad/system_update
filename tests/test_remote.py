@@ -147,6 +147,88 @@ def test_execute_remote_unsupported_transport():
 	assert 'not supported' in r.stderr.lower()
 
 
+# ─── 1.1.1 — pywinrm transport keeps password off argv ───────────────────
+
+
+def test_execute_remote_pywinrm_keeps_password_off_argv(monkeypatch):
+	"""The pywinrm path must never invoke a subprocess with the password."""
+	# Block subprocess entirely so a stray winrs call would fail loudly.
+	def explode(*a, **kw):  # pragma: no cover — must not be called
+		raise AssertionError('pywinrm transport must not spawn subprocesses')
+
+	monkeypatch.setattr(remote_mod.subprocess, 'run', explode)
+
+	class _Resp:
+		status_code = 0
+		std_out = b'{"packages":[]}'
+		std_err = b''
+
+	class _FakeSession:
+		captured = {}
+
+		def __init__(self, endpoint, **kw):
+			_FakeSession.captured['endpoint'] = endpoint
+			_FakeSession.captured['auth'] = kw.get('auth')
+
+		def run_cmd(self, command):
+			_FakeSession.captured['command'] = command
+			return _Resp()
+
+	fake_winrm = type('M', (), {'Session': _FakeSession})
+	monkeypatch.setitem(__import__('sys').modules, 'winrm', fake_winrm)
+
+	host = RemoteHost(name='build01', address='10.0.0.5', user='DOMAIN\\admin',
+		transport='pywinrm')
+	r = execute_remote(host, 'system-update --no-cache', password='S3cr3t!')
+	assert r.ok
+	assert r.parsed == {'packages': []}
+	# Endpoint is HTTPS WinRM; password is in the auth tuple, not on argv.
+	assert _FakeSession.captured['endpoint'].startswith('https://')
+	assert _FakeSession.captured['auth'] == ('DOMAIN\\admin', 'S3cr3t!')
+
+
+def test_execute_remote_pywinrm_missing_dependency_returns_error(monkeypatch):
+	"""When pywinrm isn't installed, fail with an actionable message."""
+	import builtins
+
+	real_import = builtins.__import__
+
+	def deny_winrm(name, *args, **kwargs):
+		if name == 'winrm':
+			raise ImportError('No module named winrm')
+		return real_import(name, *args, **kwargs)
+
+	monkeypatch.setattr(builtins, '__import__', deny_winrm)
+	# Also drop any pre-imported stub from previous tests.
+	import sys
+	monkeypatch.delitem(sys.modules, 'winrm', raising=False)
+
+	host = RemoteHost(name='h', transport='pywinrm', user='u')
+	r = execute_remote(host, 'cmd', password='secret')
+	assert r.ok is False
+	assert 'pywinrm is not installed' in r.stderr
+
+
+def test_winrs_with_password_emits_security_warning(monkeypatch, caplog):
+	"""When winrs is used with a password, warn that argv leaks it."""
+	import logging as _logging
+
+	# Reset the module-level one-shot guard so the warning fires in this test.
+	monkeypatch.setattr(remote_mod, '_WINRS_WARNED', False)
+
+	monkeypatch.setattr(
+		remote_mod.subprocess, 'run',
+		lambda argv, **kw: _FakeProc(0, ''),
+	)
+	with caplog.at_level(_logging.WARNING, logger=remote_mod.__name__):
+		execute_remote(RemoteHost(name='h', user='u', transport='winrs'), 'cmd',
+			password='secret')
+
+	messages = ' '.join(rec.message for rec in caplog.records)
+	assert 'visible to other local users' in messages
+	assert 'pywinrm' in messages
+
+
 def test_execute_remote_invokes_winrs(monkeypatch):
 	captured = {}
 

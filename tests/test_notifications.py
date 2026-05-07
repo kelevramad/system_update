@@ -1,5 +1,8 @@
+import io
 from unittest.mock import MagicMock, patch
+
 from system_update import NotificationManager
+from system_update.notifications import NotificationManager as _NM
 
 
 def test_send_webhook_valid_url():
@@ -196,3 +199,67 @@ def test_notification_send_webhook_success():
 		mock_url.return_value.__enter__.return_value.status = 200
 		result = nm.send_webhook('http://example.com/webhook', {'title': 'Test', 'message': 'Msg'})
 		assert result is True
+
+
+# ─── 1.1.2 — bearer token kept off subprocess argv ───────────────────────
+
+
+def _fake_response(status: int, body: bytes):
+	resp = MagicMock()
+	resp.__enter__.return_value = resp
+	resp.__exit__.return_value = False
+	resp.status = status
+	resp.read.return_value = body
+	return resp
+
+
+def test_send_email_via_api_uses_urllib_not_curl():
+	"""Bearer token must travel in HTTP headers, never on argv."""
+	with patch('subprocess.run') as mock_subproc, \
+		patch('urllib.request.urlopen') as mock_url:
+		mock_url.return_value = _fake_response(200, b'{"success": true}')
+		ok = _NM._send_email_via_api(
+			'https://api.example.com/send',
+			'tk_secret_value',
+			'to@example.com',
+			'Subject',
+			'Body',
+		)
+	assert ok is True
+	# No subprocess invocation at all.
+	mock_subproc.assert_not_called()
+	# Token is on the Request header, not interpolated anywhere visible.
+	req = mock_url.call_args.args[0]
+	assert req.headers.get('Authorization') == 'Bearer tk_secret_value'
+	assert req.headers.get('Content-type') == 'application/json'
+	assert req.method == 'POST'
+
+
+def test_send_email_via_api_handles_http_error():
+	import urllib.error
+
+	with patch('urllib.request.urlopen', side_effect=urllib.error.HTTPError(
+		'https://api.example.com/send', 401, 'Unauthorized', {}, io.BytesIO(b''))):
+		ok = _NM._send_email_via_api(
+			'https://api.example.com/send', 'tk', 'a@b', 'S', 'B'
+		)
+	assert ok is False
+
+
+def test_send_email_via_api_handles_url_error():
+	import urllib.error
+
+	with patch('urllib.request.urlopen', side_effect=urllib.error.URLError('dns')):
+		ok = _NM._send_email_via_api(
+			'https://api.example.com/send', 'tk', 'a@b', 'S', 'B'
+		)
+	assert ok is False
+
+
+def test_send_email_via_api_rejects_non_success_body():
+	with patch('urllib.request.urlopen') as mock_url:
+		mock_url.return_value = _fake_response(200, b'{"error": "bad"}')
+		ok = _NM._send_email_via_api(
+			'https://api.example.com/send', 'tk', 'a@b', 'S', 'B'
+		)
+	assert ok is False

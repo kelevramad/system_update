@@ -7,6 +7,7 @@ import logging
 import os
 import platform
 import subprocess
+import urllib.error
 import urllib.request
 from typing import Dict, List, Optional
 
@@ -117,36 +118,47 @@ $icon.Dispose()
 	def _send_email_via_api(
 		api_url: str, token: str, to_address: str, subject: str, body: str
 	) -> bool:
-		"""POST the message to a REST email API via curl."""
-		payload = json.dumps(
+		"""POST the message to a REST email API.
+
+		Uses ``urllib.request`` so the bearer token never appears on a
+		subprocess command line (``curl`` argv is readable to other local
+		users via ``Get-CimInstance Win32_Process``).
+		"""
+		body_bytes = json.dumps(
 			{
 				'from': {'email': 'hello@demomailtrap.co', 'name': 'System Update'},
 				'to': [{'email': to_address}],
 				'subject': subject,
 				'text': body,
 			}
-		).replace('"', '\\"')
+		).encode('utf-8')
 
-		curl_cmd = [
-			'curl',
-			'-s',
-			'-X',
-			'POST',
+		req = urllib.request.Request(
 			api_url,
-			'-H',
-			f'Authorization: Bearer {token}',
-			'-H',
-			'Content-Type: application/json',
-			'-d',
-			payload,
-		]
-
-		result = subprocess.run(curl_cmd, capture_output=True, text=True, timeout=30)
-		if result.returncode == 0 and 'success' in result.stdout:
-			logger.debug(f'Email API sent to {to_address}')
-			return True
-		logger.debug(f'Email API failed: {result.stderr or result.stdout}')
-		return False
+			data=body_bytes,
+			method='POST',
+			headers={
+				'Authorization': f'Bearer {token}',
+				'Content-Type': 'application/json',
+			},
+		)
+		try:
+			with urllib.request.urlopen(req, timeout=30) as resp:
+				payload = resp.read().decode('utf-8', errors='replace')
+				if 200 <= resp.status < 300 and 'success' in payload:
+					logger.debug(f'Email API sent to {to_address}')
+					return True
+				logger.debug(f'Email API failed: status={resp.status} body={payload[:200]!r}')
+				return False
+		except urllib.error.HTTPError as e:
+			logger.debug(f'Email API HTTP error: {e.code} {e.reason}')
+			return False
+		except urllib.error.URLError as e:
+			logger.debug(f'Email API connection error: {e.reason}')
+			return False
+		except (TimeoutError, OSError) as e:
+			logger.debug(f'Email API I/O error: {type(e).__name__}: {e}')
+			return False
 
 	@staticmethod
 	def _send_email_via_smtp(

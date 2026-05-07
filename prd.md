@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 8.1.6
+**Document Version:** 8.2.0
 **Last Updated:** May 6, 2026
 **Author:** Kelevra Mad
-**Based On:** `src/system_update/` package (v8.1.6)
+**Based On:** `src/system_update/` package (v8.2.0)
 
 ---
 
@@ -951,6 +951,7 @@ Configuration files, scheduled tasks, rollback, interactive selection, remote ma
 | 8.1.4 | May 2026 | Plugin lifecycle and network-consistency patch: plugin sources can register checkers and updaters so scan/check/update flows are fully pluggable; VS Code extension checks now use the shared network client |
 | 8.1.5 | May 2026 | Windows parsing patch: service executable paths without quotes preserve spaces and arguments correctly; PowerShell JSON scanners tolerate warning text and `null` output |
 | 8.1.6 | May 2026 | Winget optimization patch: Winget, Registry, AppX, and MSIX update checkers share one parsed `winget upgrade` table per update-check run |
+| 8.2.0 | May 2026 | Hardening 1.1 — credentials kept off process argv: new optional `pywinrm` HTTPS transport (avoids `winrs -p:` argv leak) and webhook bearer token now sent via `urllib.request` headers instead of `curl` argv. CLI gains a unified `System Update` panel rendered both at runtime and on `--help`, showing version, runtime, profile, data-dir inventory, cache TTL, sources, security feeds, and repo URL |
 
 ## Appendix B: Glossary
 
