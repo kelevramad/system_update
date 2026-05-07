@@ -1,9 +1,36 @@
 from argparse import Namespace
 from unittest.mock import patch
 
+import pytest
+
 from system_update import AppInfo, NotificationManager, SystemConfig, SystemUpdateApp, UpdateStatus
 from system_update.checkers import check_all_updates
 from system_update.plugins import load_plugins, updater_map
+
+
+@pytest.fixture(autouse=True)
+def _opt_in_plugins(monkeypatch):
+	"""Hardening 1.2.1 default-disables plugin loading.
+
+	Existing tests assume plugins load — wrap ``SystemConfig.__init__`` so
+	every freshly-constructed config has ``plugins.enabled=true`` for the
+	duration of the test, without touching the real defaults dict.
+	"""
+	from system_update.config import SystemConfig as _SC
+
+	original_init = _SC.__init__
+
+	def _patched_init(self, *args, **kwargs):
+		original_init(self, *args, **kwargs)
+		plugins = self.settings.setdefault('plugins', {})
+		plugins['enabled'] = True
+
+	monkeypatch.setattr(_SC, '__init__', _patched_init)
+	# Ensure the kill switch is off between tests.
+	import system_update.plugins as _pmod
+
+	monkeypatch.setattr(_pmod, '_PLUGIN_KILL_SWITCH', False)
+	yield
 
 
 def _write_plugin(path):
@@ -203,3 +230,124 @@ def test_scanner_dict_source_defaults_to_plugin_source(tmp_path):
 
 	assert all(isinstance(app, AppInfo) for app in apps)
 	assert apps[0].source == 'demo'
+
+
+# ─── Hardening 1.2.1 — security controls ─────────────────────────────────
+
+
+def test_plugins_default_disabled_does_not_load(tmp_path, monkeypatch):
+	"""Without ``plugins.enabled=true`` the loader is a no-op."""
+	plugin_dir = tmp_path / '.system_update' / 'plugins'
+	plugin_dir.mkdir(parents=True)
+	_write_plugin(plugin_dir / 'sample_plugin.py')
+
+	# Defeat the autouse opt-in fixture to assert the real default.
+	from system_update.config import SystemConfig as _SC
+	from system_update import config as _cfg_mod
+	monkeypatch.setattr(_SC, '__init__', _cfg_mod.SystemConfig.__init__)
+
+	with patch('pathlib.Path.home', return_value=tmp_path):
+		config = SystemConfig()
+		# Force the real default: no override.
+		config.settings.get('plugins', {}).pop('enabled', None)
+		registry = load_plugins(config)
+
+	assert registry.scanners == {}
+	assert registry.checkers == {}
+	assert registry.notifiers == {}
+
+
+def test_no_plugins_kill_switch_short_circuits_loader(tmp_path):
+	"""``disable_plugin_loading()`` must skip even an explicitly enabled config."""
+	plugin_dir = tmp_path / '.system_update' / 'plugins'
+	plugin_dir.mkdir(parents=True)
+	_write_plugin(plugin_dir / 'sample_plugin.py')
+
+	from system_update import plugins as _pmod
+
+	with patch('pathlib.Path.home', return_value=tmp_path):
+		config = SystemConfig()
+		_pmod.disable_plugin_loading()
+		try:
+			registry = load_plugins(config)
+		finally:
+			_pmod._PLUGIN_KILL_SWITCH = False
+
+	assert registry.scanners == {}
+
+
+def test_world_writable_plugin_dir_is_refused(tmp_path, monkeypatch):
+	"""POSIX dirs writable by group or others must not be loaded."""
+	import platform
+	import stat
+
+	if platform.system() == 'Windows':
+		pytest.skip('POSIX-only permission check')
+
+	plugin_dir = tmp_path / '.system_update' / 'plugins'
+	plugin_dir.mkdir(parents=True)
+	_write_plugin(plugin_dir / 'sample_plugin.py')
+	# Make the directory world-writable.
+	plugin_dir.chmod(plugin_dir.stat().st_mode | stat.S_IWOTH)
+
+	with patch('pathlib.Path.home', return_value=tmp_path):
+		config = SystemConfig()
+		registry = load_plugins(config)
+
+	assert registry.scanners == {}
+	assert any(
+		'unsafe permissions' in err.error.lower() for err in registry.errors
+	), registry.errors
+
+
+def test_sha256_allowlist_skips_unlisted_plugin(tmp_path):
+	"""Plugins not in ``allowed.sha256`` must not be loaded."""
+	plugin_dir = tmp_path / '.system_update' / 'plugins'
+	plugin_dir.mkdir(parents=True)
+	_write_plugin(plugin_dir / 'sample_plugin.py')
+	# Allowlist with a wrong digest → plugin rejected.
+	(plugin_dir / 'allowed.sha256').write_text(
+		'00' * 32 + '  sample_plugin.py\n', encoding='utf-8',
+	)
+
+	with patch('pathlib.Path.home', return_value=tmp_path):
+		config = SystemConfig()
+		registry = load_plugins(config)
+
+	assert registry.scanners == {}
+	assert any('sha256' in err.error.lower() for err in registry.errors)
+
+
+def test_sha256_allowlist_loads_matching_plugin(tmp_path):
+	"""Plugins with a correct digest in ``allowed.sha256`` load normally."""
+	import hashlib
+
+	plugin_dir = tmp_path / '.system_update' / 'plugins'
+	plugin_dir.mkdir(parents=True)
+	plugin_path = plugin_dir / 'sample_plugin.py'
+	_write_plugin(plugin_path)
+	digest = hashlib.sha256(plugin_path.read_bytes()).hexdigest()
+	(plugin_dir / 'allowed.sha256').write_text(
+		f'{digest}  sample_plugin.py\n', encoding='utf-8',
+	)
+
+	with patch('pathlib.Path.home', return_value=tmp_path):
+		config = SystemConfig()
+		registry = load_plugins(config)
+
+	assert 'demo' in registry.scanners
+
+
+def test_require_hash_allowlist_refuses_when_missing(tmp_path):
+	"""``require_hash_allowlist=true`` and no manifest → no load, clear error."""
+	plugin_dir = tmp_path / '.system_update' / 'plugins'
+	plugin_dir.mkdir(parents=True)
+	_write_plugin(plugin_dir / 'sample_plugin.py')
+
+	with patch('pathlib.Path.home', return_value=tmp_path):
+		config = SystemConfig()
+		config.settings['plugins']['require_hash_allowlist'] = True
+		registry = load_plugins(config)
+
+	assert registry.scanners == {}
+	assert any('require_hash_allowlist' in err.error for err in registry.errors)

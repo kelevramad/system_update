@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import inspect
 import logging
+import os
+import platform
 import re
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
@@ -14,6 +18,13 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 from system_update.models import AppInfo, UpdateStatus
 
 logger = logging.getLogger(__name__)
+
+# Process-wide flags so callers (CLI, app) can disable plugins without
+# editing the config dict. ``--no-plugins`` flips the kill switch.
+_PLUGIN_KILL_SWITCH = False
+# One-shot warning so we tell the user once per process when an enabled
+# plugin loads — even on a clean machine, this is worth flagging.
+_LOAD_WARNED: set = set()
 
 PluginScannerFunc = Callable[[], Iterable[AppInfo | Dict[str, Any]]]
 PluginCheckerFunc = Callable[[List[AppInfo]], Any]
@@ -180,27 +191,96 @@ class PluginRegistry:
 		self.errors.append(PluginLoadError(str(path), f'{type(exc).__name__}: {exc}'))
 
 
+def disable_plugin_loading() -> None:
+	"""Set the process-wide kill switch (``--no-plugins`` CLI flag)."""
+	global _PLUGIN_KILL_SWITCH
+	_PLUGIN_KILL_SWITCH = True
+
+
 def load_plugins(config: Any) -> PluginRegistry:
 	"""Load enabled plugins from configured files/directories.
 
-	Default path is ``~/.system_update/plugins``. Config can add more paths:
+	**Hardening 1.2.1:** Plugins execute arbitrary Python at scan time, so:
 
-	```
-	plugins:
-	  enabled: true
-	  paths:
-	    - C:/tools/system-update-plugins
-	    - C:/tools/my_plugin.py
-	```
+	* The loader is **off by default** (``plugins.enabled: false``).
+	* When enabled, each plugin directory is checked for ownership and
+	  permissions; world-writable or non-owner-writable directories are
+	  rejected (POSIX) or warned about (Windows, where stat doesn't carry
+	  enough ACL info to reject confidently).
+	* A SHA-256 allowlist at ``<plugin_dir>/allowed.sha256`` (one
+	  ``<sha256>  <filename>`` line per plugin) is honored when present, or
+	  *required* when ``plugins.require_hash_allowlist: true``.
+	* The ``--no-plugins`` CLI flag bypasses the loader entirely.
+
+	Config example::
+
+	    plugins:
+	      enabled: true
+	      paths:
+	        - C:/tools/system-update-plugins
+	        - C:/tools/my_plugin.py
+	      require_hash_allowlist: true   # optional
 	"""
 	registry = PluginRegistry()
-	settings = getattr(config, 'settings', {})
-	plugin_settings = settings.get('plugins', {})
-	if not plugin_settings.get('enabled', True):
+
+	if _PLUGIN_KILL_SWITCH:
+		logger.debug('Plugin loading disabled by --no-plugins')
 		return registry
 
+	settings = getattr(config, 'settings', {})
+	plugin_settings = settings.get('plugins', {})
+	if not plugin_settings.get('enabled', False):
+		return registry
+
+	require_allowlist = bool(plugin_settings.get('require_hash_allowlist', False))
+
 	for path in _plugin_paths(config):
+		if not path.exists():
+			continue
+		if not _directory_is_safe(path):
+			# Refuse to load — the directory is writable by other users.
+			registry.errors.append(
+				PluginLoadError(
+					str(path),
+					'Plugin directory has unsafe permissions; refusing to load.',
+				),
+			)
+			logger.warning(
+				'Skipping plugin directory %s: unsafe permissions '
+				"(world-writable or not owned by current user)",
+				path,
+			)
+			continue
+		allowlist = _load_allowlist(path)
+		if require_allowlist and allowlist is None and path.is_dir():
+			registry.errors.append(
+				PluginLoadError(
+					str(path),
+					'plugins.require_hash_allowlist is true but allowed.sha256 is missing.',
+				),
+			)
+			logger.warning(
+				'Refusing to load plugins from %s: require_hash_allowlist=true '
+				'but allowed.sha256 not found',
+				path,
+			)
+			continue
 		for plugin_file in _expand_plugin_path(path):
+			if allowlist is not None:
+				digest = _sha256(plugin_file)
+				if allowlist.get(plugin_file.name) != digest:
+					registry.errors.append(
+						PluginLoadError(
+							str(plugin_file),
+							f'sha256 mismatch (got {digest[:12]}…) — not in allowed.sha256.',
+						),
+					)
+					logger.warning(
+						'Skipping plugin %s: sha256 not in allowlist',
+						plugin_file,
+					)
+					continue
+			_warn_first_load(plugin_file)
 			_load_plugin_file(plugin_file, registry, config)
 
 	return registry
@@ -255,6 +335,87 @@ def dispatch_notifiers(
 				notifier.plugin or '<unknown>',
 				exc,
 			)
+
+
+def _directory_is_safe(path: Path) -> bool:
+	"""Refuse plugin dirs writable by anyone other than the current user.
+
+	On POSIX we have full mode bits; world/group writable → reject. On
+	Windows ``stat`` mode bits are misleading (everything looks 0o666), so
+	we skip the bit check there but still emit a debug log; full ACL
+	auditing is left to a future hardening PR.
+	"""
+	try:
+		st = path.stat()
+	except OSError as exc:
+		logger.debug('Cannot stat plugin path %s: %s', path, exc)
+		return False
+	if platform.system() == 'Windows':
+		return True
+	# POSIX: reject world- or group-writable dirs.
+	mode = st.st_mode
+	if mode & (stat.S_IWGRP | stat.S_IWOTH):
+		return False
+	# Reject directories not owned by the current user.
+	if hasattr(os, 'geteuid') and st.st_uid != os.geteuid():
+		return False
+	return True
+
+
+def _load_allowlist(path: Path) -> Optional[Dict[str, str]]:
+	"""Return ``{filename: sha256}`` from ``<path>/allowed.sha256`` or None.
+
+	Single-file plugin paths look for ``<path>.sha256`` next to the plugin.
+	Lines starting with ``#`` and blank lines are ignored.
+	"""
+	if path.is_file():
+		side = path.with_suffix(path.suffix + '.sha256')
+		if not side.exists():
+			return None
+		manifest = side
+	elif path.is_dir():
+		manifest = path / 'allowed.sha256'
+		if not manifest.exists():
+			return None
+	else:
+		return None
+	out: Dict[str, str] = {}
+	try:
+		raw = manifest.read_text(encoding='utf-8')
+	except OSError as exc:
+		logger.warning('Cannot read plugin allowlist %s: %s', manifest, exc)
+		return {}  # treat as empty so nothing matches
+	for line in raw.splitlines():
+		line = line.strip()
+		if not line or line.startswith('#'):
+			continue
+		parts = line.split()
+		if len(parts) != 2:
+			continue
+		digest, name = parts[0].lower(), parts[1]
+		if len(digest) == 64 and all(c in '0123456789abcdef' for c in digest):
+			out[name] = digest
+	return out
+
+
+def _sha256(path: Path) -> str:
+	h = hashlib.sha256()
+	with path.open('rb') as fh:
+		for chunk in iter(lambda: fh.read(65536), b''):
+			h.update(chunk)
+	return h.hexdigest()
+
+
+def _warn_first_load(plugin_file: Path) -> None:
+	"""Emit a one-shot warning the first time we load a given plugin file."""
+	key = str(plugin_file.resolve())
+	if key in _LOAD_WARNED:
+		return
+	_LOAD_WARNED.add(key)
+	logger.warning(
+		'Loading plugin %s — disable with plugins.enabled=false or --no-plugins',
+		plugin_file,
+	)
 
 
 def _plugin_paths(config: Any) -> List[Path]:

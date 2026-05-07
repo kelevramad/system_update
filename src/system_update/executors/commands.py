@@ -7,28 +7,63 @@ module keeps builders as pure functions so they're trivially unit-testable.
 
 from __future__ import annotations
 
+import logging
+import re
 import sys
 from typing import Callable, Dict, List, Optional
 
 from system_update.models import AppInfo
 
+logger = logging.getLogger(__name__)
+
 Command = List[str]
 
 
+# Hardening 1.2.3 — strict allowlist for cache strings interpolated as
+# argv tokens. Anything that wouldn't appear in a real package id or
+# version (whitespace, quotes, semicolons, leading dashes) is rejected so
+# a tampered cache file can't perform flag-injection on the underlying
+# package manager (e.g. ``-v "1.0 --override"`` becoming a separate flag).
+_SAFE_TOKEN_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9.+\-_~]*$')
+
+
+def _safe_argv_token(value: Optional[str], *, field: str) -> Optional[str]:
+	"""Return ``value`` unchanged if it looks like a valid argv token.
+
+	Returns ``None`` (and logs a warning) if ``value`` is empty or fails
+	the allowlist. Callers treat ``None`` as "skip this flag".
+	"""
+	if not value:
+		return None
+	if _SAFE_TOKEN_RE.match(value) is None:
+		logger.warning(
+			'Refusing unsafe %s value %r — does not match argv allowlist; '
+			'cache file may be tampered with.',
+			field, value,
+		)
+		return None
+	return value
+
+
 def _winget(app: AppInfo) -> Optional[Command]:
+	app_id = _safe_argv_token(app.app_id, field='app_id')
+	if not app_id:
+		return None
 	cmd: Command = [
-		'winget', 'upgrade', '--id', app.app_id,
+		'winget', 'upgrade', '--id', app_id,
 		'--accept-source-agreements', '--accept-package-agreements',
 	]
-	if app.latest_version:
-		cmd.extend(['-v', app.latest_version])
+	version = _safe_argv_token(app.latest_version, field='latest_version')
+	if version:
+		cmd.extend(['-v', version])
 	return cmd
 
 
 def _chocolatey(app: AppInfo) -> Optional[Command]:
 	cmd: Command = ['choco', 'upgrade', app.name, '-y']
-	if app.latest_version:
-		cmd.extend(['--version', app.latest_version])
+	version = _safe_argv_token(app.latest_version, field='latest_version')
+	if version:
+		cmd.extend(['--version', version])
 	return cmd
 
 
@@ -85,10 +120,11 @@ def _dotnet(app: AppInfo) -> Optional[Command]:
 
 
 def _appx(app: AppInfo) -> Optional[Command]:
-	if not app.app_id:
+	app_id = _safe_argv_token(app.app_id, field='app_id')
+	if not app_id:
 		return None
 	return [
-		'winget', 'upgrade', '--id', app.app_id, '--source', 'msstore',
+		'winget', 'upgrade', '--id', app_id, '--source', 'msstore',
 		'--accept-source-agreements', '--accept-package-agreements',
 	]
 
@@ -108,18 +144,36 @@ def _vsextensions(app: AppInfo) -> Optional[Command]:
 	return ['code', '--install-extension', app.app_id or app.name, '--force']
 
 
+def _deno_updater(app: AppInfo) -> Command:
+	version = _safe_argv_token(app.latest_version, field='latest_version')
+	if version:
+		return ['deno', 'upgrade', '--version', version]
+	return ['deno', 'upgrade']
+
+
+def _pwsh_updater(app: AppInfo) -> Command:
+	"""Update PowerShell via winget (hash-verified by the manifest).
+
+	**Hardening 1.2.2:** the previous implementation ran
+	``iex "& { $(irm https://aka.ms/install-powershell.ps1) }"``, fetching
+	and executing a remote script with no integrity check. winget verifies
+	the installer's SHA-256 against its source manifest, so the install is
+	tied to a known-good binary. Source pinned to ``winget`` to avoid the
+	``msstore`` package which has different upgrade semantics.
+	"""
+	return [
+		'winget', 'install', '--id', 'Microsoft.PowerShell',
+		'--source', 'winget',
+		'--accept-source-agreements', '--accept-package-agreements',
+		'--force',
+	]
+
+
 _PATH_UPDATERS: Dict[str, Callable[[AppInfo], Optional[Command]]] = {
 	'bun': lambda app: ['bun', 'upgrade'],
-	'deno': lambda app: (
-		['deno', 'upgrade', '--version', app.latest_version]
-		if app.latest_version
-		else ['deno', 'upgrade']
-	),
+	'deno': _deno_updater,
 	'git': lambda app: ['git', 'update-git-for-windows', '-y'],
-	'pwsh': lambda app: [
-		'powershell', '-Command',
-		'iex "& { $(irm https://aka.ms/install-powershell.ps1) }"',
-	],
+	'pwsh': _pwsh_updater,
 	'yarn': lambda app: ['npm', 'install', '-g', _spec('yarn', app.latest_version)],
 }
 
@@ -160,20 +214,23 @@ def build_update_command(app: AppInfo) -> Optional[Command]:
 
 
 def _winget_rb(app: AppInfo) -> Optional[Command]:
-	if not app.app_id or not app.latest_version:
+	app_id = _safe_argv_token(app.app_id, field='app_id')
+	version = _safe_argv_token(app.latest_version, field='latest_version')
+	if not app_id or not version:
 		return None
 	return [
-		'winget', 'install', '--id', app.app_id, '-v', app.latest_version,
+		'winget', 'install', '--id', app_id, '-v', version,
 		'--accept-source-agreements', '--accept-package-agreements',
 		'--force',
 	]
 
 
 def _chocolatey_rb(app: AppInfo) -> Optional[Command]:
-	if not app.latest_version:
+	version = _safe_argv_token(app.latest_version, field='latest_version')
+	if not version:
 		return None
 	return [
-		'choco', 'install', app.name, '--version', app.latest_version,
+		'choco', 'install', app.name, '--version', version,
 		'--allow-downgrade', '-y', '-f',
 	]
 

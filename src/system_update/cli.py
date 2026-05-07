@@ -413,6 +413,12 @@ def main(
 		help='🧩 Show loaded custom scanners and notification plugins.',
 		rich_help_panel=PANEL_DATA,
 	),
+	no_plugins: bool = typer.Option(
+		False,
+		'--no-plugins',
+		help='🛡️  Bypass the plugin loader entirely (security kill switch).',
+		rich_help_panel=PANEL_DATA,
+	),
 	cloud_sync: Optional[str] = typer.Option(
 		None,
 		'--cloud-sync',
@@ -694,6 +700,7 @@ def main(
 		import_files=import_files,
 		merge_with_cache=merge_with_cache,
 		list_plugins=list_plugins,
+		no_plugins=no_plugins,
 		cloud_sync=cloud_sync,
 		schedule=schedule,
 		schedule_name=schedule_name,
@@ -719,6 +726,10 @@ def main(
 		log=log,
 	)
 
+	if no_plugins:
+		from system_update.plugins import disable_plugin_loading
+
+		disable_plugin_loading()
 	SystemUpdateApp().run(args)
 
 
