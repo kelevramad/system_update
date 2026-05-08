@@ -165,12 +165,12 @@ def build_system_panel(config: Optional[SystemConfig] = None):
     profile = getattr(config, 'current_profile', None)
     py_label, in_venv, py_path = _python_runtime_info()
 
-    # ── Top metadata: title · version · runtime · profile · static info ──
+    # ── Top metadata: runtime · profile · static info ────────────────────
+    # (Version is in the panel title, no need to repeat it here.)
     header = Table(box=None, show_header=False, pad_edge=False, padding=(0, 2))
     header.add_column(style='bold cyan', no_wrap=True, min_width=18)
     header.add_column(overflow='fold')
 
-    header.add_row('🚀 System Update', f'[bold cyan]v{_VERSION}[/bold cyan]')
     venv_style = 'bold bright_white on green' if in_venv else 'bold bright_white on yellow'
     header.add_row(
         '🐍 Runtime',
@@ -245,7 +245,8 @@ def build_system_panel(config: Optional[SystemConfig] = None):
 
     return Panel(
         body,
-        title='[bold cyan]System Update[/bold cyan]',
+        title=f'[bold cyan]🚀 System Update[/bold cyan]  [dim]·[/dim]  '
+              f'[bold green]v{_VERSION}[/bold green]',
         title_align='left',
         border_style='cyan',
         padding=(0, 1),

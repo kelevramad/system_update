@@ -407,15 +407,51 @@ def _sha256(path: Path) -> str:
 
 
 def _warn_first_load(plugin_file: Path) -> None:
-	"""Emit a one-shot warning the first time we load a given plugin file."""
+	"""Emit a one-shot, prominently-styled warning when a plugin loads.
+
+	Plain ``logger.warning`` doesn't stand out next to the rest of the
+	output, but loading user code is something the operator needs to
+	notice. We print a bold panel above whatever the next renderer (the
+	startup banner, the ``--list-plugins`` table, etc.) emits.
+	"""
 	key = str(plugin_file.resolve())
 	if key in _LOAD_WARNED:
 		return
 	_LOAD_WARNED.add(key)
+	# Logger captures the event for log files / pytest caplog.
 	logger.warning(
 		'Loading plugin %s — disable with plugins.enabled=false or --no-plugins',
 		plugin_file,
 	)
+	# Rich-styled panel so the user actually sees the warning on stdout.
+	try:
+		from rich.console import Console
+		from rich.panel import Panel
+		from rich.text import Text
+
+		body = Text()
+		body.append('⚠️  Loading plugin: ', style='bold yellow')
+		body.append(str(plugin_file), style='bold white')
+		body.append('\n')
+		body.append('   Disable with ', style='dim')
+		body.append('plugins.enabled=false', style='bold cyan')
+		body.append(' in ', style='dim')
+		body.append('~/.system_update/config.json', style='cyan')
+		body.append(' or run with ', style='dim')
+		body.append('--no-plugins', style='bold cyan')
+		body.append('.', style='dim')
+		Console(stderr=True).print(
+			Panel(
+				body,
+				title='[bold yellow on red] PLUGIN LOAD [/bold yellow on red]',
+				title_align='left',
+				border_style='bold yellow',
+				padding=(0, 1),
+				expand=True,
+			)
+		)
+	except Exception:  # pragma: no cover — never let UI break the load
+		pass
 
 
 def _plugin_paths(config: Any) -> List[Path]:

@@ -46,8 +46,7 @@ def test_help_banner_includes_version_and_runtime_info(help_output):
 	from system_update.cli import _APP_VERSION
 
 	plain = re.sub(r'\x1b\[[0-9;]*m', '', help_output['stdout'] + help_output['stderr'])
-	# Panel title and header line with the resolved version.
-	assert '─ System Update ─' in plain
+	# Panel title now carries the version: '🚀 System Update  ·  v8.2.0'.
 	assert '🚀 System Update' in plain
 	assert f'v{_APP_VERSION}' in plain
 	# Combined info rows.
