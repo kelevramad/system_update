@@ -34,44 +34,87 @@ def _opt_in_plugins(monkeypatch):
 
 
 def _write_plugin(path):
+	"""Write a plugin that follows the standardized contract.
+
+	Mirrors the user-facing ``demo_plugin.py`` template:
+	* returns typed ``AppInfo`` objects with explicit ``source``,
+	* uses the ``UpdateStatus`` enum (not raw strings),
+	* filters on ``app.source`` in checker/updater,
+	* records notifier events via ``context.data_dir`` so the test can
+	  assert on them without poking ``config.settings`` internals.
+	"""
 	path.write_text(
 		"""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any, Iterable, List, Optional
+
+from system_update.models import AppInfo, UpdateStatus
+from system_update.plugins import PluginContext, PluginRegistry
+
 PLUGIN_NAME = 'sample'
+SOURCE = 'demo'
 
 
-def scan_demo():
+def scan_demo() -> Iterable[AppInfo]:
 	return [
-		{
-			'name': 'demo-package',
-			'version': '1.0.0',
-		}
+		AppInfo(
+			name='demo-package',
+			source=SOURCE,
+			version='1.0.0',
+			update_status=UpdateStatus.UNKNOWN,
+		),
 	]
 
 
-def check_demo(apps):
+def check_demo(apps: List[AppInfo]) -> int:
+	count = 0
 	for app in apps:
+		if app.source != SOURCE:
+			continue
 		app.latest_version = '1.1.0'
-		app.update_status = 'update_available'
-	return len(apps)
+		app.update_status = UpdateStatus.UPDATE_AVAILABLE
+		count += 1
+	return count
 
 
-def update_demo(app):
+def update_demo(app: AppInfo) -> bool:
+	if app.source != SOURCE:
+		return False
 	app.version = app.latest_version or app.version
 	app.latest_version = ''
+	app.update_status = UpdateStatus.UP_TO_DATE
 	return True
 
 
-def notify_demo(event, title, message, payload, config):
+_LOG_PATH: Optional[Path] = None
+
+
+def notify_demo(event, title, message, payload, config) -> None:
+	# Record the event in two places so tests can pick whichever shape
+	# is more convenient: a tuple list on config.settings (for
+	# in-process inspection) and a one-line append to the log file
+	# under context.data_dir (for IO-shaped assertions).
 	config.settings.setdefault('plugin_events', []).append(
 		[event, title, message, payload.get('updates', 0)]
 	)
+	if _LOG_PATH is not None:
+		try:
+			_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+			with _LOG_PATH.open('a', encoding='utf-8') as fh:
+				fh.write(f'{event}|{title}|{message!r}|{payload!r}\\n')
+		except OSError:
+			pass
 
 
-def register_plugin(registry, context):
-	registry.register_scanner('demo', scan_demo, 'Demo scanner')
-	registry.register_checker('demo', check_demo, 'Demo checker')
-	registry.register_updater('demo', update_demo, 'Demo updater')
-	registry.register_notifier('demo-notify', notify_demo, 'Demo notifier')
+def register_plugin(registry: PluginRegistry, context: PluginContext) -> None:
+	global _LOG_PATH
+	_LOG_PATH = context.data_dir / 'demo_plugin_events.log'
+	registry.register_scanner(SOURCE, scan_demo, 'Demo scanner')
+	registry.register_checker(SOURCE, check_demo, 'Demo checker')
+	registry.register_updater(SOURCE, update_demo, 'Demo updater')
+	registry.register_notifier('demo-log', notify_demo, 'Demo notifier')
 """,
 		encoding='utf-8',
 	)
@@ -92,7 +135,7 @@ def test_load_plugins_registers_scanners_and_notifiers(tmp_path):
 	assert registry.checkers['demo'].description == 'Demo checker'
 	assert 'demo' in registry.updaters
 	assert registry.updaters['demo'].description == 'Demo updater'
-	assert 'demo-notify' in registry.notifiers
+	assert 'demo-log' in registry.notifiers
 	assert registry.errors == []
 
 
@@ -351,3 +394,88 @@ def test_require_hash_allowlist_refuses_when_missing(tmp_path):
 
 	assert registry.scanners == {}
 	assert any('require_hash_allowlist' in err.error for err in registry.errors)
+
+
+# ─── Standardized plugin contract ────────────────────────────────────────
+
+
+def test_checker_filters_by_source(tmp_path):
+	"""Standardized plugin must not mutate apps owned by other sources."""
+	plugin_dir = tmp_path / '.system_update' / 'plugins'
+	plugin_dir.mkdir(parents=True)
+	_write_plugin(plugin_dir / 'sample_plugin.py')
+
+	with patch('pathlib.Path.home', return_value=tmp_path):
+		config = SystemConfig()
+		registry = load_plugins(config)
+
+	foreign = AppInfo(name='other', source='winget', version='1.0')
+	mine = AppInfo(name='demo-package', source='demo', version='1.0.0',
+		update_status=UpdateStatus.UNKNOWN)
+	check = registry.checkers['demo'].check
+	count = check([foreign, mine])
+
+	assert count == 1
+	# Foreign app untouched.
+	assert foreign.latest_version == ''
+	assert foreign.update_status == UpdateStatus.UNKNOWN
+	# Mine updated.
+	assert mine.latest_version == '1.1.0'
+	assert mine.update_status == UpdateStatus.UPDATE_AVAILABLE
+
+
+def test_updater_marks_up_to_date_after_install(tmp_path):
+	"""Standardized updater clears latest_version and sets UP_TO_DATE."""
+	plugin_dir = tmp_path / '.system_update' / 'plugins'
+	plugin_dir.mkdir(parents=True)
+	_write_plugin(plugin_dir / 'sample_plugin.py')
+
+	with patch('pathlib.Path.home', return_value=tmp_path):
+		config = SystemConfig()
+		registry = load_plugins(config)
+
+	app = AppInfo(name='demo-package', source='demo', version='1.0.0',
+		latest_version='1.1.0', update_status=UpdateStatus.UPDATE_AVAILABLE)
+	ok = registry.updaters['demo'].update(app)
+
+	assert ok is True
+	assert app.version == '1.1.0'
+	assert app.latest_version == ''
+	assert app.update_status == UpdateStatus.UP_TO_DATE
+
+
+def test_updater_refuses_foreign_source(tmp_path):
+	"""Defensive: updater must return False for apps it doesn't own."""
+	plugin_dir = tmp_path / '.system_update' / 'plugins'
+	plugin_dir.mkdir(parents=True)
+	_write_plugin(plugin_dir / 'sample_plugin.py')
+
+	with patch('pathlib.Path.home', return_value=tmp_path):
+		config = SystemConfig()
+		registry = load_plugins(config)
+
+	foreign = AppInfo(name='other', source='winget', version='1.0',
+		latest_version='2.0', update_status=UpdateStatus.UPDATE_AVAILABLE)
+	assert registry.updaters['demo'].update(foreign) is False
+	# Foreign app untouched.
+	assert foreign.version == '1.0'
+	assert foreign.latest_version == '2.0'
+
+
+def test_notifier_writes_event_log_under_data_dir(tmp_path):
+	"""Standardized notifier appends to ``<data_dir>/demo_plugin_events.log``."""
+	plugin_dir = tmp_path / '.system_update' / 'plugins'
+	plugin_dir.mkdir(parents=True)
+	_write_plugin(plugin_dir / 'sample_plugin.py')
+
+	with patch('pathlib.Path.home', return_value=tmp_path):
+		config = SystemConfig()
+		manager = NotificationManager(config)
+		manager.plugin_registry = load_plugins(config)
+		manager.notify_updates_available(3, vulnerable_count=0, force=True)
+
+	log_path = tmp_path / '.system_update' / 'demo_plugin_events.log'
+	assert log_path.is_file()
+	body = log_path.read_text(encoding='utf-8')
+	assert 'updates_available' in body
+	assert "'updates': 3" in body or "'updates':3" in body
