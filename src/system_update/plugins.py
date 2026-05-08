@@ -418,8 +418,10 @@ def _warn_first_load(plugin_file: Path) -> None:
 	if key in _LOAD_WARNED:
 		return
 	_LOAD_WARNED.add(key)
-	# Logger captures the event for log files / pytest caplog.
-	logger.warning(
+	# DEBUG-level audit entry only — the Rich panel below is the visible
+	# warning. Logger.warning would print a duplicate plain line on stderr
+	# next to the panel (Python's root handler emits WARNING+ to stderr).
+	logger.debug(
 		'Loading plugin %s — disable with plugins.enabled=false or --no-plugins',
 		plugin_file,
 	)
