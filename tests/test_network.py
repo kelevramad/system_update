@@ -121,6 +121,9 @@ def test_safe_opener_does_not_register_file_handler():
 	import system_update.network as net
 	from urllib.request import FileHandler, FTPHandler
 
-	for handler in net._SAFE_OPENER.handlers:
+	# ``handlers`` is a list at runtime even though it's not on the typed
+	# OpenerDirector public surface. Use getattr to keep pyright happy.
+	handlers = getattr(net._SAFE_OPENER, 'handlers', [])
+	for handler in handlers:
 		assert not isinstance(handler, FileHandler), 'FileHandler must not be installed'
 		assert not isinstance(handler, FTPHandler), 'FTPHandler must not be installed'

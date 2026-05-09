@@ -87,13 +87,18 @@ def _validate_webhook_url(url: str, allow_private_hosts: bool) -> None:
 			# the connection error to the user.
 			return
 		for family, _type, _proto, _canon, sockaddr in infos:
-			if family in (socket.AF_INET, socket.AF_INET6) and sockaddr:
-				if _is_private_address(sockaddr[0]):
-					raise UnsafeWebhookUrl(
-						f'Refusing webhook to {host} → {sockaddr[0]} '
-						'(private/loopback). Set notifications.allow_private_hosts=true '
-						'to opt in.'
-					)
+			if family not in (socket.AF_INET, socket.AF_INET6) or not sockaddr:
+				continue
+			# sockaddr[0] is a str for AF_INET/AF_INET6 — pyright sees the
+			# generic ``str | int`` from ``socket.getaddrinfo`` and needs
+			# the explicit cast.
+			ip_str = str(sockaddr[0])
+			if _is_private_address(ip_str):
+				raise UnsafeWebhookUrl(
+					f'Refusing webhook to {host} → {ip_str} '
+					'(private/loopback). Set notifications.allow_private_hosts=true '
+					'to opt in.'
+				)
 
 
 def _custom_script_command(script_path: str) -> List[str]:
