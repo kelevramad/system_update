@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
 import platform
+import socket
 import subprocess
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Dict, List, Optional
 
@@ -16,6 +19,86 @@ from system_update.plugins import PluginRegistry, dispatch_notifiers
 from system_update.utils import run_command
 
 logger = logging.getLogger(__name__)
+
+
+# Hardening 1.3 — webhook URL validation guards against SSRF.
+_ALLOWED_WEBHOOK_SCHEMES = frozenset({'http', 'https'})
+
+
+class UnsafeWebhookUrl(ValueError):
+	"""Raised when a webhook URL fails the SSRF allowlist."""
+
+
+def _is_private_address(addr: str) -> bool:
+	"""True if ``addr`` is loopback, link-local, RFC1918, or unique-local."""
+	try:
+		ip = ipaddress.ip_address(addr)
+	except ValueError:
+		return False
+	return (
+		ip.is_loopback
+		or ip.is_link_local
+		or ip.is_private
+		or ip.is_reserved
+		or ip.is_multicast
+		or ip.is_unspecified
+	)
+
+
+def _validate_webhook_url(url: str, allow_private_hosts: bool) -> None:
+	"""Refuse non-HTTP(S) and (by default) private/loopback webhook targets.
+
+	A webhook URL that resolves to ``127.0.0.1``, ``169.254.169.254``
+	(cloud metadata endpoint), or any RFC1918 range turns the CLI into a
+	credentialed SSRF probe. Block by default; ``allow_private_hosts``
+	is the single opt-in for self-hosted endpoints.
+	"""
+	parsed = urllib.parse.urlparse(url)
+	scheme = (parsed.scheme or '').lower()
+	if scheme not in _ALLOWED_WEBHOOK_SCHEMES:
+		raise UnsafeWebhookUrl(
+			f'Webhook URL must be http(s); got scheme={scheme!r}'
+		)
+	host = parsed.hostname
+	if not host:
+		raise UnsafeWebhookUrl(f'Webhook URL has no host: {url!r}')
+	if allow_private_hosts:
+		return
+
+	# Literal private IP in the URL.
+	try:
+		addr = ipaddress.ip_address(host)
+	except ValueError:
+		addr = None
+	if addr is not None and _is_private_address(str(addr)):
+		raise UnsafeWebhookUrl(
+			f'Refusing webhook to private/loopback address: {host}'
+		)
+
+	# DNS-resolved private IP. Best-effort: a single A/AAAA lookup. DNS
+	# rebinding could still defeat a check-then-connect pattern, but for
+	# a long-lived user-configured webhook URL this is acceptable —
+	# document the residual risk in the setting docstring.
+	if addr is None:
+		try:
+			infos = socket.getaddrinfo(host, None)
+		except socket.gaierror:
+			# DNS failure is not an SSRF signal — let urlopen surface
+			# the connection error to the user.
+			return
+		for family, _type, _proto, _canon, sockaddr in infos:
+			if family not in (socket.AF_INET, socket.AF_INET6) or not sockaddr:
+				continue
+			# sockaddr[0] is a str for AF_INET/AF_INET6 — pyright sees the
+			# generic ``str | int`` from ``socket.getaddrinfo`` and needs
+			# the explicit cast.
+			ip_str = str(sockaddr[0])
+			if _is_private_address(ip_str):
+				raise UnsafeWebhookUrl(
+					f'Refusing webhook to {host} → {ip_str} '
+					'(private/loopback). Set notifications.allow_private_hosts=true '
+					'to opt in.'
+				)
 
 
 def _custom_script_command(script_path: str) -> List[str]:
@@ -201,9 +284,22 @@ $icon.Dispose()
 		method: str = 'POST',
 		headers: Optional[Dict] = None,
 	) -> bool:
-		"""POST a JSON payload to an arbitrary webhook URL."""
+		"""POST a JSON payload to an arbitrary webhook URL.
+
+		Hardening 1.3.2 — refuses URLs that aren't ``http(s)`` and (by
+		default) URLs that resolve to private/loopback/link-local IP
+		ranges. Set ``notifications.allow_private_hosts=true`` to permit
+		on-prem endpoints.
+		"""
 		headers = headers or self.settings.get('webhook_headers', {})
 		headers.setdefault('Content-Type', 'application/json')
+		allow_private = bool(self.settings.get('allow_private_hosts', False))
+
+		try:
+			_validate_webhook_url(url, allow_private)
+		except UnsafeWebhookUrl as exc:
+			logger.warning('Refusing webhook delivery: %s', exc)
+			return False
 
 		try:
 			data = json.dumps(payload).encode('utf-8')

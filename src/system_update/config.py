@@ -150,6 +150,11 @@ class SystemConfig:
 				'webhook_enabled': False,
 				'webhook_url': '',
 				'webhook_headers': {},
+				# Hardening 1.3.2 — by default refuse webhook URLs that
+				# resolve to private (RFC1918), loopback, link-local, or
+				# unique-local IP ranges. Set to true only for self-hosted
+				# ChatOps endpoints reachable inside the same network.
+				'allow_private_hosts': False,
 				'custom_script_enabled': False,
 				'custom_script_path': '',
 			},

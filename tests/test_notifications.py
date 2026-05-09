@@ -1,6 +1,8 @@
 import io
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from system_update import NotificationManager
 from system_update.notifications import NotificationManager as _NM
 
@@ -263,3 +265,70 @@ def test_send_email_via_api_rejects_non_success_body():
 			'https://api.example.com/send', 'tk', 'a@b', 'S', 'B'
 		)
 	assert ok is False
+
+
+# ─── Hardening 1.3.2 — webhook SSRF allowlist ────────────────────────────
+
+
+@pytest.mark.parametrize('bad_url', [
+	'file:///etc/passwd',
+	'ftp://example.com/x',
+	'gopher://example.com/x',
+	'data:text/plain;base64,SGVsbG8=',
+])
+def test_send_webhook_rejects_non_http_schemes(bad_url):
+	import pytest as _pytest  # noqa: F401
+	nm = NotificationManager()
+	with patch('urllib.request.urlopen') as urlopen:
+		assert nm.send_webhook(bad_url, {'x': 1}) is False
+	urlopen.assert_not_called()
+
+
+@pytest.mark.parametrize('private_url', [
+	'http://127.0.0.1/hook',
+	'http://localhost/hook',
+	'http://10.0.0.5/hook',
+	'http://172.16.0.1/hook',
+	'http://192.168.1.1/hook',
+	'http://169.254.169.254/latest/meta-data/',
+	'http://[::1]/hook',
+])
+def test_send_webhook_blocks_private_hosts_by_default(private_url):
+	"""Refuse webhooks aimed at loopback / link-local / RFC1918 / IMDS."""
+	nm = NotificationManager()
+	with patch('urllib.request.urlopen') as urlopen:
+		assert nm.send_webhook(private_url, {'x': 1}) is False
+	urlopen.assert_not_called()
+
+
+def test_send_webhook_allows_private_hosts_when_opted_in():
+	"""``allow_private_hosts=true`` permits self-hosted endpoints."""
+	nm = NotificationManager()
+	nm.settings['allow_private_hosts'] = True
+
+	mock_response = MagicMock()
+	mock_response.status = 200
+	mock_response.__enter__ = MagicMock(return_value=mock_response)
+	mock_response.__exit__ = MagicMock(return_value=False)
+	with patch('urllib.request.urlopen', return_value=mock_response) as urlopen:
+		ok = nm.send_webhook('http://127.0.0.1/hook', {'x': 1})
+
+	assert ok is True
+	urlopen.assert_called_once()
+
+
+def test_send_webhook_blocks_dns_resolved_private_host():
+	"""Hostnames resolving to private ranges are also rejected."""
+	import socket
+
+	nm = NotificationManager()
+	# Mock DNS to return a private address.
+	with (
+		patch(
+			'system_update.notifications.socket.getaddrinfo',
+			return_value=[(socket.AF_INET, socket.SOCK_STREAM, 0, '', ('10.0.0.5', 0))],
+		),
+		patch('urllib.request.urlopen') as urlopen,
+	):
+		assert nm.send_webhook('http://internal-ci.corp/hook', {'x': 1}) is False
+	urlopen.assert_not_called()
