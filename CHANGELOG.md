@@ -15,6 +15,29 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.4.1 (May 2026)
+
+- **Quality — Pyright Baseline Cleared (80 → 0)**: Cleaned every error reported by `uv run task typecheck`. No runtime behavior change; the full test suite stays at **556 passed**.
+- **Source-side highlights** (37 errors fixed):
+  - `history.py`: introduce a typed `conn` `@property` over `Optional[sqlite3.Connection]` so all 21 access sites reach a guaranteed-non-`None` connection (13 errors gone). Same shape in `snapshots.py` (2).
+  - `cache.py`: `_app_from_dict` coerces optional `name`/`version` through `str(... or '')` so `AppInfo(...)` gets concrete strings.
+  - `notifications.py`: typed `Dict[str, str]` for webhook headers; `password or ''` for SMTP login.
+  - `executors/__init__.py`: tighten the snapshot block to require `pre_state` *and* `snapshot_store` non-`None`.
+  - `__main__.py` / `cli.py` / `config.py`: narrow `sys.stdout`/`stderr` with `isinstance(_, io.TextIOWrapper)` before calling `reconfigure(...)`.
+  - `checkers/__init__.py`: swap `Dict[str, Callable]` for the covariant `Mapping[str, Callable]` (5 errors gone).
+  - `export.py`: `resolve_output_file` and `export` accept `Optional[str]`; `export_html` resolves `branding` to a concrete `ReportBranding` instance.
+  - `ui/system.py`: `_format_size` accumulates in a local `float`; `_latest_cell` advertises its real `Text | str` return; `_cvss_display` narrows on `isinstance(vuln, dict)`.
+  - `scanners/pip.py`: `_parse_pip_list(raw: Optional[str])`. `subhelp.py`: `show(flag, console: Optional[Console] = None)`. `plugins.py`: `os.geteuid` via `getattr` for Windows.
+  - `remote.py`: `RemoteResult.parsed: Optional[Any]` (was `Optional[Dict]`) to match the documented dict-or-list payload shape.
+- **Test-side highlights** (43 errors fixed):
+  - `tests/test_snapshots.py`: 17 errors gone via `assert ... is not None` after `store.get(...)` and `build_rollback_command(...)`.
+  - `tests/test_smart_cache.py` (6), `tests/test_scheduler.py` (4), `tests/test_utils.py` (4): same pattern.
+  - `tests/test_config.py` (6): new `_as_config()` `cast` helper for `setup_logging(SimpleNamespace)`.
+  - `tests/conftest.py` (2), `tests/test_notifications.py` (1): `# type: ignore` on three documented test-only patterns (monkeypatch, `HTTPError` headers init, dynamic module attrs).
+- **`CommandError.classify`**: parameter widened from `Exception` to `BaseException` so the existing `test_command_error_keyboard_interrupt` path typechecks.
+- **`pyrightconfig.json`**: dropped the `$schema` key so the CLI no longer warns about an unrecognized setting.
+- **Reproducible**: `uv run task typecheck` returns `0 errors, 0 warnings, 0 informations`. See [`docs/typecheck/baseline.md`](docs/typecheck/baseline.md) for the full breakdown.
+
 ### v8.4.0 (May 2026)
 
 - **Security — Scheme Allowlist (Hardening 1.3.1)**: `network.fetch_json` now refuses any URL whose scheme is not `http` or `https` (including `file://`, `ftp://`, `data:`, `gopher://`). Defense-in-depth: a custom `OpenerDirector` registers only `HTTPHandler`, `HTTPSHandler`, and the redirect/error handlers — no `FileHandler`, no `FTPHandler`, no `DataHandler` — so even a 30x redirect to `file://` cannot escape the allowlist. New `UnsafeUrlError` makes the rejection explicit.
