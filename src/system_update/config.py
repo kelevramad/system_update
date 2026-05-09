@@ -615,8 +615,10 @@ def setup_logging(
 	console_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
 	console_handler.setLevel(logging.DEBUG if debug else logging.WARNING)
 	console_handler.addFilter(_SuppressExecFailureFilter())
-	if hasattr(console_handler.stream, 'reconfigure'):
-		console_handler.stream.reconfigure(encoding='utf-8', errors='replace')
+	stream = console_handler.stream
+	if hasattr(stream, 'reconfigure'):
+		# Pyright sees TextIO; the runtime check above guards the call.
+		stream.reconfigure(encoding='utf-8', errors='replace')  # type: ignore[union-attr]
 	root_logger.addHandler(console_handler)
 
 	error_handler = WarningFileHandler(config.config_dir / 'errors.log')

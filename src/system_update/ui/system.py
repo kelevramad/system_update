@@ -14,7 +14,7 @@ from system_update.models import AppInfo, UpdateStatus
 from system_update.ui.theme import ThemeManager
 from system_update.utils import console, display_source, source_chip, source_icon
 
-_VERSION = '8.4.0'
+_VERSION = '8.4.1'
 _SEVERITY_PRIORITY = {'CRITICAL': 0, 'HIGH': 1,
                       'MEDIUM': 2, 'LOW': 3, 'UNKNOWN': 4}
 _SEVERITY_COLORS = {
@@ -28,11 +28,12 @@ _TABLE_SEVERITY_COLORS = {**_SEVERITY_COLORS, 'CRITICAL': 'bold red blink'}
 
 def _format_size(size: int) -> str:
     """Compact human-readable byte count (e.g. 1.2 KB, 4.7 MB)."""
+    value: float = float(size)
     for unit in ('B', 'KB', 'MB', 'GB'):
-        if size < 1024:
-            return f'{size:.1f} {unit}' if unit != 'B' else f'{size} {unit}'
-        size /= 1024
-    return f'{size:.1f} TB'
+        if value < 1024:
+            return f'{value:.1f} {unit}' if unit != 'B' else f'{int(value)} {unit}'
+        value /= 1024
+    return f'{value:.1f} TB'
 
 
 def _file_row(label: str, path: Path, show_path: bool = True) -> str:
@@ -373,7 +374,7 @@ def _wrap_markup_chips(prefix: str, chips: List[str], max_width: int) -> List[Te
     return [Text.from_markup(prefix + '   '.join(chips))]
 
 
-def _latest_cell(app: AppInfo) -> object:
+def _latest_cell(app: AppInfo) -> 'Text | str':
     """Build the ``Latest`` column value for one app row."""
     if app.latest_version and app.update_status in (
             UpdateStatus.UPDATE_AVAILABLE, UpdateStatus.VULNERABLE,
@@ -515,8 +516,10 @@ def _security_title(critical_count: int) -> str:
 def _cvss_display(vuln: Optional[object]) -> str:
     if vuln is None:
         return '-'
-    score = vuln.get('cvss_score') if hasattr(
-        vuln, 'get') else getattr(vuln, 'cvss_score', None)
+    if isinstance(vuln, dict):
+        score = vuln.get('cvss_score')
+    else:
+        score = getattr(vuln, 'cvss_score', None)
     return f'{score:.1f}' if isinstance(score, (int, float)) else '-'
 
 

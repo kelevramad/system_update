@@ -25,22 +25,36 @@ class HistoryDatabase:
 
 	def __init__(self, db_path: Optional[Path] = None, connect: bool = True) -> None:
 		self.db_path = db_path or (Path.home() / '.system_update' / 'history.db')
-		self.conn: Optional[sqlite3.Connection] = None
+		self._conn: Optional[sqlite3.Connection] = None
 		if connect:
 			self._connect()
 
 	def _connect(self) -> None:
 		"""Open the SQLite connection and ensure schema exists."""
-		if self.conn is not None:
+		if self._conn is not None:
 			return
 		self.db_path.parent.mkdir(exist_ok=True)
-		self.conn = sqlite3.connect(str(self.db_path))
-		self.conn.row_factory = sqlite3.Row
-		self._create_schema()
+		conn = sqlite3.connect(str(self.db_path))
+		conn.row_factory = sqlite3.Row
+		self._conn = conn
+		self._create_schema(conn)
 
-	def _create_schema(self) -> None:
+	@property
+	def conn(self) -> sqlite3.Connection:
+		"""Lazy-connecting accessor; always returns a real sqlite3.Connection.
+
+		Most callers (and the test suite) read ``history_db.conn`` directly;
+		exposing it as a property keeps the API while letting pyright see
+		a non-Optional return type.
+		"""
+		if self._conn is None:
+			self._connect()
+		assert self._conn is not None  # post-condition of _connect()
+		return self._conn
+
+	def _create_schema(self, conn: sqlite3.Connection) -> None:
 		"""Create tables and indexes if they don't already exist."""
-		self.conn.executescript("""
+		conn.executescript("""
 			CREATE TABLE IF NOT EXISTS scans (
 				id TEXT PRIMARY KEY,
 				timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -76,11 +90,15 @@ class HistoryDatabase:
 
 			CREATE INDEX IF NOT EXISTS idx_version_name ON version_history(package_name, source);
 		""")
-		self.conn.commit()
+		conn.commit()
 
 	def _ensure_connection(self) -> None:
-		"""Lazy-open the database connection if needed."""
-		if self.conn is None:
+		"""Lazy-open the database connection if needed.
+
+		Kept for backward compatibility — accessing ``self.conn`` already
+		triggers the lazy connect via the property.
+		"""
+		if self._conn is None:
 			self._connect()
 
 	def record_scan(
@@ -208,9 +226,9 @@ class HistoryDatabase:
 
 	def close(self) -> None:
 		"""Close the database connection if open."""
-		if self.conn:
-			self.conn.close()
-			self.conn = None
+		if self._conn is not None:
+			self._conn.close()
+			self._conn = None
 
 	def __enter__(self) -> 'HistoryDatabase':
 		return self

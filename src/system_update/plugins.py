@@ -26,7 +26,7 @@ _PLUGIN_KILL_SWITCH = False
 # plugin loads — even on a clean machine, this is worth flagging.
 _LOAD_WARNED: set = set()
 
-PluginScannerFunc = Callable[[], Iterable[AppInfo | Dict[str, Any]]]
+PluginScannerFunc = Callable[[], Iterable['AppInfo | Dict[str, Any]']]
 PluginCheckerFunc = Callable[[List[AppInfo]], Any]
 PluginUpdaterFunc = Callable[[AppInfo], Any]
 PluginNotifierFunc = Callable[..., Any]
@@ -438,7 +438,10 @@ def _directory_is_safe(path: Path) -> bool:
     if mode & (stat.S_IWGRP | stat.S_IWOTH):
         return False
     # Reject directories not owned by the current user.
-    if hasattr(os, 'geteuid') and st.st_uid != os.geteuid():
+    # ``geteuid`` is POSIX-only — guarded via getattr so pyright doesn't
+    # flag platform-conditional access on Windows.
+    geteuid = getattr(os, 'geteuid', None)
+    if geteuid is not None and st.st_uid != geteuid():
         return False
     return True
 

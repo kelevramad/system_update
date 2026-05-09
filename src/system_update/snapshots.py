@@ -81,13 +81,14 @@ class SnapshotStore:
 	def _connect(self) -> sqlite3.Connection:
 		if self._conn is None:
 			self.db_path.parent.mkdir(exist_ok=True)
-			self._conn = sqlite3.connect(str(self.db_path))
-			self._conn.row_factory = sqlite3.Row
-			self._ensure_schema()
+			conn = sqlite3.connect(str(self.db_path))
+			conn.row_factory = sqlite3.Row
+			self._conn = conn
+			self._ensure_schema(conn)
 		return self._conn
 
-	def _ensure_schema(self) -> None:
-		self._conn.executescript("""
+	def _ensure_schema(self, conn: sqlite3.Connection) -> None:
+		conn.executescript("""
 			CREATE TABLE IF NOT EXISTS snapshots (
 				id TEXT PRIMARY KEY,
 				timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -111,7 +112,7 @@ class SnapshotStore:
 			CREATE INDEX IF NOT EXISTS idx_snapshot_packages_id
 				ON snapshot_packages(snapshot_id);
 		""")
-		self._conn.commit()
+		conn.commit()
 
 	# ── 6.2.1 — record ────────────────────────────────────────────────────
 

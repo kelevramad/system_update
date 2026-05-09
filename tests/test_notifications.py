@@ -241,7 +241,8 @@ def test_send_email_via_api_handles_http_error():
 	import urllib.error
 
 	with patch('urllib.request.urlopen', side_effect=urllib.error.HTTPError(
-		'https://api.example.com/send', 401, 'Unauthorized', {}, io.BytesIO(b''))):
+		'https://api.example.com/send', 401, 'Unauthorized', {},  # type: ignore[arg-type]
+		io.BytesIO(b''))):
 		ok = _NM._send_email_via_api(
 			'https://api.example.com/send', 'tk', 'a@b', 'S', 'B'
 		)

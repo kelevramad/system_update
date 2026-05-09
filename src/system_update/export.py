@@ -80,7 +80,7 @@ def _xml_escape(text: str) -> str:
 	)
 
 
-def resolve_output_file(format_type: str, output_file: str = None) -> str:
+def resolve_output_file(format_type: str, output_file: Optional[str] = None) -> str:
 	"""Generate a timestamped default filename when none is supplied."""
 	if output_file:
 		return output_file
@@ -209,15 +209,14 @@ _HTML_STYLE_BLOCK = """
 def export_html(
 	apps: List[AppInfo],
 	output_file: str,
-	branding: 'Optional[object]' = None,
+	branding: Optional[object] = None,
 	template_path: Optional[str] = None,
 ) -> str:
 	"""Write a styled, branded HTML report. Template + branding optional (5.3)."""
 	from system_update.report_templates import ReportBranding, render_html
 
-	if branding is None:
-		branding = ReportBranding()
-	rendered = render_html(apps, branding=branding, template_path=template_path)
+	resolved_branding = branding if isinstance(branding, ReportBranding) else ReportBranding()
+	rendered = render_html(apps, branding=resolved_branding, template_path=template_path)
 	with open(output_file, 'w', encoding='utf-8') as f:
 		f.write(rendered)
 	return output_file
@@ -586,8 +585,8 @@ _EXPORTERS = {
 def export(
 	apps: List[AppInfo],
 	format_type: str,
-	output_file: str = None,
-	branding: 'Optional[object]' = None,
+	output_file: Optional[str] = None,
+	branding: Optional[object] = None,
 	template_path: Optional[str] = None,
 ) -> str:
 	"""Dispatch to the correct exporter for ``format_type``.

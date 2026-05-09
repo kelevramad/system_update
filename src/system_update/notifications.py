@@ -191,7 +191,8 @@ $icon.Dispose()
 			if 'api' in smtp_server.lower() or '/api/' in smtp_server:
 				return self._send_email_via_api(smtp_server, username, to_address, subject, body)
 			return self._send_email_via_smtp(
-				smtp_server, smtp_port, username, password, to_address, subject, body, use_tls
+				smtp_server, smtp_port, username, password or '',
+				to_address, subject, body, use_tls,
 			)
 		except Exception as e:
 			logger.debug(f'Failed to send email: {type(e).__name__}: {e}')
@@ -291,8 +292,12 @@ $icon.Dispose()
 		ranges. Set ``notifications.allow_private_hosts=true`` to permit
 		on-prem endpoints.
 		"""
-		headers = headers or self.settings.get('webhook_headers', {})
-		headers.setdefault('Content-Type', 'application/json')
+		# Settle headers into a definitively-non-None dict[str, str] so the
+		# subsequent setdefault and Request(headers=...) call typecheck
+		# without further narrowing.
+		raw_headers = headers if headers is not None else self.settings.get('webhook_headers')
+		final_headers: Dict[str, str] = dict(raw_headers or {})
+		final_headers.setdefault('Content-Type', 'application/json')
 		allow_private = bool(self.settings.get('allow_private_hosts', False))
 
 		try:
@@ -303,7 +308,7 @@ $icon.Dispose()
 
 		try:
 			data = json.dumps(payload).encode('utf-8')
-			req = urllib.request.Request(url, data=data, method=method, headers=headers)
+			req = urllib.request.Request(url, data=data, method=method, headers=final_headers)
 			with urllib.request.urlopen(req, timeout=10) as response:
 				logger.debug(f'Webhook sent to {url}: {response.status}')
 				return True

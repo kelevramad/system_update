@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import sys
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from system_update.models import AppInfo
 from system_update.utils import run_command
@@ -37,7 +37,7 @@ _GLOBAL_PYTHON_EXES = [
 ]
 
 
-def _parse_pip_list(raw: str) -> List[Dict]:
+def _parse_pip_list(raw: Optional[str]) -> List[Dict]:
 	"""Decode a ``pip list --format=json`` output. Returns ``[]`` on any failure."""
 	if not raw:
 		return []
