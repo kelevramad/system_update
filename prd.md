@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 8.2.0
-**Last Updated:** May 6, 2026
+**Document Version:** 8.3.0
+**Last Updated:** May 8, 2026
 **Author:** Kelevra Mad
-**Based On:** `src/system_update/` package (v8.2.0)
+**Based On:** `src/system_update/` package (v8.3.0)
 
 ---
 
@@ -952,6 +952,7 @@ Configuration files, scheduled tasks, rollback, interactive selection, remote ma
 | 8.1.5 | May 2026 | Windows parsing patch: service executable paths without quotes preserve spaces and arguments correctly; PowerShell JSON scanners tolerate warning text and `null` output |
 | 8.1.6 | May 2026 | Winget optimization patch: Winget, Registry, AppX, and MSIX update checkers share one parsed `winget upgrade` table per update-check run |
 | 8.2.0 | May 2026 | Hardening 1.1 — credentials kept off process argv: new optional `pywinrm` HTTPS transport (avoids `winrs -p:` argv leak) and webhook bearer token now sent via `urllib.request` headers instead of `curl` argv. CLI gains a unified `System Update` panel rendered both at runtime and on `--help`, showing version, runtime, profile, data-dir inventory, cache TTL, sources, security feeds, and repo URL |
+| 8.3.0 | May 2026 | Hardening 1.2 — untrusted code execution: plugin loader is **opt-in by default** (was auto-load), refuses world-writable plugin dirs, supports an optional SHA-256 allowlist (`allowed.sha256`) plus `plugins.require_hash_allowlist`, adds `--no-plugins` kill switch, and renders a bold `PLUGIN LOAD` warning panel when a plugin loads. Replaces `iex (irm aka.ms/install-powershell.ps1)` with `winget install --id Microsoft.PowerShell` (hash-verified). Adds `_safe_argv_token` validator on cache-sourced strings (winget/chocolatey/appx + rollback) to prevent flag injection. Plugin API gains a fifth extension point — `register_security_checker` — which participates in the `🔒 Checking security vulnerabilities` stage as its own progress row. Plugin-load standardization: `_register_module` captures `PluginMetadata` with first-line docstring and capability set; `--list-plugins` redesigned as one row per plugin with capability icons and the docstring summary, with the per-extension breakdown moved behind `--list-plugins-detail`. Banner header now carries the version inline (`🚀 System Update · v8.3.0`) instead of a redundant first row |
 
 ## Appendix B: Glossary
 

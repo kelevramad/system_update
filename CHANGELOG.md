@@ -15,6 +15,19 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.3.0 (May 2026)
+
+**⚠️ Breaking Change — Plugin auto-load is now opt-in.** Existing users with files under `~/.system_update/plugins/` must add `{"plugins": {"enabled": true}}` to `~/.system_update/config.json` to keep auto-loading. Bypass at any time with `--no-plugins`.
+
+- **Security — Plugin Sandbox (Hardening 1.2.1)**: Plugin loader is off by default; refuses world-writable / non-owner plugin directories on POSIX; supports an optional SHA-256 allowlist (`<plugin_dir>/allowed.sha256`) and `plugins.require_hash_allowlist=true` to enforce it; new `--no-plugins` kill switch bypasses the loader entirely. Plugin loads are surfaced as a bold-yellow `PLUGIN LOAD` Rich panel above the startup banner.
+- **Security — No Unverified Remote Scripts (Hardening 1.2.2)**: PowerShell self-update no longer runs `iex (irm https://aka.ms/install-powershell.ps1)`. Replaced with `winget install --id Microsoft.PowerShell --source winget --force` so the installer is hash-verified by the winget manifest.
+- **Security — Argv-Token Validator (Hardening 1.2.3)**: New `_safe_argv_token()` rejects cache-sourced strings (`app_id`, `latest_version`) that don't match `^[A-Za-z0-9][A-Za-z0-9.+\-_~]*$`. Applied to winget, chocolatey, appx, and the winget rollback builders so a tampered `cache.json` cannot flag-inject the underlying package manager.
+- **Plugin API — Security Checker Extension Point**: New `registry.register_security_checker(source, check, description)` lets plugins contribute findings to the `🔒 Checking security vulnerabilities` stage. Each plugin checker runs as its own progress row alongside OSV / npm / pip / PyPI / GitHub Advisory feeds. A failing plugin checker is logged and skipped without breaking the overall scan.
+- **Plugin Standardization**: `demo_plugin.py` is now a standardized template — typed `AppInfo`, `UpdateStatus` enum, source filtering on every callable, `context.data_dir` for I/O, structured `logging`. Recommended shape for any new plugin.
+- **CLI UX — Plugin Listing Redesign**: `--list-plugins` shows one row per plugin file with capability icons (🧩 scanner · 🔄 checker · ⬆️ updater · 🔒 security · 🔔 notifier) and the first line of the module docstring as the description. The previous per-extension-point breakdown moved to `--list-plugins-detail`.
+- **CLI UX — Banner Polish**: Banner panel title now reads `🚀 System Update · v8.3.0`; the redundant first row inside the panel is removed. The plugin-load Rich panel takes its place above the banner.
+- **Tests**: 535 passing (up from 511), covering plugin sandbox controls (default-disabled, kill switch, world-writable refusal, hash allowlist hit/miss, `require_hash_allowlist`), pwsh updater no longer contains `iex`/`irm`/`aka.ms`, argv token validator rejects whitespace/quotes/semicolons/leading-dashes, plugin security checker registers + runs + isolates per source + survives a raising plugin, plugin metadata captures the docstring and capability set.
+
 ### v8.2.0 (May 2026)
 - **Security — Credentials Off Argv (Hardening 1.1)**: Added optional `pywinrm` HTTPS transport for remote execution. The legacy `winrs` path still works but now emits a one-shot warning when a password is supplied — `winrs -p:<pass>` puts the password on the spawned process's command line, which is readable by other local users via `Get-CimInstance Win32_Process`. Install with `uv pip install 'system-update-cli[remote-secure]'` and set `host.transport='pywinrm'`.
 - **Security — Webhook Bearer Token Off Argv**: `_send_email_via_api` no longer shells out to `curl`. Bearer tokens now travel inside HTTP headers via `urllib.request`, so they never appear on a subprocess command line.

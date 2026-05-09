@@ -153,9 +153,15 @@ class SystemConfig:
 				'custom_script_enabled': False,
 				'custom_script_path': '',
 			},
+			# Hardening 1.2.1 — Plugin loading is **off by default**. Plugins
+			# under ``~/.system_update/plugins/`` execute arbitrary Python at
+			# scan time, so the user must opt in. When enabled, the loader
+			# rejects world-writable directories and (optionally) enforces a
+			# SHA-256 allowlist at ``allowed.sha256``.
 			'plugins': {
-				'enabled': True,
+				'enabled': False,
 				'paths': [],
+				'require_hash_allowlist': False,
 			},
 		}
 
