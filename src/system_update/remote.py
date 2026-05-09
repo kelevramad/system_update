@@ -125,7 +125,9 @@ class Inventory:
 	"""JSON-file inventory at ``~/.system_update/inventory.json``."""
 
 	def __init__(self, path: Optional[Path] = None) -> None:
-		self.path = path or (Path.home() / '.system_update' / 'inventory.json')
+		from system_update.utils import data_dir
+
+		self.path = path or (data_dir() / 'inventory.json')
 		self.hosts: List[RemoteHost] = []
 		self._load()
 
@@ -142,9 +144,12 @@ class Inventory:
 			self.hosts = [RemoteHost.from_dict(h) for h in raw if isinstance(h, dict)]
 
 	def save(self) -> None:
-		self.path.parent.mkdir(parents=True, exist_ok=True)
+		from system_update.utils import secure_write
+
+		# Inventory contains hostnames and usernames — restrict to 0o600
+		# so other local users cannot enumerate the fleet.
 		payload = {'hosts': [h.to_dict() for h in self.hosts]}
-		self.path.write_text(json.dumps(payload, indent=2), encoding='utf-8')
+		secure_write(self.path, json.dumps(payload, indent=2))
 
 	# ── 6.4.2 — CRUD ─────────────────────────────────────────────────────
 

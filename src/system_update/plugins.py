@@ -541,10 +541,11 @@ def _warn_first_load(plugin_file: Path) -> None:
 
 
 def _plugin_paths(config: Any) -> List[Path]:
+    from system_update.utils import data_dir
+
     settings = getattr(config, 'settings', {})
     plugin_settings = settings.get('plugins', {})
-    config_dir = Path(getattr(config, 'config_dir',
-                      Path.home() / '.system_update'))
+    config_dir = Path(getattr(config, 'config_dir', data_dir()))
     paths = [config_dir / 'plugins']
     for raw in plugin_settings.get('paths', []) or []:
         path = Path(str(raw)).expanduser()
@@ -588,11 +589,12 @@ def _register_module(
     try:
         register = getattr(module, 'register_plugin', None)
         if callable(register):
+            from system_update.utils import data_dir as _data_dir
+
             context = PluginContext(
                 config=config,
                 settings=getattr(config, 'settings', {}),
-                data_dir=Path(getattr(config, 'config_dir',
-                              Path.home() / '.system_update')),
+                data_dir=Path(getattr(config, 'config_dir', _data_dir())),
             )
             if len(inspect.signature(register).parameters) >= 2:
                 register(registry, context)

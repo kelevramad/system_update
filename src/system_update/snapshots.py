@@ -75,16 +75,22 @@ class SnapshotStore:
 	"""SQLite-backed snapshot store reusing the project's ``history.db``."""
 
 	def __init__(self, db_path: Optional[Path] = None) -> None:
-		self.db_path = db_path or (Path.home() / '.system_update' / 'history.db')
+		from system_update.utils import data_dir
+
+		self.db_path = db_path or (data_dir() / 'history.db')
 		self._conn: Optional[sqlite3.Connection] = None
 
 	def _connect(self) -> sqlite3.Connection:
+		from system_update.utils import harden_existing_file
+
 		if self._conn is None:
 			self.db_path.parent.mkdir(exist_ok=True)
 			conn = sqlite3.connect(str(self.db_path))
 			conn.row_factory = sqlite3.Row
 			self._conn = conn
 			self._ensure_schema(conn)
+			# Hardening 1.4.1 — restrict the snapshot db to the user.
+			harden_existing_file(self.db_path)
 		return self._conn
 
 	def _ensure_schema(self, conn: sqlite3.Connection) -> None:

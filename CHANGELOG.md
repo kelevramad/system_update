@@ -15,6 +15,13 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.5.0 (May 2026)
+
+- **Security — Restrictive File Permissions (Hardening 1.4.1)**: Every data file under `~/.system_update/` is now written through a new `secure_write()` helper that produces a `0o600` file on POSIX and an `icacls /inheritance:r /grant USER:(F)` user-only ACL on Windows. The temp file is hardened **before** any data hits disk and `os.replace` makes the swap atomic, so the file never exists with looser permissions. Failed writes wipe the temp and leave the previous content intact. Affects `cache.json`, `config.json`/`config.yaml`, exported profiles, `inventory.json`, `vulnerability_history.json`, and `api_cache.json`.
+- **Security — SQLite Database ACLs**: `harden_existing_file()` is invoked from `HistoryDatabase._connect` and `SnapshotStore._connect` so `history.db` / snapshots get the same user-only ACL once `sqlite3.connect` has created them. Other local users can no longer enumerate scan history or recover pre-update package state.
+- **Centralized Data Directory (Hardening 1.4.2)**: New `utils.data_dir()` accessor honors the `SYSTEM_UPDATE_HOME` environment variable and creates `~/.system_update` with mode `0o700` on POSIX. Replaces 8 hardcoded `Path.home() / '.system_update'` sites across `config.py`, `history.py`, `snapshots.py`, `remote.py`, and `plugins.py` so every module agrees on the path *and* the permissions. The single remaining literal is the `network.py` module-level fallback used during early import; the actual write path goes through `secure_write` after the dir has been hardened by `SystemConfig` startup.
+- **Tests**: 568 passing (up from 556) — 12 new tests in `tests/test_secure_paths.py` covering `data_dir()` (default location, env override, idempotency, 0o700), `secure_write()` (string + bytes data, parent mkdir, atomic replace, partial-write rollback, 0o600 application), `harden_existing_file()`, and the `SystemConfig.config_dir == data_dir()` / `Inventory.save` end-to-end paths. POSIX-only assertions are gated behind `pytest.mark.skipif`.
+
 ### v8.4.1 (May 2026)
 
 - **Quality — Pyright Baseline Cleared (80 → 0)**: Cleaned every error reported by `uv run task typecheck`. No runtime behavior change; the full test suite stays at **556 passed**.

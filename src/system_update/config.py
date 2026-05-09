@@ -26,11 +26,14 @@ class SystemConfig:
 	"""
 
 	def __init__(self, profile_name: Optional[str] = None) -> None:
-		self.config_dir = Path.home() / '.system_update'
+		from system_update.utils import data_dir
+
+		# Hardening 1.4.2 — single accessor honors SYSTEM_UPDATE_HOME
+		# and creates the dir with mode 0o700 on POSIX.
+		self.config_dir = data_dir()
 		self.profiles_dir = self.config_dir / 'profiles'
 		self.current_profile = profile_name
 
-		self.config_dir.mkdir(exist_ok=True)
 		self.profiles_dir.mkdir(exist_ok=True)
 
 		self._update_paths(profile_name)
@@ -209,8 +212,9 @@ class SystemConfig:
 				'settings': self.settings,
 				'exported_at': datetime.now().isoformat(),
 			}
-			with open(output_path, 'w', encoding='utf-8') as f:
-				json.dump(export_data, f, indent=2)
+			from system_update.utils import secure_write
+
+			secure_write(output_path, json.dumps(export_data, indent=2))
 			return True
 		except Exception as e:
 			logging.error(f'Failed to export profile: {e}')
@@ -472,18 +476,27 @@ class SystemConfig:
 		)
 
 		try:
+			from system_update.utils import secure_write
+
 			if yaml_path:
 				import yaml
-
-				with open(yaml_path, 'w', encoding='utf-8') as f:
-					yaml.dump(self.settings, f, default_flow_style=False, sort_keys=False)
+				secure_write(
+					yaml_path,
+					yaml.dump(self.settings, default_flow_style=False, sort_keys=False),
+				)
 			else:
-				with open(self.config_file, 'w', encoding='utf-8') as f:
-					json.dump(self.settings, f, indent=2, default=str)
+				secure_write(
+					self.config_file,
+					json.dumps(self.settings, indent=2, default=str),
+				)
 		except ImportError:
 			try:
-				with open(self.config_file, 'w', encoding='utf-8') as f:
-					json.dump(self.settings, f, indent=2, default=str)
+				from system_update.utils import secure_write
+
+				secure_write(
+					self.config_file,
+					json.dumps(self.settings, indent=2, default=str),
+				)
 			except Exception as e:
 				logging.error(f'Failed to save config: {e}')
 		except Exception as e:
