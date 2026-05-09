@@ -34,6 +34,7 @@ from system_update.plugins import (
     checker_map,
     load_plugins,
     scanner_map,
+    security_checker_map,
     updater_map,
 )
 from system_update.scanners import PackageScanner
@@ -429,7 +430,10 @@ class SystemUpdateApp:
             advisory_file = os.path.join(
                 os.path.expanduser('~'), '.system_update', 'advisories.json'
             )
-            security_vulns = self.security.check_all(new_apps, advisory_file)
+            security_vulns = self.security.check_all(
+                new_apps, advisory_file,
+                extra_checkers=security_checker_map(self.plugins),
+            )
             if security_vulns:
                 console.print(
                     f'[bold red]🔥 Found {len(security_vulns)} '
@@ -709,7 +713,10 @@ class SystemUpdateApp:
             advisory_file = os.path.join(
                 os.path.expanduser('~'), '.system_update', 'advisories.json'
             )
-            security_vulns = self.security.check_all(apps, advisory_file)
+            security_vulns = self.security.check_all(
+                apps, advisory_file,
+                extra_checkers=security_checker_map(self.plugins),
+            )
 
             if security_vulns:
                 console.print(
@@ -1318,6 +1325,13 @@ class SystemUpdateApp:
                 updater.plugin or '-',
                 updater.description or '-',
             )
+        for sec in sorted(self.plugins.security_checkers.values(), key=lambda s: s.source):
+            table.add_row(
+                'security',
+                sec.source,
+                sec.plugin or '-',
+                sec.description or '-',
+            )
         for notifier in sorted(self.plugins.notifiers.values(), key=lambda n: n.name):
             table.add_row(
                 'notifier',
@@ -1330,6 +1344,7 @@ class SystemUpdateApp:
             not self.plugins.scanners
             and not self.plugins.checkers
             and not self.plugins.updaters
+            and not self.plugins.security_checkers
             and not self.plugins.notifiers
         ):
             console.print(

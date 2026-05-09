@@ -30,6 +30,12 @@ PluginScannerFunc = Callable[[], Iterable[AppInfo | Dict[str, Any]]]
 PluginCheckerFunc = Callable[[List[AppInfo]], Any]
 PluginUpdaterFunc = Callable[[AppInfo], Any]
 PluginNotifierFunc = Callable[..., Any]
+# Security checker: receives the apps the plugin owns and returns a list
+# of vulnerability dicts (same shape produced by the built-in checkers,
+# see system_update.security.local for a reference: package / severity /
+# cvss_score / cve / description / source / affected_versions /
+# published_date / advisory_url / fix_available).
+PluginSecurityCheckerFunc = Callable[[List[AppInfo]], List[Dict[str, Any]]]
 
 _SOURCE_RE = re.compile(r'^[a-z0-9][a-z0-9_.-]*$')
 
@@ -88,6 +94,23 @@ class PluginNotifier:
 
 
 @dataclass
+class PluginSecurityChecker:
+    """Registered custom vulnerability checker for a plugin source.
+
+    Plugin security checkers are dispatched by ``security.check_all``
+    alongside the built-in OSV / npm / pip / GitHub Advisory checkers.
+    Each one runs as its own row in the "Checking security
+    vulnerabilities" progress display.
+    """
+
+    source: str
+    check: PluginSecurityCheckerFunc
+    description: str = ''
+    plugin: str = ''
+    enabled: bool = True
+
+
+@dataclass
 class PluginLoadError:
     """Non-fatal plugin loading error."""
 
@@ -103,6 +126,7 @@ class PluginRegistry:
     checkers: Dict[str, PluginChecker] = field(default_factory=dict)
     updaters: Dict[str, PluginUpdater] = field(default_factory=dict)
     notifiers: Dict[str, PluginNotifier] = field(default_factory=dict)
+    security_checkers: Dict[str, PluginSecurityChecker] = field(default_factory=dict)
     errors: List[PluginLoadError] = field(default_factory=list)
     _active_plugin: str = ''
 
@@ -181,6 +205,32 @@ class PluginRegistry:
         self.notifiers[canonical] = PluginNotifier(
             name=canonical,
             notify=notify,
+            description=description,
+            plugin=self._active_plugin,
+            enabled=bool(enabled),
+        )
+
+    def register_security_checker(
+            self,
+            source: str,
+            check: PluginSecurityCheckerFunc,
+            description: str = '',
+            enabled: bool = True,
+    ) -> None:
+        """Register a custom vulnerability checker.
+
+        The ``check`` function receives the apps from this plugin's source
+        and returns a list of vulnerability dicts. See the project docs
+        for the expected dict shape; ``app.security_findings`` and the
+        ``UpdateStatus.VULNERABLE`` flag should also be set on each
+        affected app so the post-scan display reflects the findings.
+        """
+        canonical = _normalize_source_name(source)
+        if not callable(check):
+            raise TypeError(f'security checker for {canonical!r} must be callable')
+        self.security_checkers[canonical] = PluginSecurityChecker(
+            source=canonical,
+            check=check,
             description=description,
             plugin=self._active_plugin,
             enabled=bool(enabled),
@@ -312,6 +362,17 @@ def updater_map(registry: PluginRegistry) -> Dict[str, Callable[[AppInfo], Any]]
         source: updater.update
         for source, updater in registry.updaters.items()
         if updater.enabled
+    }
+
+
+def security_checker_map(
+    registry: PluginRegistry,
+) -> Dict[str, Callable[[List[AppInfo]], List[Dict[str, Any]]]]:
+    """Return enabled custom security checkers by source name."""
+    return {
+        source: sec.check
+        for source, sec in registry.security_checkers.items()
+        if sec.enabled
     }
 
 
@@ -605,10 +666,13 @@ __all__ = [
     'PluginNotifier',
     'PluginRegistry',
     'PluginScanner',
+    'PluginSecurityChecker',
     'PluginUpdater',
     'checker_map',
+    'disable_plugin_loading',
     'dispatch_notifiers',
     'load_plugins',
     'scanner_map',
+    'security_checker_map',
     'updater_map',
 ]

@@ -5,7 +5,7 @@ import pytest
 
 from system_update import AppInfo, NotificationManager, SystemConfig, SystemUpdateApp, UpdateStatus
 from system_update.checkers import check_all_updates
-from system_update.plugins import load_plugins, updater_map
+from system_update.plugins import load_plugins, security_checker_map, updater_map
 
 
 @pytest.fixture(autouse=True)
@@ -88,6 +88,31 @@ def update_demo(app: AppInfo) -> bool:
 	return True
 
 
+def security_check_demo(apps: List[AppInfo]) -> List[dict]:
+	findings = []
+	for app in apps:
+		if app.source != SOURCE:
+			continue
+		finding = {
+			'package': app.name,
+			'severity': 'HIGH',
+			'cvss_score': 8.1,
+			'cve': 'DEMO-2026-0001',
+			'description': 'Synthetic vulnerability in demo-package for plugin demo.',
+			'source': 'demo-plugin',
+			'affected_versions': ['<1.1.0'],
+			'published_date': '',
+			'advisory_url': 'https://example.com/advisories/DEMO-2026-0001',
+			'fix_available': True,
+			'fixed_version': '1.1.0',
+			'installed_version': app.version,
+		}
+		app.security_findings.append(finding)
+		app.update_status = UpdateStatus.VULNERABLE
+		findings.append(finding)
+	return findings
+
+
 _LOG_PATH: Optional[Path] = None
 
 
@@ -114,6 +139,7 @@ def register_plugin(registry: PluginRegistry, context: PluginContext) -> None:
 	registry.register_scanner(SOURCE, scan_demo, 'Demo scanner')
 	registry.register_checker(SOURCE, check_demo, 'Demo checker')
 	registry.register_updater(SOURCE, update_demo, 'Demo updater')
+	registry.register_security_checker(SOURCE, security_check_demo, 'Demo vuln feed')
 	registry.register_notifier('demo-log', notify_demo, 'Demo notifier')
 """,
 		encoding='utf-8',
@@ -479,3 +505,97 @@ def test_notifier_writes_event_log_under_data_dir(tmp_path):
 	body = log_path.read_text(encoding='utf-8')
 	assert 'updates_available' in body
 	assert "'updates': 3" in body or "'updates':3" in body
+
+
+# ─── Plugin security checker ─────────────────────────────────────────────
+
+
+def test_security_checker_registers_via_decorator(tmp_path):
+	"""Plugin's security checker must show up in registry.security_checkers."""
+	plugin_dir = tmp_path / '.system_update' / 'plugins'
+	plugin_dir.mkdir(parents=True)
+	_write_plugin(plugin_dir / 'sample_plugin.py')
+
+	with patch('pathlib.Path.home', return_value=tmp_path):
+		config = SystemConfig()
+		registry = load_plugins(config)
+
+	assert 'demo' in registry.security_checkers
+	sec = registry.security_checkers['demo']
+	assert sec.description == 'Demo vuln feed'
+	assert sec.enabled is True
+
+
+def test_security_checker_runs_via_check_all(tmp_path):
+	"""security.check_all must dispatch the plugin checker for its source."""
+	from system_update.security import check_all
+
+	plugin_dir = tmp_path / '.system_update' / 'plugins'
+	plugin_dir.mkdir(parents=True)
+	_write_plugin(plugin_dir / 'sample_plugin.py')
+
+	with patch('pathlib.Path.home', return_value=tmp_path):
+		config = SystemConfig()
+		registry = load_plugins(config)
+
+	app = AppInfo(name='demo-package', source='demo', version='1.0.0',
+		update_status=UpdateStatus.UNKNOWN)
+	vulns = check_all([app], extra_checkers=security_checker_map(registry))
+
+	assert len(vulns) == 1
+	assert vulns[0]['cve'] == 'DEMO-2026-0001'
+	assert vulns[0]['severity'] == 'HIGH'
+	# Side effect: the app gets the finding and is marked vulnerable.
+	assert app.update_status == UpdateStatus.VULNERABLE
+	assert len(app.security_findings) == 1
+
+
+def test_security_checker_isolated_from_other_sources(tmp_path):
+	"""Plugin checker should only receive its source's apps; foreign apps untouched."""
+	from system_update.security import check_all
+
+	plugin_dir = tmp_path / '.system_update' / 'plugins'
+	plugin_dir.mkdir(parents=True)
+	_write_plugin(plugin_dir / 'sample_plugin.py')
+
+	with patch('pathlib.Path.home', return_value=tmp_path):
+		config = SystemConfig()
+		registry = load_plugins(config)
+
+	mine = AppInfo(name='demo-package', source='demo', version='1.0.0',
+		update_status=UpdateStatus.UNKNOWN)
+	foreign = AppInfo(name='left-pad', source='npm', version='0.0.1',
+		update_status=UpdateStatus.UNKNOWN)
+	check_all([mine, foreign], extra_checkers=security_checker_map(registry))
+
+	# Foreign app untouched by the plugin's security checker.
+	assert foreign.update_status == UpdateStatus.UNKNOWN
+	assert foreign.security_findings == []
+	# Mine got flagged.
+	assert mine.update_status == UpdateStatus.VULNERABLE
+
+
+def test_security_checker_failure_does_not_break_scan(tmp_path, caplog):
+	"""A raising plugin checker must be logged and skipped, not bubbled up."""
+	from system_update.security import check_all
+
+	plugin_dir = tmp_path / '.system_update' / 'plugins'
+	plugin_dir.mkdir(parents=True)
+	_write_plugin(plugin_dir / 'sample_plugin.py')
+
+	with patch('pathlib.Path.home', return_value=tmp_path):
+		config = SystemConfig()
+		registry = load_plugins(config)
+
+	# Replace the registered callable with a raising one.
+	def boom(apps):
+		raise RuntimeError('upstream advisory feed down')
+
+	registry.security_checkers['demo'].check = boom
+
+	app = AppInfo(name='demo-package', source='demo', version='1.0.0',
+		update_status=UpdateStatus.UNKNOWN)
+	vulns = check_all([app], extra_checkers=security_checker_map(registry))
+
+	assert vulns == []
+	assert app.update_status == UpdateStatus.UNKNOWN
