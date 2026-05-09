@@ -64,6 +64,7 @@ def test_record_counts_failures(store: SnapshotStore):
 		_pkg('c', success=False),
 	])
 	snap = store.get(snap_id)
+	assert snap is not None
 	assert snap.package_count == 3
 	assert snap.success_count == 1
 
@@ -195,6 +196,7 @@ def test_rollback_winget_uses_app_id():
 	app = AppInfo(name='Git', source='Winget', version='2.41.0',
 	              latest_version='2.40.0', app_id='Git.Git')
 	cmd = build_rollback_command(app)
+	assert cmd is not None
 	assert '--id' in cmd
 	assert 'Git.Git' in cmd
 	assert '-v' in cmd
@@ -206,6 +208,7 @@ def test_rollback_chocolatey_includes_allow_downgrade():
 	app = AppInfo(name='git', source='Chocolatey', version='2.41.0',
 	              latest_version='2.40.0')
 	cmd = build_rollback_command(app)
+	assert cmd is not None
 	assert '--allow-downgrade' in cmd
 	assert 'git' in cmd
 	assert '2.40.0' in cmd
@@ -215,6 +218,7 @@ def test_rollback_pip_uses_force_reinstall():
 	app = AppInfo(name='requests', source='PIP', version='2.31.0',
 	              latest_version='2.30.0')
 	cmd = build_rollback_command(app)
+	assert cmd is not None
 	assert 'pip' in cmd
 	assert any('requests==2.30.0' in t for t in cmd)
 	assert '--force-reinstall' in cmd
@@ -288,6 +292,7 @@ def test_execute_updates_records_snapshot_when_store_provided(tmp_path):
 		)
 	assert snap_id is not None
 	snap = store.get(snap_id)
+	assert snap is not None
 	assert snap.label == 'unit-test'
 	assert snap.packages[0].version_before == '1.0'
 	assert snap.packages[0].version_after == '2.0'

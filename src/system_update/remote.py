@@ -38,7 +38,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +98,9 @@ class RemoteResult:
 	stdout: str = ''
 	stderr: str = ''
 	duration: float = 0.0
-	parsed: Optional[Dict] = None  # decoded JSON when remote returned a scan
+	# decoded JSON when remote returned a scan — may be a dict (newer
+	# payload shape) or a bare list (legacy export format)
+	parsed: Optional[Any] = None
 
 	def to_dict(self) -> Dict:
 		out = {
@@ -497,7 +499,7 @@ def aggregate_scans(results: List[RemoteResult]) -> Dict:
 	contribute to the package totals; hosts with errors are surfaced in
 	the ``errors`` block so the operator sees what failed.
 	"""
-	by_host: Dict[str, Dict] = {}
+	by_host: Dict[str, Any] = {}
 	per_host_summary: List[Dict] = []
 	errors: List[Dict] = []
 
