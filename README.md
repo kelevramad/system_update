@@ -4,7 +4,7 @@
 
 A comprehensive Python-based system package management tool that scans, checks, and updates software from multiple sources.
 
-**Version:** 8.2.0
+**Version:** 8.3.0
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
 **Layout:** Modular package at `src/system_update/` (typer CLI)
@@ -24,7 +24,7 @@ A comprehensive Python-based system package management tool that scans, checks, 
 - **Smart Version Comparison**: Handles preview/stable version detection.
 - **Interactive TUI**: Fuzzy search, multi-select, and preview for package selection.
 - **Remote Management**: Manage a Windows host inventory and run scans, updates, and consolidated reports over WinRS/WinRM.
-- **Plugin Architecture**: Add custom scanners, update checkers, package updaters, and notification channels from local Python plugins.
+- **Plugin Architecture**: Add custom scanners, update checkers, package updaters, **vulnerability checkers**, and notification channels from local Python plugins. Plugin loading is **opt-in** (`plugins.enabled=true`) and can be hardened further with a SHA-256 allowlist; bypass entirely with `--no-plugins`.
 
 ---
 
@@ -111,7 +111,9 @@ python -m system_update --export json --output report.json
 | `--remote-timeout <seconds>` | Per-host remote execution timeout; default is `600` |
 | `--remote-verbose` | Show each host's stdout/stderr tail when it completes |
 | `--remote-debug` | Print target metadata, timeout, redacted `winrs` command, progress heartbeat, and completion output |
-| `--list-plugins` | Show loaded scanner/checker/updater/notifier plugins and load errors |
+| `--list-plugins` | Show loaded plugins (one row per plugin with capability icons + docstring summary) |
+| `--list-plugins-detail` | Per-extension-point breakdown of every registered scanner/checker/updater/security/notifier |
+| `--no-plugins` | Bypass the plugin loader entirely (security kill switch) |
 | `--source <csv>` | Limit scan to specific sources (e.g., `winget,npm,pip`) |
 | `--yes`, `-y` | Skip confirmation prompts |
 | `--help`, `-h` | Show help message |
@@ -398,6 +400,87 @@ Vulnerabilities are filtered by severity level:
 
 ---
 
+## 🧩 Plugins
+
+Plugins extend `system-update` with custom package sources, update checkers, updaters, vulnerability feeds, and notification channels. Each plugin is a single Python file under `~/.system_update/plugins/` (or any directory listed under `plugins.paths` in `config.json`).
+
+### Opt-in by default (Hardening 1.2)
+
+Since plugins execute arbitrary Python at scan time, the loader is **off by default**. To enable:
+
+```jsonc
+// ~/.system_update/config.json
+{
+  "plugins": {
+    "enabled": true,
+    "paths": [],
+    "require_hash_allowlist": false
+  }
+}
+```
+
+**Hardened mode (recommended for shared machines):** drop a SHA-256 manifest next to your plugins so only known-good files load.
+
+```bash
+# Compute the digest of every plugin you want to load:
+python -c "import hashlib; print(hashlib.sha256(open(r'~\.system_update\plugins\demo_plugin.py','rb').read()).hexdigest())"
+```
+
+```text
+# ~/.system_update/plugins/allowed.sha256
+5da4642db1db34e1ac5c2030bfa6975591e52fd504df5d027b8b9b6e452072c6  demo_plugin.py
+```
+
+Set `plugins.require_hash_allowlist: true` to refuse loading any plugin without a manifest entry. Bypass the loader at any time with `--no-plugins`.
+
+### Extension points
+
+| Hook | Registry call | Receives | Returns |
+|------|---------------|----------|---------|
+| Scanner | `register_scanner(source, scan, …)` | _no args_ | `Iterable[AppInfo]` (or dicts) |
+| Checker | `register_checker(source, check, …)` | `List[AppInfo]` | int (count of updates found) |
+| Updater | `register_updater(source, update, …)` | `AppInfo` | `bool` (success) |
+| Security | `register_security_checker(source, check, …)` | `List[AppInfo]` | `List[dict]` of vulnerability findings |
+| Notifier | `register_notifier(name, notify, …)` | `(event, title, message, payload, config)` | `None` |
+
+Plugin security checkers participate in the `🔒 Checking security vulnerabilities` stage as their own progress row, alongside the built-in OSV / npm / pip / PyPI / GitHub Advisory feeds.
+
+### Reference template
+
+A standardized template showing every extension point lives at `C:\Users\<user>\.system_update\plugins\demo_plugin.py` after first run. Copy it, rename `SOURCE = 'demo'` to your own token, and replace the bodies. The template demonstrates:
+
+- Returning typed `AppInfo` (not dicts).
+- Filtering by `app.source` so the plugin never mutates apps owned by other plugins.
+- Using the `UpdateStatus` enum.
+- Resolving the data dir via `context.data_dir` from `register_plugin(registry, context)`.
+- Wrapping I/O in `try/except OSError` and logging via `logging`.
+
+### Listing plugins
+
+```bash
+# One-line summary with capability icons and docstring description:
+system-update --list-plugins
+
+# Full per-extension-point breakdown:
+system-update --list-plugins-detail
+```
+
+### Plugin-load warning
+
+When a plugin loads, a bold-yellow `PLUGIN LOAD` Rich panel appears above the startup banner:
+
+```
+┌─  PLUGIN LOAD  ──────────────────────────────────────────────────────────┐
+│ ⚠️  Loading plugin: C:\Users\vchav\.system_update\plugins\demo_plugin.py │
+│    Disable with plugins.enabled=false in ~/.system_update/config.json    │
+│    or run with --no-plugins.                                             │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+The warning fires once per process per plugin file; the same line is also written to `system.log` at DEBUG level when `--debug` is used.
+
+---
+
 ## 📤 Export Formats
 
 ### JSON Export
@@ -537,7 +620,7 @@ SystemUpdateApp          - Orchestrator (scan → check → security → display
 ├── DependencyGraph      - Graphviz DOT, conflict detection, minimal update set
 ├── HistoryDatabase      - SQLite history (scans, package_snapshots, version_history)
 ├── VulnerabilityHistory - Persistent CVE tracking (JSON)
-├── PluginRegistry       - Custom scanner/checker/updater/notifier registration
+├── PluginRegistry       - Custom scanner/checker/updater/security/notifier registration (opt-in)
 ├── RemoteManagement     - Inventory, remote scan/update/report fan-out
 └── NotificationManager  - Toast/email/webhook/hook/plugin dispatch
 ```
