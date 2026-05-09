@@ -15,6 +15,14 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.4.0 (May 2026)
+
+- **Security — Scheme Allowlist (Hardening 1.3.1)**: `network.fetch_json` now refuses any URL whose scheme is not `http` or `https` (including `file://`, `ftp://`, `data:`, `gopher://`). Defense-in-depth: a custom `OpenerDirector` registers only `HTTPHandler`, `HTTPSHandler`, and the redirect/error handlers — no `FileHandler`, no `FTPHandler`, no `DataHandler` — so even a 30x redirect to `file://` cannot escape the allowlist. New `UnsafeUrlError` makes the rejection explicit.
+- **Security — Webhook SSRF Allowlist (Hardening 1.3.2)**: `NotificationManager.send_webhook` rejects URLs whose host (literal IP or DNS-resolved A/AAAA) is loopback / link-local / RFC1918 / multicast / reserved / unspecified — including the cloud metadata endpoint at `169.254.169.254`. New setting `notifications.allow_private_hosts=false` (default) is the single opt-in for self-hosted ChatOps endpoints. DNS-resolution failure is **not** treated as an SSRF signal — `urlopen` surfaces the real connection error.
+- **Tooling — Pyright Type Checking**: Added Pyright (the CLI engine Pylance uses) to dev deps via `uv add --dev pyright`. New `pyrightconfig.json` includes `src/system_update` and `tests/`, excludes `.venv` / `.claude` / `examples`, runs in `basic` mode with `reportMissingImports=error`. Two taskipy tasks: `uv run task typecheck` and `uv run task typecheck-stats`.
+- **Convention** — Documented in CLAUDE.md / AGENTS.md that contributors should always run scripts via `uv run <tool>` and add deps via `uv add <pkg>` (or `uv add --dev <pkg>`) rather than editing `pyproject.toml` deps tables by hand.
+- **Tests**: 556 passing (up from 535). 11 new tests cover the scheme rejection paths, the defense-in-depth opener handler set, webhook scheme rejection, all 7 private-host ranges (`127.0.0.1`, `localhost`, `10.x`, `172.16.x`, `192.168.x`, `169.254.x`, `[::1]`), `allow_private_hosts=true` opt-in, and DNS-resolved private hosts.
+
 ### v8.3.0 (May 2026)
 
 **⚠️ Breaking Change — Plugin auto-load is now opt-in.** Existing users with files under `~/.system_update/plugins/` must add `{"plugins": {"enabled": true}}` to `~/.system_update/config.json` to keep auto-loading. Bypass at any time with `--no-plugins`.
