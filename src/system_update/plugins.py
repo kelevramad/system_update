@@ -119,6 +119,22 @@ class PluginLoadError:
 
 
 @dataclass
+class PluginMetadata:
+    """Per-plugin summary used by the ``--list-plugins`` summary view.
+
+    Captures the file path, the human-readable name, the first line of
+    the module docstring, and which extension points the plugin
+    registered. The detailed per-type table is still available via
+    ``--list-plugins-detail``.
+    """
+
+    name: str
+    path: str
+    description: str = ''
+    capabilities: List[str] = field(default_factory=list)
+
+
+@dataclass
 class PluginRegistry:
     """Registry exposed to extension modules from ``register_plugin``."""
 
@@ -128,6 +144,7 @@ class PluginRegistry:
     notifiers: Dict[str, PluginNotifier] = field(default_factory=dict)
     security_checkers: Dict[str, PluginSecurityChecker] = field(default_factory=dict)
     errors: List[PluginLoadError] = field(default_factory=list)
+    metadata: Dict[str, PluginMetadata] = field(default_factory=dict)
     _active_plugin: str = ''
 
     def register_scanner(
@@ -563,7 +580,8 @@ def _register_module(
         config: Any,
 ) -> None:
     previous = registry._active_plugin
-    registry._active_plugin = getattr(module, 'PLUGIN_NAME', path.stem)
+    plugin_name = getattr(module, 'PLUGIN_NAME', path.stem)
+    registry._active_plugin = plugin_name
     try:
         register = getattr(module, 'register_plugin', None)
         if callable(register):
@@ -586,8 +604,45 @@ def _register_module(
             registry.register_updater(source, update)
         for name, notify in (getattr(module, 'NOTIFIERS', {}) or {}).items():
             registry.register_notifier(name, notify)
+
+        # ── Build the per-plugin summary used by --list-plugins ─────
+        capabilities: List[str] = []
+        if any(s.plugin == plugin_name for s in registry.scanners.values()):
+            capabilities.append('scanner')
+        if any(c.plugin == plugin_name for c in registry.checkers.values()):
+            capabilities.append('checker')
+        if any(u.plugin == plugin_name for u in registry.updaters.values()):
+            capabilities.append('updater')
+        if any(s.plugin == plugin_name for s in registry.security_checkers.values()):
+            capabilities.append('security')
+        if any(n.plugin == plugin_name for n in registry.notifiers.values()):
+            capabilities.append('notifier')
+
+        # First non-empty line of the module docstring → the plugin's
+        # one-line description. Falls back to the registered scanner
+        # description, then to a generic placeholder.
+        doc = (module.__doc__ or '').strip()
+        first_line = doc.splitlines()[0].strip() if doc else ''
+        description = first_line or _fallback_description(registry, plugin_name)
+
+        registry.metadata[plugin_name] = PluginMetadata(
+            name=plugin_name,
+            path=str(path),
+            description=description,
+            capabilities=capabilities,
+        )
     finally:
         registry._active_plugin = previous
+
+
+def _fallback_description(registry: PluginRegistry, plugin_name: str) -> str:
+    """When a plugin has no docstring, derive a description from registrations."""
+    for bucket in (registry.scanners, registry.security_checkers,
+                   registry.checkers, registry.updaters, registry.notifiers):
+        for entry in bucket.values():
+            if entry.plugin == plugin_name and entry.description:
+                return entry.description
+    return '(no description)'
 
 
 def _wrap_scanner(source: str, scan: PluginScannerFunc) -> Callable[[], List[AppInfo]]:
@@ -663,6 +718,7 @@ __all__ = [
     'PluginContext',
     'PluginChecker',
     'PluginLoadError',
+    'PluginMetadata',
     'PluginNotifier',
     'PluginRegistry',
     'PluginScanner',

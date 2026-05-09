@@ -599,3 +599,52 @@ def test_security_checker_failure_does_not_break_scan(tmp_path, caplog):
 
 	assert vulns == []
 	assert app.update_status == UpdateStatus.UNKNOWN
+
+
+# ─── PluginMetadata + summary view ───────────────────────────────────────
+
+
+def test_plugin_metadata_uses_module_docstring(tmp_path):
+	"""First non-empty line of the module docstring → metadata.description."""
+	plugin_dir = tmp_path / '.system_update' / 'plugins'
+	plugin_dir.mkdir(parents=True)
+	(plugin_dir / 'sample_plugin.py').write_text(
+		'''"""sample-plugin — fixture plugin used by tests.
+
+Longer prose follows after the first line.
+"""
+PLUGIN_NAME = 'sample-plugin'
+SOURCE = 'demo-meta'
+
+def scan():
+	return []
+
+def register_plugin(registry, context):
+	registry.register_scanner(SOURCE, scan, 'a scanner')
+''',
+		encoding='utf-8',
+	)
+
+	with patch('pathlib.Path.home', return_value=tmp_path):
+		config = SystemConfig()
+		registry = load_plugins(config)
+
+	meta = registry.metadata['sample-plugin']
+	assert meta.name == 'sample-plugin'
+	assert meta.description == 'sample-plugin — fixture plugin used by tests.'
+	assert meta.capabilities == ['scanner']
+	assert meta.path.endswith('sample_plugin.py')
+
+
+def test_plugin_metadata_capabilities_track_registrations(tmp_path):
+	"""All five extension points → all five capabilities."""
+	plugin_dir = tmp_path / '.system_update' / 'plugins'
+	plugin_dir.mkdir(parents=True)
+	_write_plugin(plugin_dir / 'sample_plugin.py')
+
+	with patch('pathlib.Path.home', return_value=tmp_path):
+		config = SystemConfig()
+		registry = load_plugins(config)
+
+	meta = registry.metadata['sample']  # PLUGIN_NAME from the fixture
+	assert set(meta.capabilities) == {'scanner', 'checker', 'updater', 'security', 'notifier'}

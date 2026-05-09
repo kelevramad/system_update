@@ -410,7 +410,13 @@ def main(
 	list_plugins: bool = typer.Option(
 		False,
 		'--list-plugins',
-		help='🧩 Show loaded custom scanners and notification plugins.',
+		help='🧩 Show loaded plugins (one row per plugin file with capability chips).',
+		rich_help_panel=PANEL_DATA,
+	),
+	list_plugins_detail: bool = typer.Option(
+		False,
+		'--list-plugins-detail',
+		help='🧬 Show every registered extension point per plugin (per-type table).',
 		rich_help_panel=PANEL_DATA,
 	),
 	no_plugins: bool = typer.Option(
@@ -700,6 +706,7 @@ def main(
 		import_files=import_files,
 		merge_with_cache=merge_with_cache,
 		list_plugins=list_plugins,
+		list_plugins_detail=list_plugins_detail,
 		no_plugins=no_plugins,
 		cloud_sync=cloud_sync,
 		schedule=schedule,
