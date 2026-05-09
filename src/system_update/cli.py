@@ -7,6 +7,7 @@ scan → check → security → display → export → update workflow.
 
 from __future__ import annotations
 
+import io
 import shutil
 import sys
 from argparse import Namespace
@@ -37,10 +38,11 @@ _APP_VERSION = _resolve_version()
 # ``python -m system_update`` entry point and the installed
 # ``system-update`` script entry-point.
 for _stream in (sys.stdout, sys.stderr):
-	try:
-		_stream.reconfigure(encoding='utf-8', errors='replace')
-	except Exception:
-		pass
+	if isinstance(_stream, io.TextIOWrapper):
+		try:
+			_stream.reconfigure(encoding='utf-8', errors='replace')
+		except Exception:
+			pass
 
 
 def _configure_rich_help_width() -> None:

@@ -321,9 +321,9 @@ class CacheManager:
 		if latest == '-':
 			latest = ''
 		return AppInfo(
-			name=item.get('name'),
+			name=str(item.get('name') or ''),
 			source=source_normalized,
-			version=item.get('version'),
+			version=str(item.get('version') or ''),
 			latest_version=latest,
 			app_id=item.get('appId'),
 			update_status=UpdateStatus(item.get('status', 'unknown')),
