@@ -24,13 +24,17 @@ class HistoryDatabase:
 	"""
 
 	def __init__(self, db_path: Optional[Path] = None, connect: bool = True) -> None:
-		self.db_path = db_path or (Path.home() / '.system_update' / 'history.db')
+		from system_update.utils import data_dir
+
+		self.db_path = db_path or (data_dir() / 'history.db')
 		self._conn: Optional[sqlite3.Connection] = None
 		if connect:
 			self._connect()
 
 	def _connect(self) -> None:
 		"""Open the SQLite connection and ensure schema exists."""
+		from system_update.utils import harden_existing_file
+
 		if self._conn is not None:
 			return
 		self.db_path.parent.mkdir(exist_ok=True)
@@ -38,6 +42,10 @@ class HistoryDatabase:
 		conn.row_factory = sqlite3.Row
 		self._conn = conn
 		self._create_schema(conn)
+		# Hardening 1.4.1 — sqlite3.connect uses raw open(O_CREAT) and
+		# does not honor secure_write's atomic+ACL path. Apply 0o600 /
+		# icacls to the db file once it exists.
+		harden_existing_file(self.db_path)
 
 	@property
 	def conn(self) -> sqlite3.Connection:
@@ -253,9 +261,9 @@ class VulnerabilityHistory:
 	"""JSON-file log of discovered vulnerabilities with open/resolved status."""
 
 	def __init__(self, history_file: Optional[Path] = None) -> None:
-		self.history_file = history_file or (
-			Path.home() / '.system_update' / 'vulnerability_history.json'
-		)
+		from system_update.utils import data_dir
+
+		self.history_file = history_file or (data_dir() / 'vulnerability_history.json')
 		self.history: List[Dict] = []
 		self._load()
 
@@ -293,9 +301,12 @@ class VulnerabilityHistory:
 	def _save(self) -> None:
 		"""Write the current history list to disk."""
 		try:
-			self.history_file.parent.mkdir(exist_ok=True)
-			with open(self.history_file, 'w', encoding='utf-8') as f:
-				json.dump(self.history, f, indent=2, default=str)
+			from system_update.utils import secure_write
+
+			secure_write(
+				self.history_file,
+				json.dumps(self.history, indent=2, default=str),
+			)
 		except Exception as e:
 			logger.error(f'Failed to save vulnerability history: {e}')
 

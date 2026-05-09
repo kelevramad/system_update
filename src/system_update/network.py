@@ -225,10 +225,12 @@ def _load_cache() -> None:
 
 
 def _save_cache_locked() -> None:
+	from system_update.utils import secure_write
+
 	cache_file = Path(_SETTINGS['cache_file'])
 	try:
-		cache_file.parent.mkdir(parents=True, exist_ok=True)
-		cache_file.write_text(
+		secure_write(
+			cache_file,
 			json.dumps(
 				{
 					'version': _CACHE_VERSION,
@@ -237,7 +239,6 @@ def _save_cache_locked() -> None:
 				},
 				indent=2,
 			),
-			encoding='utf-8',
 		)
 	except OSError:
 		logger.debug('Failed to write API response cache', exc_info=True)
