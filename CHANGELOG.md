@@ -15,6 +15,14 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.6.0 (May 2026)
+
+- **Concurrency — Thread-safe SQLite (Hardening 2.1.1)**: `HistoryDatabase` and `SnapshotStore` previously cached a single `sqlite3.Connection` and shared it across threads, which raises `ProgrammingError: SQLite objects created in a thread can only be used in that same thread.` under any parallel rollback or batched snapshot work. Each thread now lazily opens its own Connection via `threading.local`; the underlying database is shared via `journal_mode=WAL` + `synchronous=NORMAL` + `foreign_keys=ON` so concurrent readers coexist with one writer. Connections are opened with `check_same_thread=False` so `close()` works from any thread, and every Connection is tracked in a per-instance list so `close()` drains them deterministically across threads (eliminates `ResourceWarning: unclosed database` on GC).
+- **Concurrency — Snapshot ID Uniqueness**: previously snapshot ids used second-resolution timestamps and collided when 8+ threads recorded in the same second. The id now includes `microsecond` plus a process-wide `itertools.count()` sequence — sortable and unique under load.
+- **Concurrency — Per-host Rate Limiter (Hardening 2.1.2)**: replaced the process-global `RLock` + `time.sleep` (which serialized every HTTP call across every host through one queue and defeated the worker pool) with a per-host `_HostLimiter`. The lock is held briefly to compute the wait and reserve the slot; the slow `time.sleep` happens **outside** the lock. Threads on different hosts contend on neither lock; threads on the same host serialize on the slot reservation but parallel pipeline-fill works correctly.
+- **Tests**: 582 passing (up from 568). New `tests/test_concurrency.py` covers 8-thread concurrent `record_scan` / `record` with unique ids and all rows present, per-thread connection isolation, and WAL-mode verification. `tests/test_network.py` gains two new cases proving cross-host calls don't sleep when both slots are free, and that `time.sleep` does not run while the per-host lock is held.
+- **Verification**: `uv run pytest -W default::ResourceWarning` reports **0** "unclosed database" warnings (was 18 from the initial threading.local attempt).
+
 ### v8.5.2 (May 2026)
 
 - **Security — Safe Parsing (Hardening 1.5)**: Remote WinRM JSON stdout is now capped before parsing with a configurable `remote.max_response_bytes` setting (default 10 MiB). Oversized or malformed JSON-looking responses from `winrs` and `pywinrm` now become per-host errors instead of unbounded `json.loads` work or silent parse drops.
