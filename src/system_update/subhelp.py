@@ -13,7 +13,7 @@ Pages live here so ``cli.py`` stays focused on argument plumbing.
 
 from __future__ import annotations
 
-from typing import Callable, Dict
+from typing import Callable, Dict, Optional
 
 from rich.console import Console
 from rich.panel import Panel
@@ -681,7 +681,7 @@ _REGISTRY: Dict[str, Callable[[Console], None]] = {
 }
 
 
-def show(flag: str, console: Console = None) -> bool:
+def show(flag: str, console: Optional[Console] = None) -> bool:
 	"""Print the detailed help page for ``flag``. Returns ``True`` if printed.
 
 	``flag`` is matched both with and without leading dashes, and with both

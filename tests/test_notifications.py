@@ -1,5 +1,10 @@
+import io
 from unittest.mock import MagicMock, patch
+
+import pytest
+
 from system_update import NotificationManager
+from system_update.notifications import NotificationManager as _NM
 
 
 def test_send_webhook_valid_url():
@@ -196,3 +201,135 @@ def test_notification_send_webhook_success():
 		mock_url.return_value.__enter__.return_value.status = 200
 		result = nm.send_webhook('http://example.com/webhook', {'title': 'Test', 'message': 'Msg'})
 		assert result is True
+
+
+# ─── 1.1.2 — bearer token kept off subprocess argv ───────────────────────
+
+
+def _fake_response(status: int, body: bytes):
+	resp = MagicMock()
+	resp.__enter__.return_value = resp
+	resp.__exit__.return_value = False
+	resp.status = status
+	resp.read.return_value = body
+	return resp
+
+
+def test_send_email_via_api_uses_urllib_not_curl():
+	"""Bearer token must travel in HTTP headers, never on argv."""
+	with patch('subprocess.run') as mock_subproc, \
+		patch('urllib.request.urlopen') as mock_url:
+		mock_url.return_value = _fake_response(200, b'{"success": true}')
+		ok = _NM._send_email_via_api(
+			'https://api.example.com/send',
+			'tk_secret_value',
+			'to@example.com',
+			'Subject',
+			'Body',
+		)
+	assert ok is True
+	# No subprocess invocation at all.
+	mock_subproc.assert_not_called()
+	# Token is on the Request header, not interpolated anywhere visible.
+	req = mock_url.call_args.args[0]
+	assert req.headers.get('Authorization') == 'Bearer tk_secret_value'
+	assert req.headers.get('Content-type') == 'application/json'
+	assert req.method == 'POST'
+
+
+def test_send_email_via_api_handles_http_error():
+	import urllib.error
+
+	with patch('urllib.request.urlopen', side_effect=urllib.error.HTTPError(
+		'https://api.example.com/send', 401, 'Unauthorized', {},  # type: ignore[arg-type]
+		io.BytesIO(b''))):
+		ok = _NM._send_email_via_api(
+			'https://api.example.com/send', 'tk', 'a@b', 'S', 'B'
+		)
+	assert ok is False
+
+
+def test_send_email_via_api_handles_url_error():
+	import urllib.error
+
+	with patch('urllib.request.urlopen', side_effect=urllib.error.URLError('dns')):
+		ok = _NM._send_email_via_api(
+			'https://api.example.com/send', 'tk', 'a@b', 'S', 'B'
+		)
+	assert ok is False
+
+
+def test_send_email_via_api_rejects_non_success_body():
+	with patch('urllib.request.urlopen') as mock_url:
+		mock_url.return_value = _fake_response(200, b'{"error": "bad"}')
+		ok = _NM._send_email_via_api(
+			'https://api.example.com/send', 'tk', 'a@b', 'S', 'B'
+		)
+	assert ok is False
+
+
+# ─── Hardening 1.3.2 — webhook SSRF allowlist ────────────────────────────
+
+
+@pytest.mark.parametrize('bad_url', [
+	'file:///etc/passwd',
+	'ftp://example.com/x',
+	'gopher://example.com/x',
+	'data:text/plain;base64,SGVsbG8=',
+])
+def test_send_webhook_rejects_non_http_schemes(bad_url):
+	import pytest as _pytest  # noqa: F401
+	nm = NotificationManager()
+	with patch('urllib.request.urlopen') as urlopen:
+		assert nm.send_webhook(bad_url, {'x': 1}) is False
+	urlopen.assert_not_called()
+
+
+@pytest.mark.parametrize('private_url', [
+	'http://127.0.0.1/hook',
+	'http://localhost/hook',
+	'http://10.0.0.5/hook',
+	'http://172.16.0.1/hook',
+	'http://192.168.1.1/hook',
+	'http://169.254.169.254/latest/meta-data/',
+	'http://[::1]/hook',
+])
+def test_send_webhook_blocks_private_hosts_by_default(private_url):
+	"""Refuse webhooks aimed at loopback / link-local / RFC1918 / IMDS."""
+	nm = NotificationManager()
+	with patch('urllib.request.urlopen') as urlopen:
+		assert nm.send_webhook(private_url, {'x': 1}) is False
+	urlopen.assert_not_called()
+
+
+def test_send_webhook_allows_private_hosts_when_opted_in():
+	"""``allow_private_hosts=true`` permits self-hosted endpoints."""
+	nm = NotificationManager()
+	nm.settings['allow_private_hosts'] = True
+
+	mock_response = MagicMock()
+	mock_response.status = 200
+	mock_response.__enter__ = MagicMock(return_value=mock_response)
+	mock_response.__exit__ = MagicMock(return_value=False)
+	with patch('urllib.request.urlopen', return_value=mock_response) as urlopen:
+		ok = nm.send_webhook('http://127.0.0.1/hook', {'x': 1})
+
+	assert ok is True
+	urlopen.assert_called_once()
+
+
+def test_send_webhook_blocks_dns_resolved_private_host():
+	"""Hostnames resolving to private ranges are also rejected."""
+	import socket
+
+	nm = NotificationManager()
+	# Mock DNS to return a private address.
+	with (
+		patch(
+			'system_update.notifications.socket.getaddrinfo',
+			return_value=[(socket.AF_INET, socket.SOCK_STREAM, 0, '', ('10.0.0.5', 0))],
+		),
+		patch('urllib.request.urlopen') as urlopen,
+	):
+		assert nm.send_webhook('http://internal-ci.corp/hook', {'x': 1}) is False
+	urlopen.assert_not_called()

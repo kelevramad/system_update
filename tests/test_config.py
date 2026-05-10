@@ -1,9 +1,22 @@
 import json
 import logging
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import patch
 
 import pytest
+
+from system_update.config import SystemConfig
+
+
+def _as_config(ns: SimpleNamespace) -> SystemConfig:
+	"""Cast a duck-typed SimpleNamespace to SystemConfig for setup_logging.
+
+	``setup_logging`` only reads ``config.log_file`` and ``config.config_dir``,
+	so a SimpleNamespace with those attributes is sufficient at runtime. The
+	cast keeps the type checker quiet without changing test behavior.
+	"""
+	return cast(SystemConfig, ns)
 
 
 def _close_root_handlers():
@@ -18,7 +31,7 @@ def test_log_flag_writes_info_without_console_output(tmp_path, capsys):
 
 	config = SimpleNamespace(log_file=tmp_path / 'system.log', config_dir=tmp_path)
 	try:
-		setup_logging(config, enable_log=True)
+		setup_logging(_as_config(config), enable_log=True)
 		logging.getLogger('system_update.security').info("Security check sources: ['npm']")
 		for handler in logging.getLogger().handlers:
 			handler.flush()
@@ -38,7 +51,7 @@ def test_logging_divider_precedes_first_log_entry(tmp_path):
 
 	config = SimpleNamespace(log_file=tmp_path / 'system.log', config_dir=tmp_path)
 	try:
-		setup_logging(config, enable_log=True)
+		setup_logging(_as_config(config), enable_log=True)
 		logging.getLogger('system_update.test').info('First real log line')
 		for handler in logging.getLogger().handlers:
 			handler.flush()
@@ -57,10 +70,10 @@ def test_logging_setup_without_records_does_not_write_orphan_divider(tmp_path):
 
 	config = SimpleNamespace(log_file=tmp_path / 'system.log', config_dir=tmp_path)
 	try:
-		setup_logging(config, enable_log=True)
+		setup_logging(_as_config(config), enable_log=True)
 		_close_root_handlers()
 
-		setup_logging(config, enable_log=True)
+		setup_logging(_as_config(config), enable_log=True)
 		logging.getLogger('system_update.test').info('First real log line')
 		for handler in logging.getLogger().handlers:
 			handler.flush()
@@ -77,7 +90,7 @@ def test_debug_flag_echoes_info_to_stderr(tmp_path, capsys):
 
 	config = SimpleNamespace(log_file=tmp_path / 'system.log', config_dir=tmp_path)
 	try:
-		setup_logging(config, debug=True, enable_log=True)
+		setup_logging(_as_config(config), debug=True, enable_log=True)
 		logging.getLogger('system_update.security').info("Security check sources: ['npm']")
 
 		captured = capsys.readouterr()
@@ -92,7 +105,7 @@ def test_failed_exec_warning_is_system_log_only(tmp_path, capsys):
 
 	config = SimpleNamespace(log_file=tmp_path / 'system.log', config_dir=tmp_path)
 	try:
-		setup_logging(config, enable_log=True)
+		setup_logging(_as_config(config), enable_log=True)
 		logging.getLogger('system_update.utils').warning(
 			'[EXEC] Command failed (exit 1): choco upgrade dbeaver -y\nstdout:\ndenied'
 		)

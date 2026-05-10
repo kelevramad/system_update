@@ -239,6 +239,7 @@ def test_task_status_parses_verbose_list(monkeypatch):
 		lambda argv, **kw: _FakeProc(0, fake_list),
 	)
 	info = scheduler.task_status('SystemUpdate_Scan')
+	assert info is not None
 	assert info['status'] == 'Ready'
 	assert info['last_result'] == '0'
 	assert 'system_update' in info['task_to_run']

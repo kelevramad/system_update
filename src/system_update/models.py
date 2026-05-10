@@ -38,7 +38,7 @@ class CommandError:
 		self.suggestion = suggestion
 
 	@staticmethod
-	def classify(exception: Exception, command: str = '') -> 'CommandError':
+	def classify(exception: BaseException, command: str = '') -> 'CommandError':
 		"""Classify an exception and provide recovery suggestions."""
 		error_type = type(exception).__name__
 

@@ -1,0 +1,28 @@
+{
+  "include": [
+    "src/system_update",
+    "tests"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    ".venv",
+    ".claude",
+    "build",
+    "dist",
+    "examples"
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.9",
+  "typeCheckingMode": "basic",
+  "useLibraryCodeForTypes": true,
+  "reportMissingImports": "error",
+  "reportMissingTypeStubs": "none",
+  "reportInvalidTypeForm": "warning",
+  "reportGeneralTypeIssues": "warning",
+  "reportUnknownMemberType": "none",
+  "reportUnknownArgumentType": "none",
+  "reportUnknownVariableType": "none",
+  "reportUnknownParameterType": "none",
+  "reportPrivateUsage": "none"
+}
