@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 import logging
 from collections import OrderedDict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set
 
 from system_update.models import AppInfo, UpdateStatus
-from system_update.utils import secure_write
+from system_update.utils import parse_iso_utc, secure_write
 
 logger = logging.getLogger(__name__)
 
@@ -85,8 +85,8 @@ class CacheManager:
 			data = data or self._read_raw()
 			if not data:
 				return False
-			cache_time = datetime.fromisoformat(data.get('timestamp', '').replace('Z', ''))
-			if datetime.now() - cache_time < self.duration:
+			cache_time = parse_iso_utc(data.get('timestamp', ''))
+			if datetime.now(timezone.utc) - cache_time < self.duration:
 				return True
 			return any(self.is_source_valid(source, data) for source in data.get('sources') or [])
 		except Exception:
@@ -103,10 +103,10 @@ class CacheManager:
 			raw = (metadata.get(source_key) or {}).get('timestamp') or data.get('timestamp', '')
 			if not raw:
 				return False
-			cache_time = datetime.fromisoformat(str(raw).replace('Z', ''))
+			cache_time = parse_iso_utc(str(raw))
 			duration_hours = (metadata.get(source_key) or {}).get('duration_hours')
 			duration = timedelta(hours=duration_hours) if duration_hours else self.duration
-			return datetime.now() - cache_time < duration
+			return datetime.now(timezone.utc) - cache_time < duration
 		except Exception:
 			return False
 
@@ -126,7 +126,7 @@ class CacheManager:
 			data = self._read_raw()
 			if not data:
 				return None
-			cache_time = datetime.fromisoformat(data.get('timestamp', '').replace('Z', ''))
+			cache_time = parse_iso_utc(data.get('timestamp', ''))
 			return cache_time + self.duration
 		except Exception:
 			return None
@@ -136,7 +136,7 @@ class CacheManager:
 		expiry = self.expires_at()
 		if expiry is None:
 			return None
-		delta = expiry - datetime.now()
+		delta = expiry - datetime.now(timezone.utc)
 		secs = int(delta.total_seconds())
 		if secs <= 0:
 			return 'expired'
@@ -240,7 +240,7 @@ class CacheManager:
 		"""
 		try:
 			previous = self._read_raw() or {}
-			now = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+			now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 			sources_seen: List[str] = []
 			seen: Set[str] = set()
 			has_pip = False
@@ -330,9 +330,13 @@ class CacheManager:
 			latest_version=latest,
 			app_id=item.get('appId'),
 			update_status=UpdateStatus(item.get('status', 'unknown')),
-			scan_time=datetime.fromisoformat(
-				item.get('scanTime', datetime.now().isoformat()).replace('Z', '')
-			),
+			# AppInfo.scan_time is naive-UTC by convention (matches the
+			# naive default from datetime.now()). parse_iso_utc gives an
+			# aware datetime; strip the tzinfo at the boundary so the
+			# downstream API surface is unchanged.
+			scan_time=parse_iso_utc(
+				item.get('scanTime') or datetime.now(timezone.utc).isoformat()
+			).replace(tzinfo=None),
 			error_msg=item.get('errorMsg'),
 			install_path=item.get('installPath'),
 			security_findings=list(item.get('securityFindings') or []),
@@ -361,7 +365,7 @@ class CacheManager:
 			or _delta_value(current[key], 'status') != _delta_value(previous[key], 'status')
 		)
 		return {
-			'timestamp': datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z',
+			'timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z',
 			'added': added,
 			'updated': updated,
 			'removed': removed,
@@ -374,11 +378,11 @@ class CacheManager:
 
 	def _prune_deltas(self, deltas: List[Dict]) -> List[Dict]:
 		kept = []
-		cutoff = datetime.now() - timedelta(days=self.prune_after_days)
+		cutoff = datetime.now(timezone.utc) - timedelta(days=self.prune_after_days)
 		for delta in deltas:
 			try:
-				raw = str(delta.get('timestamp', '')).replace('Z', '')
-				if raw and datetime.fromisoformat(raw) < cutoff:
+				raw = str(delta.get('timestamp', ''))
+				if raw and parse_iso_utc(raw) < cutoff:
 					continue
 			except Exception:
 				continue
@@ -389,13 +393,13 @@ class CacheManager:
 		if self.prune_after_days <= 0:
 			data['totalApps'] = len(data.get('apps') or [])
 			return data
-		cutoff = datetime.now() - timedelta(days=self.prune_after_days)
+		cutoff = datetime.now(timezone.utc) - timedelta(days=self.prune_after_days)
 		metadata = dict(data.get('source_metadata') or {})
 		pruned_sources = set()
 		for source, meta in list(metadata.items()):
 			try:
-				raw = str((meta or {}).get('timestamp') or now).replace('Z', '')
-				if datetime.fromisoformat(raw) < cutoff:
+				raw = str((meta or {}).get('timestamp') or now)
+				if parse_iso_utc(raw) < cutoff:
 					pruned_sources.add(str(source).lower())
 					metadata.pop(source, None)
 			except Exception:

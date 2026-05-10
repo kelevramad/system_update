@@ -14,6 +14,7 @@ import platform
 import shutil
 import subprocess
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Union
 
@@ -148,6 +149,114 @@ def harden_existing_file(path: Union[str, Path]) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# WINDOWS ENCODING + ISO TIMESTAMP HELPERS (Hardening 2.2)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def parse_iso_utc(s: str) -> datetime:
+	"""Parse an ISO-8601 timestamp into a timezone-aware UTC ``datetime``.
+
+	Hardening 2.2.3 — the previous pattern
+	``datetime.fromisoformat(s.replace('Z', ''))`` produced a *naive*
+	datetime in local time, which compares wrongly against
+	``datetime.now(timezone.utc)`` and silently invalidates the cache
+	(or, depending on sign, never invalidates it). Always returns an
+	aware UTC datetime; legacy naive entries are interpreted as UTC.
+
+	Raises ``ValueError`` for unparseable input — keep the same blast
+	radius the caller already handles around ``fromisoformat``.
+	"""
+	if not s:
+		raise ValueError('parse_iso_utc: empty string')
+	# Python <3.11 doesn't accept the trailing ``Z`` alias. Normalise.
+	if s.endswith('Z'):
+		s = s[:-1] + '+00:00'
+	dt = datetime.fromisoformat(s)
+	if dt.tzinfo is None:
+		# Legacy entries assumed to be UTC — preserves the previous
+		# *intended* semantics across cache files written before the fix.
+		dt = dt.replace(tzinfo=timezone.utc)
+	return dt.astimezone(timezone.utc)
+
+
+# Decoder priority list for ``decode_command_output`` — first to fully
+# decode wins. ``utf-8-sig`` strips an optional BOM. ``cp850`` is the
+# default OEM page on en-US Windows; ``cp1252`` is the default ANSI
+# page; both come up in legacy ``cmd.exe`` console output.
+_DECODE_FALLBACKS = ('utf-8-sig', 'utf-16-le', 'cp1252')
+
+
+def _oem_codepage() -> Optional[str]:
+	"""Return the active Windows OEM code page (e.g. 'cp850'), or None.
+
+	The OEM page is what ``cmd.exe``-spawned tools write to stdout.
+	Different from the ANSI page (``GetACP``), which is what GUI APIs
+	use. Falls back to ``None`` on non-Windows or if ctypes lookup
+	fails for any reason.
+	"""
+	if platform.system() != 'Windows':
+		return None
+	try:
+		import ctypes
+		cp = ctypes.windll.kernel32.GetOEMCP()  # type: ignore[attr-defined]
+		return f'cp{int(cp)}' if cp else None
+	except Exception:
+		return None
+
+
+def decode_command_output(data: Union[bytes, str, None]) -> str:
+	"""Decode raw subprocess stdout/stderr, preserving accented characters.
+
+	Hardening 2.2.1 — ``subprocess.run(..., text=True, encoding='utf-8',
+	errors='ignore')`` corrupts Windows tool output that's not UTF-8
+	(it silently drops bytes), producing mojibake for names like
+	``Café``, ``Software Müller``, or any pt-BR / DE / ES vendor name.
+	Capture as bytes and decode with a fallback chain instead.
+
+	Order: UTF-8 (with BOM strip) → UTF-16-LE (if the BOM is present)
+	→ active OEM code page (`GetOEMCP`) on Windows → CP1252 → UTF-8
+	with ``errors='replace'`` as the final fallback (logs a debug
+	line so the failure is visible without crashing the scanner).
+
+	Tolerant of ``str`` input: if a caller passes already-decoded text
+	(common in test mocks), it's returned unchanged.
+	"""
+	if not data:
+		return ''
+	# Already-decoded — pass through. Lets existing test mocks that
+	# return ``stdout='...'`` keep working after the bytes migration.
+	if isinstance(data, str):
+		return data
+
+	# UTF-16-LE BOM is unmistakable; check it first to avoid the
+	# UTF-8-sig path mangling a UTF-16 stream.
+	if data[:2] == b'\xff\xfe':
+		try:
+			return data.decode('utf-16-le')[1:]  # drop the BOM character
+		except UnicodeDecodeError:
+			pass
+
+	candidates: List[str] = list(_DECODE_FALLBACKS)
+	oem = _oem_codepage()
+	if oem and oem not in candidates:
+		# Insert OEM page after UTF-8 so genuine UTF-8 still wins, but
+		# legacy OEM output beats the generic CP1252 fallback.
+		candidates.insert(1, oem)
+
+	for codec in candidates:
+		try:
+			return data.decode(codec)
+		except UnicodeDecodeError:
+			continue
+
+	logger.debug(
+		'decode_command_output: all decoders failed (%d bytes); '
+		'falling back to utf-8/replace.', len(data),
+	)
+	return data.decode('utf-8', errors='replace')
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # SUBPROCESS WRAPPER
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -216,16 +325,32 @@ def run_command(
         if env_overrides and env is not None:
             env.update(env_overrides)
 
+        # Hardening 2.2.1 — capture as bytes so accented characters in
+        # tool output (winget, reg query, choco list) survive. Decoding
+        # is delegated to ``decode_command_output`` which tries UTF-8 →
+        # UTF-16-LE (BOM-detected) → active OEM code page → CP1252,
+        # falling back to UTF-8/replace only if everything fails.
         result = subprocess.run(
             cmd,
             capture_output=True,
-            text=True,
             check=False,
-            encoding='utf-8',
-            errors='ignore',
             timeout=timeout,
             env=env,
         )
+
+        # Reattach decoded strings to a SimpleNamespace-like shim so
+        # downstream code keeps using ``result.stdout`` / ``result.stderr``
+        # as ``str`` without further changes.
+        decoded_stdout = decode_command_output(result.stdout or b'')
+        decoded_stderr = decode_command_output(result.stderr or b'')
+
+        class _Decoded:
+            def __init__(self, returncode: int, stdout: str, stderr: str) -> None:
+                self.returncode = returncode
+                self.stdout = stdout
+                self.stderr = stderr
+
+        result = _Decoded(result.returncode, decoded_stdout, decoded_stderr)  # type: ignore[assignment]
 
         logger.debug(f'[EXEC] Exit code: {result.returncode}')
 

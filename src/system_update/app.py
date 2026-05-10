@@ -15,7 +15,7 @@ import threading
 import time
 from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
@@ -1895,7 +1895,7 @@ class SystemUpdateApp:
         if remaining is None:
             return
         threshold = cache_settings.get('prefetch_threshold_minutes', 15)
-        if (remaining - datetime.now()).total_seconds() > threshold * 60:
+        if (remaining - datetime.now(timezone.utc)).total_seconds() > threshold * 60:
             return
         sources = set(candidate_sources)
         if not sources:
