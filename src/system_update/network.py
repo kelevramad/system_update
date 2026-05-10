@@ -21,6 +21,53 @@ _LAST_REQUEST_BY_HOST: Dict[str, float] = {}
 _RESPONSE_CACHE: Dict[str, Dict[str, Any]] = {}
 _CACHE_LOADED = False
 
+# Hardening 1.3.1 — only HTTP/HTTPS schemes are allowed. ``urllib`` will
+# happily open ``file://`` and ``ftp://`` URLs by default, which means a
+# user-supplied or config-supplied URL pointing at e.g. a local file
+# would be silently fetched and treated as an API response. Restrict at
+# two layers: validate the scheme up front *and* build a custom opener
+# that has no FileHandler / FTPHandler installed, so even a 30x redirect
+# to ``file://`` cannot escape the allowlist.
+_ALLOWED_SCHEMES = frozenset({'http', 'https'})
+
+
+def _build_safe_opener() -> 'urllib.request.OpenerDirector':
+	"""Custom OpenerDirector that only knows how to handle HTTP/HTTPS."""
+	opener = urllib.request.OpenerDirector()
+	opener.add_handler(urllib.request.HTTPHandler())
+	opener.add_handler(urllib.request.HTTPSHandler())
+	opener.add_handler(urllib.request.HTTPDefaultErrorHandler())
+	opener.add_handler(urllib.request.HTTPRedirectHandler())
+	opener.add_handler(urllib.request.HTTPErrorProcessor())
+	# Note: no FileHandler, no FTPHandler, no DataHandler.
+	return opener
+
+
+_SAFE_OPENER = _build_safe_opener()
+
+
+class UnsafeUrlError(ValueError):
+	"""Raised when a URL's scheme falls outside the allowlist."""
+
+
+def _validate_url(url: str) -> None:
+	"""Refuse non-HTTP(S) URLs before any network call.
+
+	Hardening 1.3.1: ``urllib.request.urlopen`` accepts ``file://`` /
+	``ftp://`` / ``data:`` schemes, which would let a hostile or
+	misconfigured URL coerce the CLI into reading local files or talking
+	to internal services. Reject anything that isn't ``http``/``https``
+	with an empty netloc.
+	"""
+	parsed = urllib.parse.urlparse(url)
+	scheme = (parsed.scheme or '').lower()
+	if scheme not in _ALLOWED_SCHEMES:
+		raise UnsafeUrlError(
+			f'Refusing non-HTTP URL (scheme={scheme!r}): only http/https are allowed'
+		)
+	if not parsed.netloc:
+		raise UnsafeUrlError(f'Refusing URL with no host: {url!r}')
+
 _SETTINGS = {
 	'enabled': True,
 	'cache_enabled': True,
@@ -66,6 +113,7 @@ def fetch_json(
 	method = method.upper()
 	if not _SETTINGS.get('enabled', True):
 		raise RuntimeError('Network access is disabled by configuration')
+	_validate_url(url)
 	body = None
 	if payload is not None:
 		body = json.dumps(payload, sort_keys=True).encode('utf-8')
@@ -88,7 +136,8 @@ def fetch_json(
 
 	req = urllib.request.Request(url, data=body, method=method, headers=request_headers)
 	request_timeout = _positive_number(timeout, _SETTINGS['timeout_seconds'])
-	with urllib.request.urlopen(req, timeout=request_timeout) as response:
+	# Use the http-only opener so a 30x redirect to file:// is refused too.
+	with _SAFE_OPENER.open(req, timeout=request_timeout) as response:
 		data = json.loads(response.read().decode('utf-8'))
 
 	if use_cache and _SETTINGS['cache_enabled']:
@@ -176,10 +225,12 @@ def _load_cache() -> None:
 
 
 def _save_cache_locked() -> None:
+	from system_update.utils import secure_write
+
 	cache_file = Path(_SETTINGS['cache_file'])
 	try:
-		cache_file.parent.mkdir(parents=True, exist_ok=True)
-		cache_file.write_text(
+		secure_write(
+			cache_file,
 			json.dumps(
 				{
 					'version': _CACHE_VERSION,
@@ -188,7 +239,6 @@ def _save_cache_locked() -> None:
 				},
 				indent=2,
 			),
-			encoding='utf-8',
 		)
 	except OSError:
 		logger.debug('Failed to write API response cache', exc_info=True)

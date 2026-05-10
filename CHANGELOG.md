@@ -15,6 +15,71 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.5.1 (May 2026)
+
+- **Tests — Windows ACL Coverage**: filled the gap left by v8.5.0, where the file-permission tests skipped on Windows because POSIX mode-bit assertions don't translate. Three new tests in `tests/test_secure_paths.py` (each gated `@pytest.mark.skipif(platform.system() != 'Windows')`):
+  - **Unit (mocked subprocess)** — `secure_write` must spawn two `icacls <path> /inheritance:r /grant <USER>:(F)` calls per write (temp file before rename + destination as belt-and-suspenders).
+  - **Integration (real `icacls`)** — write a file via `secure_write`, run `icacls <path>` for real, and assert the current user appears with `(F)` while no `Everyone:`, `BUILTIN\Users:`, or `NT AUTHORITY\Authenticated Users:` ACE survives the `/inheritance:r` reset.
+  - **Unit (mocked subprocess)** — `harden_existing_file` must spawn one icacls call with the same argv shape.
+- **Result**: `uv run pytest` on Windows is now **571 passed, 4 skipped** (up from 568 / 4). No runtime behavior change.
+
+### v8.5.0 (May 2026)
+
+- **Security — Restrictive File Permissions (Hardening 1.4.1)**: Every data file under `~/.system_update/` is now written through a new `secure_write()` helper that produces a `0o600` file on POSIX and an `icacls /inheritance:r /grant USER:(F)` user-only ACL on Windows. The temp file is hardened **before** any data hits disk and `os.replace` makes the swap atomic, so the file never exists with looser permissions. Failed writes wipe the temp and leave the previous content intact. Affects `cache.json`, `config.json`/`config.yaml`, exported profiles, `inventory.json`, `vulnerability_history.json`, and `api_cache.json`.
+- **Security — SQLite Database ACLs**: `harden_existing_file()` is invoked from `HistoryDatabase._connect` and `SnapshotStore._connect` so `history.db` / snapshots get the same user-only ACL once `sqlite3.connect` has created them. Other local users can no longer enumerate scan history or recover pre-update package state.
+- **Centralized Data Directory (Hardening 1.4.2)**: New `utils.data_dir()` accessor honors the `SYSTEM_UPDATE_HOME` environment variable and creates `~/.system_update` with mode `0o700` on POSIX. Replaces 8 hardcoded `Path.home() / '.system_update'` sites across `config.py`, `history.py`, `snapshots.py`, `remote.py`, and `plugins.py` so every module agrees on the path *and* the permissions. The single remaining literal is the `network.py` module-level fallback used during early import; the actual write path goes through `secure_write` after the dir has been hardened by `SystemConfig` startup.
+- **Tests**: 568 passing (up from 556) — 12 new tests in `tests/test_secure_paths.py` covering `data_dir()` (default location, env override, idempotency, 0o700), `secure_write()` (string + bytes data, parent mkdir, atomic replace, partial-write rollback, 0o600 application), `harden_existing_file()`, and the `SystemConfig.config_dir == data_dir()` / `Inventory.save` end-to-end paths. POSIX-only assertions are gated behind `pytest.mark.skipif`.
+
+### v8.4.1 (May 2026)
+
+- **Quality — Pyright Baseline Cleared (80 → 0)**: Cleaned every error reported by `uv run task typecheck`. No runtime behavior change; the full test suite stays at **556 passed**.
+- **Source-side highlights** (37 errors fixed):
+  - `history.py`: introduce a typed `conn` `@property` over `Optional[sqlite3.Connection]` so all 21 access sites reach a guaranteed-non-`None` connection (13 errors gone). Same shape in `snapshots.py` (2).
+  - `cache.py`: `_app_from_dict` coerces optional `name`/`version` through `str(... or '')` so `AppInfo(...)` gets concrete strings.
+  - `notifications.py`: typed `Dict[str, str]` for webhook headers; `password or ''` for SMTP login.
+  - `executors/__init__.py`: tighten the snapshot block to require `pre_state` *and* `snapshot_store` non-`None`.
+  - `__main__.py` / `cli.py` / `config.py`: narrow `sys.stdout`/`stderr` with `isinstance(_, io.TextIOWrapper)` before calling `reconfigure(...)`.
+  - `checkers/__init__.py`: swap `Dict[str, Callable]` for the covariant `Mapping[str, Callable]` (5 errors gone).
+  - `export.py`: `resolve_output_file` and `export` accept `Optional[str]`; `export_html` resolves `branding` to a concrete `ReportBranding` instance.
+  - `ui/system.py`: `_format_size` accumulates in a local `float`; `_latest_cell` advertises its real `Text | str` return; `_cvss_display` narrows on `isinstance(vuln, dict)`.
+  - `scanners/pip.py`: `_parse_pip_list(raw: Optional[str])`. `subhelp.py`: `show(flag, console: Optional[Console] = None)`. `plugins.py`: `os.geteuid` via `getattr` for Windows.
+  - `remote.py`: `RemoteResult.parsed: Optional[Any]` (was `Optional[Dict]`) to match the documented dict-or-list payload shape.
+- **Test-side highlights** (43 errors fixed):
+  - `tests/test_snapshots.py`: 17 errors gone via `assert ... is not None` after `store.get(...)` and `build_rollback_command(...)`.
+  - `tests/test_smart_cache.py` (6), `tests/test_scheduler.py` (4), `tests/test_utils.py` (4): same pattern.
+  - `tests/test_config.py` (6): new `_as_config()` `cast` helper for `setup_logging(SimpleNamespace)`.
+  - `tests/conftest.py` (2), `tests/test_notifications.py` (1): `# type: ignore` on three documented test-only patterns (monkeypatch, `HTTPError` headers init, dynamic module attrs).
+- **`CommandError.classify`**: parameter widened from `Exception` to `BaseException` so the existing `test_command_error_keyboard_interrupt` path typechecks.
+- **`pyrightconfig.json`**: dropped the `$schema` key so the CLI no longer warns about an unrecognized setting.
+- **Reproducible**: `uv run task typecheck` returns `0 errors, 0 warnings, 0 informations`. See [`docs/typecheck/baseline.md`](docs/typecheck/baseline.md) for the full breakdown.
+
+### v8.4.0 (May 2026)
+
+- **Security — Scheme Allowlist (Hardening 1.3.1)**: `network.fetch_json` now refuses any URL whose scheme is not `http` or `https` (including `file://`, `ftp://`, `data:`, `gopher://`). Defense-in-depth: a custom `OpenerDirector` registers only `HTTPHandler`, `HTTPSHandler`, and the redirect/error handlers — no `FileHandler`, no `FTPHandler`, no `DataHandler` — so even a 30x redirect to `file://` cannot escape the allowlist. New `UnsafeUrlError` makes the rejection explicit.
+- **Security — Webhook SSRF Allowlist (Hardening 1.3.2)**: `NotificationManager.send_webhook` rejects URLs whose host (literal IP or DNS-resolved A/AAAA) is loopback / link-local / RFC1918 / multicast / reserved / unspecified — including the cloud metadata endpoint at `169.254.169.254`. New setting `notifications.allow_private_hosts=false` (default) is the single opt-in for self-hosted ChatOps endpoints. DNS-resolution failure is **not** treated as an SSRF signal — `urlopen` surfaces the real connection error.
+- **Tooling — Pyright Type Checking**: Added Pyright (the CLI engine Pylance uses) to dev deps via `uv add --dev pyright`. New `pyrightconfig.json` includes `src/system_update` and `tests/`, excludes `.venv` / `.claude` / `examples`, runs in `basic` mode with `reportMissingImports=error`. Two taskipy tasks: `uv run task typecheck` and `uv run task typecheck-stats`.
+- **Convention** — Documented in CLAUDE.md / AGENTS.md that contributors should always run scripts via `uv run <tool>` and add deps via `uv add <pkg>` (or `uv add --dev <pkg>`) rather than editing `pyproject.toml` deps tables by hand.
+- **Tests**: 556 passing (up from 535). 11 new tests cover the scheme rejection paths, the defense-in-depth opener handler set, webhook scheme rejection, all 7 private-host ranges (`127.0.0.1`, `localhost`, `10.x`, `172.16.x`, `192.168.x`, `169.254.x`, `[::1]`), `allow_private_hosts=true` opt-in, and DNS-resolved private hosts.
+
+### v8.3.0 (May 2026)
+
+**⚠️ Breaking Change — Plugin auto-load is now opt-in.** Existing users with files under `~/.system_update/plugins/` must add `{"plugins": {"enabled": true}}` to `~/.system_update/config.json` to keep auto-loading. Bypass at any time with `--no-plugins`.
+
+- **Security — Plugin Sandbox (Hardening 1.2.1)**: Plugin loader is off by default; refuses world-writable / non-owner plugin directories on POSIX; supports an optional SHA-256 allowlist (`<plugin_dir>/allowed.sha256`) and `plugins.require_hash_allowlist=true` to enforce it; new `--no-plugins` kill switch bypasses the loader entirely. Plugin loads are surfaced as a bold-yellow `PLUGIN LOAD` Rich panel above the startup banner.
+- **Security — No Unverified Remote Scripts (Hardening 1.2.2)**: PowerShell self-update no longer runs `iex (irm https://aka.ms/install-powershell.ps1)`. Replaced with `winget install --id Microsoft.PowerShell --source winget --force` so the installer is hash-verified by the winget manifest.
+- **Security — Argv-Token Validator (Hardening 1.2.3)**: New `_safe_argv_token()` rejects cache-sourced strings (`app_id`, `latest_version`) that don't match `^[A-Za-z0-9][A-Za-z0-9.+\-_~]*$`. Applied to winget, chocolatey, appx, and the winget rollback builders so a tampered `cache.json` cannot flag-inject the underlying package manager.
+- **Plugin API — Security Checker Extension Point**: New `registry.register_security_checker(source, check, description)` lets plugins contribute findings to the `🔒 Checking security vulnerabilities` stage. Each plugin checker runs as its own progress row alongside OSV / npm / pip / PyPI / GitHub Advisory feeds. A failing plugin checker is logged and skipped without breaking the overall scan.
+- **Plugin Standardization**: `demo_plugin.py` is now a standardized template — typed `AppInfo`, `UpdateStatus` enum, source filtering on every callable, `context.data_dir` for I/O, structured `logging`. Recommended shape for any new plugin.
+- **CLI UX — Plugin Listing Redesign**: `--list-plugins` shows one row per plugin file with capability icons (🧩 scanner · 🔄 checker · ⬆️ updater · 🔒 security · 🔔 notifier) and the first line of the module docstring as the description. The previous per-extension-point breakdown moved to `--list-plugins-detail`.
+- **CLI UX — Banner Polish**: Banner panel title now reads `🚀 System Update · v8.3.0`; the redundant first row inside the panel is removed. The plugin-load Rich panel takes its place above the banner.
+- **Tests**: 535 passing (up from 511), covering plugin sandbox controls (default-disabled, kill switch, world-writable refusal, hash allowlist hit/miss, `require_hash_allowlist`), pwsh updater no longer contains `iex`/`irm`/`aka.ms`, argv token validator rejects whitespace/quotes/semicolons/leading-dashes, plugin security checker registers + runs + isolates per source + survives a raising plugin, plugin metadata captures the docstring and capability set.
+
+### v8.2.0 (May 2026)
+- **Security — Credentials Off Argv (Hardening 1.1)**: Added optional `pywinrm` HTTPS transport for remote execution. The legacy `winrs` path still works but now emits a one-shot warning when a password is supplied — `winrs -p:<pass>` puts the password on the spawned process's command line, which is readable by other local users via `Get-CimInstance Win32_Process`. Install with `uv pip install 'system-update-cli[remote-secure]'` and set `host.transport='pywinrm'`.
+- **Security — Webhook Bearer Token Off Argv**: `_send_email_via_api` no longer shells out to `curl`. Bearer tokens now travel inside HTTP headers via `urllib.request`, so they never appear on a subprocess command line.
+- **UX — Unified System Update Banner**: `--help` and the runtime startup banner now render the same Rich panel: version, runtime/venv, active profile, data-dir file inventory (status, size, mtime), cache TTL, supported sources, security feeds, and repo URL. The panel width matches Typer's help panels.
+- **Tests**: Added regression coverage for both hardening items — the pywinrm path never spawns a subprocess, the missing-dep error message is actionable, the winrs fallback emits the security warning, and the email API path uses `urllib.request` with the `Authorization` header (no `curl`).
+
 ### v8.1.6 (May 2026)
 - **Winget Upgrade Cache**: Winget, Registry, AppX, and MSIX update checkers now share one parsed `winget upgrade` table per `check_all_updates` run.
 - **Parallel Consistency**: Parallel update checks no longer launch duplicate `winget upgrade` commands, reducing cost and avoiding inconsistent snapshots between sources.

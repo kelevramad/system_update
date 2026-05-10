@@ -1,0 +1,179 @@
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\__main__.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\__main__.py:8:11 - error: Cannot access attribute "reconfigure" for class "TextIO"
+    Attribute "reconfigure" is unknown (reportAttributeAccessIssue)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\app.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\app.py:884:21 - error: Argument of type "str | None" cannot be assigned to parameter "output_file" of type "str" in function "export"
+    Type "str | None" is not assignable to type "str"
+      "None" is not assignable to "str" (reportArgumentType)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\app.py:1179:56 - error: Argument of type "str | None" cannot be assigned to parameter "output_file" of type "str" in function "export"
+    Type "str | None" is not assignable to type "str"
+      "None" is not assignable to "str" (reportArgumentType)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\cache.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\cache.py:324:9 - error: Argument of type "Unknown | None" cannot be assigned to parameter "name" of type "str" in function "__init__"
+    Type "Unknown | None" is not assignable to type "str"
+      "None" is not assignable to "str" (reportArgumentType)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\cache.py:326:12 - error: Argument of type "Unknown | None" cannot be assigned to parameter "version" of type "str" in function "__init__"
+    Type "Unknown | None" is not assignable to type "str"
+      "None" is not assignable to "str" (reportArgumentType)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\checkers\__init__.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\checkers\__init__.py:140:2 - error: No overloads for "update" match the provided arguments (reportCallIssue)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\checkers\__init__.py:140:25 - error: Argument of type "dict[str, (List[AppInfo]) -> object]" cannot be assigned to parameter "m" of type "Iterable[tuple[str, (apps: List[AppInfo]) -> int]]" in function "update" (reportArgumentType)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\checkers\__init__.py:141:42 - error: Argument of type "dict[str, (apps: List[AppInfo]) -> int]" cannot be assigned to parameter "source_checkers" of type "Dict[str, (List[AppInfo]) -> object]" in function "_group_by_source"
+    "dict[str, (apps: List[AppInfo]) -> int]" is not assignable to "Dict[str, (List[AppInfo]) -> object]"
+      Type parameter "_VT@dict" is invariant, but "(apps: List[AppInfo]) -> int" is not the same as "(List[AppInfo]) -> object"
+      Consider switching from "dict" to "Mapping" which is covariant in the value type (reportArgumentType)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\checkers\__init__.py:157:58 - error: Argument of type "dict[str, (apps: List[AppInfo]) -> int]" cannot be assigned to parameter "source_checkers" of type "Dict[str, (List[AppInfo]) -> object]"
+    "dict[str, (apps: List[AppInfo]) -> int]" is not assignable to "Dict[str, (List[AppInfo]) -> object]"
+      Type parameter "_VT@dict" is invariant, but "(apps: List[AppInfo]) -> int" is not the same as "(List[AppInfo]) -> object"
+      Consider switching from "dict" to "Mapping" which is covariant in the value type (reportArgumentType)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\cli.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\cli.py:41:11 - error: Cannot access attribute "reconfigure" for class "TextIO"
+    Attribute "reconfigure" is unknown (reportAttributeAccessIssue)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\config.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\config.py:619:26 - error: Cannot access attribute "reconfigure" for class "TextIO"
+    Attribute "reconfigure" is unknown (reportAttributeAccessIssue)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\executors\__init__.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\executors\__init__.py:149:29 - error: "record" is not a known attribute of "None" (reportOptionalMemberAccess)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\export.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\export.py:83:62 - error: Expression of type "None" cannot be assigned to parameter of type "str"
+    "None" is not assignable to "str" (reportArgumentType)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\export.py:220:40 - error: Argument of type "ReportBranding | object" cannot be assigned to parameter "branding" of type "ReportBranding | None" in function "render_html"
+    Type "ReportBranding | object" is not assignable to type "ReportBranding | None"
+      Type "object" is not assignable to type "ReportBranding | None"
+        "object" is not assignable to "ReportBranding"
+        "object" is not assignable to "None" (reportArgumentType)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\export.py:589:21 - error: Expression of type "None" cannot be assigned to parameter of type "str"
+    "None" is not assignable to "str" (reportArgumentType)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\history.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\history.py:43:13 - error: "executescript" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\history.py:79:13 - error: "commit" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\history.py:98:13 - error: "execute" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\history.py:106:14 - error: "execute" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\history.py:122:14 - error: "execute" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\history.py:129:13 - error: "commit" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\history.py:134:22 - error: "execute" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\history.py:141:23 - error: "execute" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\history.py:148:23 - error: "execute" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\history.py:159:22 - error: "execute" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\history.py:171:22 - error: "execute" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\history.py:188:22 - error: "execute" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\history.py:201:22 - error: "execute" is not a known attribute of "None" (reportOptionalMemberAccess)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\notifications.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\notifications.py:194:39 - error: Argument of type "str | Unknown | None" cannot be assigned to parameter "password" of type "str" in function "_send_email_via_smtp"
+    Type "str | Unknown | None" is not assignable to type "str"
+      "None" is not assignable to "str" (reportArgumentType)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\notifications.py:295:11 - error: "setdefault" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\notifications.py:306:72 - error: Argument of type "Dict[Unknown, Unknown] | Unknown | None" cannot be assigned to parameter "headers" of type "MutableMapping[str, str]" in function "__init__"
+    Type "Dict[Unknown, Unknown] | Unknown | None" is not assignable to type "MutableMapping[str, str]"
+      "None" is not assignable to "MutableMapping[str, str]" (reportArgumentType)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\plugins.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\plugins.py:29:51 - warning: Alternative syntax for unions requires Python 3.10 or newer (reportGeneralTypeIssues)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\plugins.py:441:51 - error: "geteuid" is not a known attribute of module "os" (reportAttributeAccessIssue)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\scanners\pip.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\scanners\pip.py:126:28 - error: Argument of type "str | None" cannot be assigned to parameter "raw" of type "str" in function "_parse_pip_list"
+    Type "str | None" is not assignable to type "str"
+      "None" is not assignable to "str" (reportArgumentType)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\snapshots.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\snapshots.py:90:14 - error: "executescript" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\snapshots.py:114:14 - error: "commit" is not a known attribute of "None" (reportOptionalMemberAccess)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\subhelp.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\subhelp.py:684:40 - error: Expression of type "None" cannot be assigned to parameter of type "Console"
+    "None" is not assignable to "Console" (reportArgumentType)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\ui\system.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\ui\system.py:34:17 - error: Type "float" is not assignable to declared type "int"
+    "float" is not assignable to "int" (reportAssignmentType)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\ui\system.py:437:13 - error: Argument of type "object" cannot be assigned to parameter "renderables" of type "RenderableType | None" in function "add_row"
+    Type "object" is not assignable to type "RenderableType | None"
+      "object" is incompatible with protocol "ConsoleRenderable"
+        "__rich_console__" is not present
+      "object" is incompatible with protocol "RichCast"
+        "__rich__" is not present
+      "object" is not assignable to "str"
+      "object" is not assignable to "None" (reportArgumentType)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\src\system_update\ui\system.py:518:18 - error: Cannot access attribute "get" for class "object"
+    Attribute "get" is unknown (reportAttributeAccessIssue)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\conftest.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\conftest.py:137:8 - error: Cannot assign to attribute "run_command" for class "ModuleType"
+    Attribute "run_command" is unknown (reportAttributeAccessIssue)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\conftest.py:142:8 - error: Cannot assign to attribute "run_command" for class "ModuleType"
+    Attribute "run_command" is unknown (reportAttributeAccessIssue)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_config.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_config.py:21:17 - error: Argument of type "SimpleNamespace" cannot be assigned to parameter "config" of type "SystemConfig" in function "setup_logging"
+    "SimpleNamespace" is not assignable to "SystemConfig" (reportArgumentType)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_config.py:41:17 - error: Argument of type "SimpleNamespace" cannot be assigned to parameter "config" of type "SystemConfig" in function "setup_logging"
+    "SimpleNamespace" is not assignable to "SystemConfig" (reportArgumentType)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_config.py:60:17 - error: Argument of type "SimpleNamespace" cannot be assigned to parameter "config" of type "SystemConfig" in function "setup_logging"
+    "SimpleNamespace" is not assignable to "SystemConfig" (reportArgumentType)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_config.py:63:17 - error: Argument of type "SimpleNamespace" cannot be assigned to parameter "config" of type "SystemConfig" in function "setup_logging"
+    "SimpleNamespace" is not assignable to "SystemConfig" (reportArgumentType)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_config.py:80:17 - error: Argument of type "SimpleNamespace" cannot be assigned to parameter "config" of type "SystemConfig" in function "setup_logging"
+    "SimpleNamespace" is not assignable to "SystemConfig" (reportArgumentType)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_config.py:95:17 - error: Argument of type "SimpleNamespace" cannot be assigned to parameter "config" of type "SystemConfig" in function "setup_logging"
+    "SimpleNamespace" is not assignable to "SystemConfig" (reportArgumentType)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_notifications.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_notifications.py:244:56 - error: Argument of type "dict[Any, Any]" cannot be assigned to parameter "hdrs" of type "Message[str, str]" in function "__init__" (reportArgumentType)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_remote.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_remote.py:485:42 - error: Argument of type "list[dict[str, str]]" cannot be assigned to parameter "parsed" of type "Dict[Unknown, Unknown] | None" in function "__init__"
+    Type "list[dict[str, str]]" is not assignable to type "Dict[Unknown, Unknown] | None"
+      "list[dict[str, str]]" is not assignable to "Dict[Unknown, Unknown]"
+      "list[dict[str, str]]" is not assignable to "None" (reportArgumentType)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_scheduler.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_scheduler.py:242:9 - error: Object of type "None" is not subscriptable (reportOptionalSubscript)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_scheduler.py:243:9 - error: Object of type "None" is not subscriptable (reportOptionalSubscript)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_scheduler.py:244:28 - error: Object of type "None" is not subscriptable (reportOptionalSubscript)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_scheduler.py:245:9 - error: Object of type "None" is not subscriptable (reportOptionalSubscript)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_smart_cache.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_smart_cache.py:137:9 - error: Object of type "None" is not subscriptable (reportOptionalSubscript)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_smart_cache.py:165:43 - error: "name" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_smart_cache.py:192:20 - error: Cannot assign to attribute "scan_system" for class "SystemUpdateApp"
+    Type "(source: str | None) -> list[AppInfo]" is not assignable to type "(source_filter: str | None = None) -> List[AppInfo]"
+      Parameter name mismatch: "source_filter" versus "source"
+      Parameter "source" is missing default argument (reportAttributeAccessIssue)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_smart_cache.py:192:63 - error: Argument of type "str | None" cannot be assigned to parameter "source" of type "str" in function "__init__"
+    Type "str | None" is not assignable to type "str"
+      "None" is not assignable to "str" (reportArgumentType)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_smart_cache.py:193:14 - error: Cannot assign to attribute "check_all_updates" for class "UpdateChecker"
+    Expression of type "(apps: Unknown, max_workers: Unknown | None = None, extra_checkers: Unknown | None = None) -> None" cannot be assigned to attribute "check_all_updates" of class "UpdateChecker"
+      "FunctionType" is not assignable to "staticmethod[(apps: List[AppInfo], max_workers: int | None = None, extra_checkers: Dict[str, (List[AppInfo]) -> object] | None = None), int]" (reportAttributeAccessIssue)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_smart_cache.py:194:15 - error: Cannot assign to attribute "check_all" for class "SecurityChecker"
+    Expression of type "(apps: Unknown, advisory_file: Unknown, extra_checkers: Unknown | None = None) -> list[Unknown]" cannot be assigned to attribute "check_all" of class "SecurityChecker"
+      "FunctionType" is not assignable to "staticmethod[(apps: List[AppInfo], advisory_file: str = '', extra_checkers: Dict[str, (List[AppInfo]) -> List[Dict[str, Any]]] | None = None), List[Dict[Unknown, Unknown]]]" (reportAttributeAccessIssue)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_snapshots.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_snapshots.py:67:14 - error: "package_count" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_snapshots.py:68:14 - error: "success_count" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_snapshots.py:198:9 - error: Operator "in" not supported for types "Literal['--id']" and "Command | None"
+    Operator "in" not supported for types "Literal['--id']" and "None" (reportOperatorIssue)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_snapshots.py:199:9 - error: Operator "in" not supported for types "Literal['Git.Git']" and "Command | None"
+    Operator "in" not supported for types "Literal['Git.Git']" and "None" (reportOperatorIssue)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_snapshots.py:200:9 - error: Operator "in" not supported for types "Literal['-v']" and "Command | None"
+    Operator "in" not supported for types "Literal['-v']" and "None" (reportOperatorIssue)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_snapshots.py:201:9 - error: Operator "in" not supported for types "Literal['2.40.0']" and "Command | None"
+    Operator "in" not supported for types "Literal['2.40.0']" and "None" (reportOperatorIssue)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_snapshots.py:202:9 - error: Operator "in" not supported for types "Literal['--force']" and "Command | None"
+    Operator "in" not supported for types "Literal['--force']" and "None" (reportOperatorIssue)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_snapshots.py:209:9 - error: Operator "in" not supported for types "Literal['--allow-downgrade']" and "Command | None"
+    Operator "in" not supported for types "Literal['--allow-downgrade']" and "None" (reportOperatorIssue)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_snapshots.py:210:9 - error: Operator "in" not supported for types "Literal['git']" and "Command | None"
+    Operator "in" not supported for types "Literal['git']" and "None" (reportOperatorIssue)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_snapshots.py:211:9 - error: Operator "in" not supported for types "Literal['2.40.0']" and "Command | None"
+    Operator "in" not supported for types "Literal['2.40.0']" and "None" (reportOperatorIssue)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_snapshots.py:218:9 - error: Operator "in" not supported for types "Literal['pip']" and "Command | None"
+    Operator "in" not supported for types "Literal['pip']" and "None" (reportOperatorIssue)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_snapshots.py:219:46 - error: Object of type "None" cannot be used as iterable value (reportOptionalIterable)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_snapshots.py:220:9 - error: Operator "in" not supported for types "Literal['--force-reinstall']" and "Command | None"
+    Operator "in" not supported for types "Literal['--force-reinstall']" and "None" (reportOperatorIssue)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_snapshots.py:291:14 - error: "label" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_snapshots.py:292:14 - error: "packages" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_snapshots.py:293:14 - error: "packages" is not a known attribute of "None" (reportOptionalMemberAccess)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_snapshots.py:294:14 - error: "packages" is not a known attribute of "None" (reportOptionalMemberAccess)
+c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_utils.py
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_utils.py:270:9 - error: Operator "in" not supported for types "Literal['stderr']" and "str | None"
+    Operator "in" not supported for types "Literal['stderr']" and "None" (reportOperatorIssue)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_utils.py:310:13 - error: Argument of type "List[AppInfo] | None" cannot be assigned to parameter "obj" of type "Sized" in function "len"
+    Type "List[AppInfo] | None" is not assignable to type "Sized"
+      "None" is incompatible with protocol "Sized"
+        "__len__" is not present (reportArgumentType)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_utils.py:311:9 - error: Object of type "None" is not subscriptable (reportOptionalSubscript)
+  c:\Git\System_Update\.claude\worktrees\vigilant-hermann-ddbf99\tests\test_utils.py:444:29 - error: Argument of type "KeyboardInterrupt" cannot be assigned to parameter "exception" of type "Exception" in function "classify"
+    "KeyboardInterrupt" is not assignable to "Exception" (reportArgumentType)
+80 errors, 1 warning, 0 informations

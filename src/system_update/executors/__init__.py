@@ -143,7 +143,7 @@ def execute_updates(
 		f'\n📊 Completed: [bold]{success_count}/{len(apps)}[/bold] successful.'
 	)
 
-	if pre_state is not None:
+	if pre_state is not None and snapshot_store is not None:
 		try:
 			rows = build_snapshot_packages(pre_state, results)
 			snap_id = snapshot_store.record(

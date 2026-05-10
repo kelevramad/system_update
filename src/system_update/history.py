@@ -24,23 +24,45 @@ class HistoryDatabase:
 	"""
 
 	def __init__(self, db_path: Optional[Path] = None, connect: bool = True) -> None:
-		self.db_path = db_path or (Path.home() / '.system_update' / 'history.db')
-		self.conn: Optional[sqlite3.Connection] = None
+		from system_update.utils import data_dir
+
+		self.db_path = db_path or (data_dir() / 'history.db')
+		self._conn: Optional[sqlite3.Connection] = None
 		if connect:
 			self._connect()
 
 	def _connect(self) -> None:
 		"""Open the SQLite connection and ensure schema exists."""
-		if self.conn is not None:
+		from system_update.utils import harden_existing_file
+
+		if self._conn is not None:
 			return
 		self.db_path.parent.mkdir(exist_ok=True)
-		self.conn = sqlite3.connect(str(self.db_path))
-		self.conn.row_factory = sqlite3.Row
-		self._create_schema()
+		conn = sqlite3.connect(str(self.db_path))
+		conn.row_factory = sqlite3.Row
+		self._conn = conn
+		self._create_schema(conn)
+		# Hardening 1.4.1 — sqlite3.connect uses raw open(O_CREAT) and
+		# does not honor secure_write's atomic+ACL path. Apply 0o600 /
+		# icacls to the db file once it exists.
+		harden_existing_file(self.db_path)
 
-	def _create_schema(self) -> None:
+	@property
+	def conn(self) -> sqlite3.Connection:
+		"""Lazy-connecting accessor; always returns a real sqlite3.Connection.
+
+		Most callers (and the test suite) read ``history_db.conn`` directly;
+		exposing it as a property keeps the API while letting pyright see
+		a non-Optional return type.
+		"""
+		if self._conn is None:
+			self._connect()
+		assert self._conn is not None  # post-condition of _connect()
+		return self._conn
+
+	def _create_schema(self, conn: sqlite3.Connection) -> None:
 		"""Create tables and indexes if they don't already exist."""
-		self.conn.executescript("""
+		conn.executescript("""
 			CREATE TABLE IF NOT EXISTS scans (
 				id TEXT PRIMARY KEY,
 				timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -76,11 +98,15 @@ class HistoryDatabase:
 
 			CREATE INDEX IF NOT EXISTS idx_version_name ON version_history(package_name, source);
 		""")
-		self.conn.commit()
+		conn.commit()
 
 	def _ensure_connection(self) -> None:
-		"""Lazy-open the database connection if needed."""
-		if self.conn is None:
+		"""Lazy-open the database connection if needed.
+
+		Kept for backward compatibility — accessing ``self.conn`` already
+		triggers the lazy connect via the property.
+		"""
+		if self._conn is None:
 			self._connect()
 
 	def record_scan(
@@ -208,9 +234,9 @@ class HistoryDatabase:
 
 	def close(self) -> None:
 		"""Close the database connection if open."""
-		if self.conn:
-			self.conn.close()
-			self.conn = None
+		if self._conn is not None:
+			self._conn.close()
+			self._conn = None
 
 	def __enter__(self) -> 'HistoryDatabase':
 		return self
@@ -235,9 +261,9 @@ class VulnerabilityHistory:
 	"""JSON-file log of discovered vulnerabilities with open/resolved status."""
 
 	def __init__(self, history_file: Optional[Path] = None) -> None:
-		self.history_file = history_file or (
-			Path.home() / '.system_update' / 'vulnerability_history.json'
-		)
+		from system_update.utils import data_dir
+
+		self.history_file = history_file or (data_dir() / 'vulnerability_history.json')
 		self.history: List[Dict] = []
 		self._load()
 
@@ -275,9 +301,12 @@ class VulnerabilityHistory:
 	def _save(self) -> None:
 		"""Write the current history list to disk."""
 		try:
-			self.history_file.parent.mkdir(exist_ok=True)
-			with open(self.history_file, 'w', encoding='utf-8') as f:
-				json.dump(self.history, f, indent=2, default=str)
+			from system_update.utils import secure_write
+
+			secure_write(
+				self.history_file,
+				json.dumps(self.history, indent=2, default=str),
+			)
 		except Exception as e:
 			logger.error(f'Failed to save vulnerability history: {e}')
 

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Set
 
 from system_update.models import AppInfo, UpdateStatus
+from system_update.utils import secure_write
 
 logger = logging.getLogger(__name__)
 
@@ -295,10 +296,12 @@ class CacheManager:
 		self._hot_packages.clear()
 
 	def _write_raw(self, data: Dict) -> None:
-		self.cache_file.parent.mkdir(parents=True, exist_ok=True)
-		self.cache_file.write_text(
+		# Hardening 1.4.1 — atomic write with 0o600 / icacls so package
+		# inventory (which can include hostnames + paths) is not readable
+		# by other local users.
+		secure_write(
+			self.cache_file,
 			json.dumps(data, indent=2, ensure_ascii=False) + '\n',
-			encoding='utf-8',
 		)
 
 	def _app_to_cache_dict(self, app: AppInfo) -> Dict:
@@ -321,9 +324,9 @@ class CacheManager:
 		if latest == '-':
 			latest = ''
 		return AppInfo(
-			name=item.get('name'),
+			name=str(item.get('name') or ''),
 			source=source_normalized,
-			version=item.get('version'),
+			version=str(item.get('version') or ''),
 			latest_version=latest,
 			app_id=item.get('appId'),
 			update_status=UpdateStatus(item.get('status', 'unknown')),

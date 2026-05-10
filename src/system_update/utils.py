@@ -13,7 +13,9 @@ import os
 import platform
 import shutil
 import subprocess
-from typing import Dict, Iterable, List, Optional
+import tempfile
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Union
 
 from rich import box
 from rich.console import Console
@@ -23,6 +25,126 @@ from system_update.models import AppInfo, CommandError
 console = Console()
 
 logger = logging.getLogger(__name__)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DATA DIR + SECURE WRITES (Hardening 1.4)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+_HOME_ENV = 'SYSTEM_UPDATE_HOME'
+
+
+def data_dir() -> Path:
+	"""Return the data directory, creating it with restrictive permissions.
+
+	Hardening 1.4.2 — single accessor for ``~/.system_update`` so every
+	module agrees on the path *and* the permissions. Honors the
+	``SYSTEM_UPDATE_HOME`` env var documented in AGENTS.md / README.
+
+	The directory is created with mode 0o700 on POSIX (only the current
+	user can list/write). On Windows ``mkdir`` ignores POSIX mode bits;
+	full ACL hardening would require ``icacls`` — applied per-file by
+	:func:`secure_write` rather than at the directory level since the
+	parent dir often inherits user-profile ACLs already.
+	"""
+	override = os.environ.get(_HOME_ENV)
+	path = Path(override).expanduser() if override else (Path.home() / '.system_update')
+	# mode is masked by the current umask on POSIX; that's fine — the
+	# common case (~/.system_update being u=rwx already) means 0o700 is
+	# at most a tightening, never a loosening.
+	path.mkdir(parents=True, exist_ok=True, mode=0o700)
+	return path
+
+
+def _harden_file_permissions(path: Path) -> None:
+	"""Restrict ``path`` to the current user.
+
+	POSIX: ``chmod 0o600`` (owner read/write only).
+	Windows: ``icacls /inheritance:r /grant "%USERNAME%":(F)`` so only the
+	user holds full control. The icacls call is best-effort — if it
+	fails (no PATH, locked-down account, etc.) we log a debug line and
+	carry on; the file itself is already written, just with default
+	ACLs.
+	"""
+	try:
+		if platform.system() == 'Windows':
+			username = os.environ.get('USERNAME')
+			if not username:
+				return
+			subprocess.run(
+				[
+					'icacls', str(path),
+					'/inheritance:r',
+					'/grant', f'{username}:(F)',
+				],
+				check=False,
+				capture_output=True,
+				timeout=5,
+			)
+		else:
+			os.chmod(path, 0o600)
+	except Exception as exc:  # pragma: no cover — defensive
+		logger.debug('Failed to harden permissions on %s: %s', path, exc)
+
+
+def secure_write(
+	path: Union[str, Path],
+	data: Union[str, bytes],
+	*,
+	encoding: str = 'utf-8',
+) -> None:
+	"""Atomically write ``data`` to ``path`` with restrictive permissions.
+
+	Hardening 1.4.1 — replaces direct ``path.write_text(...)`` /
+	``json.dump(open(path, 'w'))`` patterns. Behavior:
+
+	1. Write to a temp file in the same directory (so ``os.replace`` is
+	   atomic — same filesystem).
+	2. Apply 0o600 (POSIX) / icacls user-only ACL (Windows) to the temp
+	   file *before* the rename, so the file never exists with looser
+	   permissions.
+	3. ``os.replace`` to swap into place.
+
+	If anything fails before the rename, the temp file is removed.
+	"""
+	target = Path(path)
+	target.parent.mkdir(parents=True, exist_ok=True)
+
+	mode = 'wb' if isinstance(data, (bytes, bytearray)) else 'w'
+	fd, tmp_path = tempfile.mkstemp(
+		prefix=f'.{target.name}.', suffix='.tmp', dir=str(target.parent)
+	)
+	tmp = Path(tmp_path)
+	try:
+		# Tighten permissions on the temp file before any data hits disk.
+		_harden_file_permissions(tmp)
+		with os.fdopen(fd, mode, encoding=None if 'b' in mode else encoding) as f:
+			f.write(data)
+		# os.replace is atomic on POSIX and (since Python 3.3) on Windows.
+		os.replace(tmp, target)
+		# Belt and suspenders — re-harden the destination in case the
+		# replace inherited weaker ACLs from the parent.
+		_harden_file_permissions(target)
+	except Exception:
+		try:
+			tmp.unlink(missing_ok=True)
+		except Exception:
+			pass
+		raise
+
+
+def harden_existing_file(path: Union[str, Path]) -> None:
+	"""Public hook to apply 0o600/icacls to a file written by something else.
+
+	SQLite databases are opened by ``sqlite3.connect`` (which uses raw
+	``open(..., O_CREAT)``); we cannot route those writes through
+	:func:`secure_write`. Call this once after the connection is
+	established to bring the file's ACLs in line.
+	"""
+	target = Path(path)
+	if target.exists():
+		_harden_file_permissions(target)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -255,6 +255,12 @@ def _parse_remote_stdout(stdout: str, max_response_bytes: Optional[int] = None) 
 		return None, f'Remote JSON response was invalid: {e.msg}.'
 
 
+_SUPPORTED_TRANSPORTS = ('winrs', 'pywinrm')
+
+# One-shot guard so the winrs-with-password warning fires once per process.
+_WINRS_WARNED = False
+
+
 def _build_winrs_argv(host: RemoteHost, command: str, password: str = '') -> List[str]:
 	"""Build the ``winrs`` argv. Password comes from env if not provided.
 
