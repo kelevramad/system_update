@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -27,7 +28,12 @@ class HistoryDatabase:
 		from system_update.utils import data_dir
 
 		self.db_path = db_path or (data_dir() / 'history.db')
-		self._conn: Optional[sqlite3.Connection] = None
+		# Hardening 2.1.1 — sqlite3.Connection is not thread-safe. Use
+		# threading.local so every worker thread gets its own connection
+		# (the underlying file is shared via WAL).
+		self._tls = threading.local()
+		self._schema_initialized = False
+		self._schema_lock = threading.Lock()
 		if connect:
 			self._connect()
 
@@ -35,30 +41,47 @@ class HistoryDatabase:
 		"""Open the SQLite connection and ensure schema exists."""
 		from system_update.utils import harden_existing_file
 
-		if self._conn is not None:
+		conn = getattr(self._tls, 'conn', None)
+		if conn is not None:
 			return
 		self.db_path.parent.mkdir(exist_ok=True)
 		conn = sqlite3.connect(str(self.db_path))
 		conn.row_factory = sqlite3.Row
-		self._conn = conn
-		self._create_schema(conn)
-		# Hardening 1.4.1 — sqlite3.connect uses raw open(O_CREAT) and
-		# does not honor secure_write's atomic+ACL path. Apply 0o600 /
-		# icacls to the db file once it exists.
-		harden_existing_file(self.db_path)
+		conn.execute('PRAGMA journal_mode=WAL')
+		conn.execute('PRAGMA synchronous=NORMAL')
+		conn.execute('PRAGMA foreign_keys=ON')
+		self._tls.conn = conn
+
+		# Schema is created exactly once per process; subsequent threads
+		# skip it (CREATE TABLE IF NOT EXISTS is idempotent but skipping
+		# avoids an extra round-trip on every new thread).
+		with self._schema_lock:
+			if not self._schema_initialized:
+				self._create_schema(conn)
+				self._schema_initialized = True
+				# Hardening 1.4.1 — restrict the db file to the user.
+				harden_existing_file(self.db_path)
 
 	@property
 	def conn(self) -> sqlite3.Connection:
-		"""Lazy-connecting accessor; always returns a real sqlite3.Connection.
+		"""Per-thread lazy-connecting accessor.
 
-		Most callers (and the test suite) read ``history_db.conn`` directly;
-		exposing it as a property keeps the API while letting pyright see
-		a non-Optional return type.
+		Each thread gets its own ``sqlite3.Connection`` via
+		``threading.local``; the underlying database file is shared
+		(WAL journal mode allows concurrent readers + one writer).
 		"""
-		if self._conn is None:
+		conn = getattr(self._tls, 'conn', None)
+		if conn is None:
 			self._connect()
-		assert self._conn is not None  # post-condition of _connect()
-		return self._conn
+			conn = self._tls.conn
+		return conn
+
+	@property
+	def _conn(self) -> Optional[sqlite3.Connection]:
+		"""Back-compat accessor — tests inspect ``hd._conn`` to check
+		whether the current thread has connected. Returns ``None`` if
+		not yet connected, the live ``Connection`` otherwise."""
+		return getattr(self._tls, 'conn', None)
 
 	def _create_schema(self, conn: sqlite3.Connection) -> None:
 		"""Create tables and indexes if they don't already exist."""
@@ -233,10 +256,18 @@ class HistoryDatabase:
 		return {row['source']: row['count'] for row in cursor.fetchall()}
 
 	def close(self) -> None:
-		"""Close the database connection if open."""
-		if self._conn is not None:
-			self._conn.close()
-			self._conn = None
+		"""Close *this thread's* database connection if open.
+
+		Note: connections are per-thread (see threading.local in
+		__init__). Calling ``close()`` from a worker thread releases
+		that thread's connection only; sibling threads keep theirs.
+		For full cleanup at shutdown, call ``close()`` from each
+		thread that opened a connection.
+		"""
+		conn = getattr(self._tls, 'conn', None)
+		if conn is not None:
+			conn.close()
+			self._tls.conn = None
 
 	def __enter__(self) -> 'HistoryDatabase':
 		return self
