@@ -39,12 +39,95 @@ import time
 from dataclasses import dataclass, field
 from json import JSONDecodeError
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, TypedDict, Tuple, Union, cast
 
 logger = logging.getLogger(__name__)
 
 
 # ─── Models ────────────────────────────────────────────────────────────────
+
+
+class RemoteScanPayload(TypedDict, total=False):
+	"""Validated JSON payload returned by a remote scan."""
+
+	meta: Dict[str, Any]
+	summary: Dict[str, Any]
+	sources: Dict[str, List[Dict[str, Any]]]
+	packages: List[Dict[str, Any]]
+	apps: List[Dict[str, Any]]
+	vulnerabilities: List[Dict[str, Any]]
+	errors: List[str]
+
+
+RemoteParsedPayload = Union[RemoteScanPayload, List[Dict[str, Any]]]
+
+
+@dataclass
+class HostSummary:
+	"""Per-host counts in a consolidated remote report."""
+
+	host: str
+	total: int
+	updates: int
+	vulnerable: int
+	duration: float
+
+	def to_dict(self) -> Dict[str, Any]:
+		return {
+			'host': self.host,
+			'total': self.total,
+			'updates': self.updates,
+			'vulnerable': self.vulnerable,
+			'duration': self.duration,
+		}
+
+
+@dataclass
+class AggregateReport:
+	"""Consolidated report from multiple remote scan results."""
+
+	hosts: List[HostSummary] = field(default_factory=list)
+	package_index: List[Dict[str, Any]] = field(default_factory=list)
+	errors: List[Dict[str, Any]] = field(default_factory=list)
+	raw_per_host: Dict[str, Any] = field(default_factory=dict)
+
+	@property
+	def host_count(self) -> int:
+		return len(self.hosts)
+
+	@property
+	def error_count(self) -> int:
+		return len(self.errors)
+
+	@property
+	def total_packages(self) -> int:
+		return sum(host.total for host in self.hosts)
+
+	@property
+	def total_outdated(self) -> int:
+		return sum(host.updates for host in self.hosts)
+
+	@property
+	def total_vulnerabilities(self) -> int:
+		return sum(host.vulnerable for host in self.hosts)
+
+	def to_dict(self) -> Dict[str, Any]:
+		"""Return the legacy report shape for JSON/external consumers."""
+		return {
+			'host_count': self.host_count,
+			'error_count': self.error_count,
+			'total_packages': self.total_packages,
+			'total_outdated': self.total_outdated,
+			'total_vulnerabilities': self.total_vulnerabilities,
+			'summary_per_host': [host.to_dict() for host in self.hosts],
+			'package_index': self.package_index,
+			'errors': self.errors,
+			'raw_per_host': self.raw_per_host,
+		}
+
+	def __getitem__(self, key: str) -> Any:
+		"""Compatibility for existing dict-style callers/tests."""
+		return self.to_dict()[key]
 
 
 @dataclass
@@ -99,9 +182,8 @@ class RemoteResult:
 	stdout: str = ''
 	stderr: str = ''
 	duration: float = 0.0
-	# decoded JSON when remote returned a scan — may be a dict (newer
-	# payload shape) or a bare list (legacy export format)
-	parsed: Optional[Any] = None
+	# decoded JSON when remote returned a scan
+	parsed: Optional[RemoteParsedPayload] = None
 
 	def to_dict(self) -> Dict:
 		out = {
@@ -231,7 +313,65 @@ def _format_bytes(size: int) -> str:
 	return f'{size} bytes'
 
 
-def _parse_remote_stdout(stdout: str, max_response_bytes: Optional[int] = None) -> Tuple[Any, str]:
+def _packages_from_payload(payload: Any) -> List[Dict[str, Any]]:
+	"""Return package rows from supported remote export payload shapes."""
+	if isinstance(payload, list):
+		return [item for item in payload if isinstance(item, dict)]
+	for key in ('packages', 'apps'):
+		rows = payload.get(key)
+		if isinstance(rows, list):
+			return [item for item in rows if isinstance(item, dict)]
+	sources = payload.get('sources')
+	if isinstance(sources, dict):
+		packages: List[Dict[str, Any]] = []
+		for source, rows in sources.items():
+			if not isinstance(rows, list):
+				raise ValueError(f'sources.{source} must be a list')
+			for index, row in enumerate(rows):
+				if not isinstance(row, dict):
+					raise ValueError(f'sources.{source}[{index}] must be an object')
+				pkg = dict(row)
+				pkg.setdefault('source', source)
+				packages.append(pkg)
+		return packages
+	return []
+
+
+def validate_remote_scan_payload(raw: Any) -> RemoteScanPayload:
+	"""Validate decoded remote JSON and normalize supported payload shapes.
+
+	Accepts the current JSON export shape (``apps``), the older ``packages``
+	shape, a source-grouped shape, and the legacy bare-list export. Raises a
+	path-oriented ``ValueError`` for malformed package rows.
+	"""
+	if isinstance(raw, list):
+		packages: List[Dict[str, Any]] = []
+		for index, row in enumerate(raw):
+			if not isinstance(row, dict):
+				raise ValueError(f'packages[{index}] must be an object')
+			packages.append(row)
+		return {'packages': packages}
+	if not isinstance(raw, dict):
+		raise ValueError('payload must be a JSON object or package list')
+
+	payload: Dict[str, Any] = dict(raw)
+	package_rows = _packages_from_payload(payload)
+	for index, row in enumerate(package_rows):
+		if not row.get('name'):
+			raise ValueError(f'packages[{index}].name missing')
+		if not row.get('source'):
+			raise ValueError(f'packages[{index}].source missing')
+
+	return cast(RemoteScanPayload, {
+		key: payload[key]
+		for key in ('meta', 'summary', 'sources', 'packages', 'apps', 'vulnerabilities', 'errors')
+		if key in payload
+	})
+
+
+def _parse_remote_stdout(
+	stdout: str, max_response_bytes: Optional[int] = None
+) -> Tuple[Optional[RemoteParsedPayload], str]:
 	"""Parse JSON remote stdout after enforcing the configured size cap.
 
 	Returns ``(parsed, error)``. Non-JSON-looking stdout is left untouched and
@@ -250,9 +390,11 @@ def _parse_remote_stdout(stdout: str, max_response_bytes: Optional[int] = None) 
 		)
 
 	try:
-		return json.loads(stdout), ''
+		return validate_remote_scan_payload(json.loads(stdout)), ''
 	except JSONDecodeError as e:
 		return None, f'Remote JSON response was invalid: {e.msg}.'
+	except ValueError as e:
+		return None, f'Remote JSON response schema was invalid: {e}.'
 
 
 _SUPPORTED_TRANSPORTS = ('winrs', 'pywinrm')
@@ -548,7 +690,7 @@ def build_remote_update_command(extra_args: str = '') -> str:
 # ─── 6.4.3 — Aggregation ───────────────────────────────────────────────────
 
 
-def aggregate_scans(results: List[RemoteResult]) -> Dict:
+def aggregate_scans(results: List[RemoteResult]) -> AggregateReport:
 	"""Combine per-host scan JSON into a consolidated report.
 
 	Only hosts whose remote run succeeded AND returned parseable JSON
@@ -556,8 +698,8 @@ def aggregate_scans(results: List[RemoteResult]) -> Dict:
 	the ``errors`` block so the operator sees what failed.
 	"""
 	by_host: Dict[str, Any] = {}
-	per_host_summary: List[Dict] = []
-	errors: List[Dict] = []
+	per_host_summary: List[HostSummary] = []
+	errors: List[Dict[str, Any]] = []
 
 	all_packages: Dict[str, Dict] = {}  # key = source|name → row
 
@@ -570,17 +712,18 @@ def aggregate_scans(results: List[RemoteResult]) -> Dict:
 			})
 			continue
 		payload = r.parsed
-		# Accept either a list (newer export shape) or {"packages": [...]}.
-		pkgs = payload if isinstance(payload, list) else payload.get('packages') or []
+		pkgs = _packages_from_payload(payload)
 		updates = sum(1 for p in pkgs if p.get('status') == 'update_available')
 		vulns = sum(1 for p in pkgs if p.get('status') == 'vulnerable')
-		per_host_summary.append({
-			'host': r.host,
-			'total': len(pkgs),
-			'updates': updates,
-			'vulnerable': vulns,
-			'duration': round(r.duration, 2),
-		})
+		per_host_summary.append(
+			HostSummary(
+				host=r.host,
+				total=len(pkgs),
+				updates=updates,
+				vulnerable=vulns,
+				duration=round(r.duration, 2),
+			)
+		)
 		by_host[r.host] = payload
 		for p in pkgs:
 			if not isinstance(p, dict):
@@ -610,21 +753,22 @@ def aggregate_scans(results: List[RemoteResult]) -> Dict:
 			'consistent': len(row['versions']) <= 1,
 		})
 
-	return {
-		'host_count': len(per_host_summary),
-		'error_count': len(errors),
-		'summary_per_host': per_host_summary,
-		'package_index': sorted(
+	return AggregateReport(
+		hosts=per_host_summary,
+		package_index=sorted(
 			package_index, key=lambda r: (r['source'], r['name'].lower())
 		),
-		'errors': errors,
-		'raw_per_host': by_host,
-	}
+		errors=errors,
+		raw_per_host=by_host,
+	)
 
 
 __all__ = [
+	'AggregateReport',
+	'HostSummary',
 	'RemoteHost',
 	'RemoteResult',
+	'RemoteScanPayload',
 	'Inventory',
 	'argv_to_display',
 	'build_debug_argv',
@@ -632,5 +776,6 @@ __all__ = [
 	'execute_many',
 	'build_remote_scan_command',
 	'build_remote_update_command',
+	'validate_remote_scan_payload',
 	'aggregate_scans',
 ]

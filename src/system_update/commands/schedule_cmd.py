@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from argparse import Namespace
-
+from typing import Any
 
 class ScheduleCommand:
 	"""Dispatch schedule actions through the app context."""
 
-	def execute(self, args: Namespace, app_ctx: object) -> int:
+	def execute(self, args: Any, app_ctx: object) -> int:
 		handler = getattr(app_ctx, '_handle_schedule')
 		handler(args)
 		return 0
