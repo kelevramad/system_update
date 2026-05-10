@@ -37,8 +37,9 @@ import shlex
 import subprocess
 import time
 from dataclasses import dataclass, field
+from json import JSONDecodeError
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +136,8 @@ class Inventory:
 		if not self.path.exists():
 			return
 		try:
-			data = json.loads(self.path.read_text(encoding='utf-8'))
+			with open(self.path, 'r', encoding='utf-8') as f:
+				data = json.load(f)
 		except Exception as e:
 			logger.warning(f'Failed to load inventory: {e}')
 			return
@@ -197,12 +199,60 @@ class Inventory:
 
 
 _DEFAULT_REMOTE_TIMEOUT = 600
+_DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024
 
 
 _SUPPORTED_TRANSPORTS = ('winrs', 'pywinrm')
 
 # One-shot guard so the winrs-with-password warning fires once per process.
 _WINRS_WARNED = False
+
+
+def _max_response_bytes() -> int:
+	"""Return the configured remote JSON response cap in bytes."""
+	try:
+		from system_update.config import SystemConfig
+
+		remote_cfg = SystemConfig().settings.get('remote', {})
+		value = remote_cfg.get('max_response_bytes', _DEFAULT_MAX_RESPONSE_BYTES)
+		if isinstance(value, int) and value > 0:
+			return value
+	except Exception:
+		logger.warning('Failed to read remote.max_response_bytes; using default.', exc_info=True)
+	return _DEFAULT_MAX_RESPONSE_BYTES
+
+
+def _format_bytes(size: int) -> str:
+	"""Format bytes in a compact form for remote parse errors."""
+	if size % (1024 * 1024) == 0:
+		return f'{size // (1024 * 1024)} MiB'
+	if size % 1024 == 0:
+		return f'{size // 1024} KiB'
+	return f'{size} bytes'
+
+
+def _parse_remote_stdout(stdout: str, max_response_bytes: Optional[int] = None) -> Tuple[Any, str]:
+	"""Parse JSON remote stdout after enforcing the configured size cap.
+
+	Returns ``(parsed, error)``. Non-JSON-looking stdout is left untouched and
+	does not count as a parse error.
+	"""
+	stripped = stdout.strip()
+	if not stripped.startswith(('{', '[')):
+		return None, ''
+
+	limit = max_response_bytes or _max_response_bytes()
+	response_size = len(stdout.encode('utf-8'))
+	if response_size > limit:
+		return None, (
+			f'Remote JSON response exceeded {_format_bytes(limit)} '
+			f'({response_size} bytes received).'
+		)
+
+	try:
+		return json.loads(stdout), ''
+	except JSONDecodeError as e:
+		return None, f'Remote JSON response was invalid: {e.msg}.'
 
 
 def _build_winrs_argv(host: RemoteHost, command: str, password: str = '') -> List[str]:
@@ -303,15 +353,12 @@ def _execute_via_pywinrm(
 	duration = time.monotonic() - start
 	stdout = response.std_out.decode('utf-8', errors='replace') if response.std_out else ''
 	stderr = response.std_err.decode('utf-8', errors='replace') if response.std_err else ''
-	parsed = None
-	if stdout.strip().startswith(('{', '[')):
-		try:
-			parsed = json.loads(stdout)
-		except Exception:
-			parsed = None
+	parsed, parse_error = _parse_remote_stdout(stdout)
+	if parse_error:
+		stderr = f'{stderr}\n{parse_error}'.strip()
 	return RemoteResult(
 		host=host.name,
-		ok=response.status_code == 0,
+		ok=response.status_code == 0 and not parse_error,
 		exit_code=response.status_code,
 		stdout=stdout,
 		stderr=stderr,
@@ -343,18 +390,16 @@ def _execute_via_winrs(
 		)
 		duration = time.monotonic() - start
 		stdout = proc.stdout or ''
-		parsed = None
-		if stdout.strip().startswith('{') or stdout.strip().startswith('['):
-			try:
-				parsed = json.loads(stdout)
-			except Exception:
-				parsed = None
+		stderr = proc.stderr or ''
+		parsed, parse_error = _parse_remote_stdout(stdout)
+		if parse_error:
+			stderr = f'{stderr}\n{parse_error}'.strip()
 		return RemoteResult(
 			host=host.name,
-			ok=proc.returncode == 0,
+			ok=proc.returncode == 0 and not parse_error,
 			exit_code=proc.returncode,
 			stdout=stdout,
-			stderr=proc.stderr or '',
+			stderr=stderr,
 			duration=duration,
 			parsed=parsed,
 		)

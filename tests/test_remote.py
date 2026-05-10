@@ -304,6 +304,54 @@ def test_execute_remote_non_json_stdout(monkeypatch):
 	assert 'plain text' in r.stdout
 
 
+def test_execute_remote_rejects_oversized_json_stdout(monkeypatch):
+	monkeypatch.setattr(remote_mod, '_max_response_bytes', lambda: 16)
+	monkeypatch.setattr(
+		remote_mod.subprocess, 'run',
+		lambda argv, **kw: _FakeProc(0, '{"packages":["0123456789"]}'),
+	)
+	r = execute_remote(RemoteHost(name='h'), 'cmd')
+	assert r.ok is False
+	assert r.parsed is None
+	assert 'exceeded 16 bytes' in r.stderr
+
+
+def test_execute_remote_malformed_json_stdout_returns_error(monkeypatch):
+	monkeypatch.setattr(remote_mod, '_max_response_bytes', lambda: 1024)
+	monkeypatch.setattr(
+		remote_mod.subprocess, 'run',
+		lambda argv, **kw: _FakeProc(0, '{"packages": [}'),
+	)
+	r = execute_remote(RemoteHost(name='h'), 'cmd')
+	assert r.ok is False
+	assert r.parsed is None
+	assert 'invalid' in r.stderr.lower()
+
+
+def test_execute_remote_pywinrm_rejects_oversized_json_stdout(monkeypatch):
+	monkeypatch.setattr(remote_mod, '_max_response_bytes', lambda: 16)
+
+	class _Resp:
+		status_code = 0
+		std_out = b'{"packages":["0123456789"]}'
+		std_err = b''
+
+	class _FakeSession:
+		def __init__(self, *args, **kwargs):
+			pass
+
+		def run_cmd(self, command):
+			return _Resp()
+
+	fake_winrm = type('M', (), {'Session': _FakeSession})
+	monkeypatch.setitem(__import__('sys').modules, 'winrm', fake_winrm)
+
+	r = execute_remote(RemoteHost(name='h', transport='pywinrm'), 'cmd')
+	assert r.ok is False
+	assert r.parsed is None
+	assert 'exceeded 16 bytes' in r.stderr
+
+
 # ─── execute_many parallel fan-out ────────────────────────────────────────
 
 
