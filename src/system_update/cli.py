@@ -1,6 +1,6 @@
 """Typer-based CLI entry point.
 
-Translates the CLI flags into an :class:`argparse.Namespace` and delegates
+Translates the CLI flags into :class:`system_update.cli_options.CLIOptions` and delegates
 to :class:`system_update.app.SystemUpdateApp`, which drives the whole
 scan → check → security → display → export → update workflow.
 """
@@ -10,7 +10,6 @@ from __future__ import annotations
 import io
 import shutil
 import sys
-from argparse import Namespace
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 from typing import List, Optional
 
@@ -578,6 +577,7 @@ def main(
 	"""Scan the system, display available updates, and optionally apply them."""
 	from system_update.app import SystemUpdateApp
 	from system_update import subhelp
+	from system_update.cli_options import CLIOptions
 
 	# ── --explain FLAG / <choice-flag> help → detailed sub-help pages ──────
 	# Handled before validation so '--export help' and '--cloud-sync help'
@@ -671,7 +671,7 @@ def main(
 	if remote and remote not in _VALID_REMOTE:
 		_bail('--remote', remote, _VALID_REMOTE)
 
-	args = Namespace(
+	args = CLIOptions(
 		source=source,
 		exclude=exclude,
 		update_source=update_source,
@@ -734,6 +734,10 @@ def main(
 		debug=debug,
 		log=log,
 	)
+	try:
+		args.validate()
+	except ValueError as e:
+		raise typer.BadParameter(str(e)) from e
 
 	if no_plugins:
 		from system_update.plugins import disable_plugin_loading

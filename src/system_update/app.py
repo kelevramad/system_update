@@ -12,16 +12,17 @@ import logging
 import os
 import threading  # noqa: F401 - legacy tests patch system_update.app.threading.Thread
 import time
-from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from rich.prompt import Prompt
 
 from system_update.cache import CacheManager
 from system_update.checkers import UpdateChecker
+from system_update.cli_options import CLIOptions
 from system_update.config import SystemConfig, setup_logging
 from system_update.executors import UpdateExecutor
 from system_update.history import HistoryDatabase, VulnerabilityHistory
@@ -478,14 +479,15 @@ class SystemUpdateApp(AppActionsMixin):
 
     # ── main workflow ──────────────────────────────────────────────────────
 
-    def run(self, args: Namespace) -> None:
+    def run(self, args: Any) -> None:
         """Full flow: scan → check → security → cache → history → display → export → update."""
+        args = CLIOptions.from_namespace(args)
         # Activate the named profile BEFORE setup_logging so log/cache/history
         # all land in the right directory. SystemConfig.__init__ runs with the
         # default profile (we don't see args yet), so we re-init here.
         # Strict ``isinstance(str)`` so MagicMock attrs in unit tests don't
         # accidentally get treated as profile names.
-        profile = getattr(args, 'profile', None)
+        profile = args.profile
         if isinstance(profile, str) and profile:
             self.config.reinit(profile)
             self.settings = self.config.settings
@@ -518,27 +520,27 @@ class SystemUpdateApp(AppActionsMixin):
 
         setup_logging(
             self.config,
-            debug=getattr(args, 'debug', False),
-            enable_log=getattr(args, 'log', False),
+            debug=args.debug,
+            enable_log=args.log,
         )
 
         # Apply UI overrides from CLI flags.
-        if getattr(args, 'theme', None):
+        if args.theme:
             self.settings.setdefault('ui', {})['theme'] = args.theme
-        if getattr(args, 'format', None):
+        if args.format:
             self.settings.setdefault('ui', {})['display_format'] = args.format
 
         # --save-config: fold this run's CLI overrides into config.json so the
         # next run uses them as defaults. Specifically: --source X,Y,Z sets
         # sources.* to True only for those sources (everything else False).
-        if getattr(args, 'save_config', False):
+        if args.save_config:
             self._persist_cli_overrides(args)
 
         # Step 11 features (history/report/interactive) are routed here.
         if self._handle_meta_commands(args):
             return
 
-        if getattr(args, 'clear_cache', False):
+        if args.clear_cache:
             self.cache_mgr.clear()
             console.print('[green]🗑️  Cache cleared successfully![/green]')
             return
@@ -547,13 +549,12 @@ class SystemUpdateApp(AppActionsMixin):
         self._include_sources = set()
 
         # --update-source <s> is shorthand for --source <s> --update-all --yes.
-        if getattr(args, 'update_source', None):
-            args.source = args.update_source
-            args.update_all = True
+        if args.update_source:
+            args = replace(args, source=args.update_source, update_all=True)
             # Don't auto-confirm — let the user see the queued packages and
             # approve. Add ``--yes`` explicitly to skip prompts.
 
-        if getattr(args, 'source', None):
+        if args.source:
             valid, invalid = _partition_sources(
                 args.source, self.plugin_sources)
             if invalid:
@@ -576,14 +577,14 @@ class SystemUpdateApp(AppActionsMixin):
             # Overwrite args.source with the sanitized CSV so downstream
             # helpers (scan_system, _scanned_sources_label, cache sources check)
             # see only valid tokens.
-            args.source = ','.join(sorted(valid))
+            args = replace(args, source=','.join(sorted(valid)))
 
         apps: Optional[List[AppInfo]] = None
 
         # ── --import (5.4.1) / --merge (5.4.2) ─────────────────────────────
-        import_files = getattr(args, 'import_files', None) or []
+        import_files = args.import_files or []
         if import_files:
-            merge_flag = bool(getattr(args, 'merge_with_cache', False))
+            merge_flag = bool(args.merge_with_cache)
             imported = self._import_apps_from_files(import_files, merge_flag)
             if imported:
                 apps = imported
@@ -593,7 +594,7 @@ class SystemUpdateApp(AppActionsMixin):
                 total_updates = _count_updates(apps)
 
         # ── cache check ────────────────────────────────────────────────────
-        no_cache = getattr(args, 'no_cache', False)
+        no_cache = args.no_cache
         cache_enabled = self.settings.get('cache', {}).get('enabled', True)
 
         if no_cache:
@@ -683,7 +684,7 @@ class SystemUpdateApp(AppActionsMixin):
             # Phase 1 — scan.
             console.print('[bold cyan]🔎 Scanning sources...[/bold cyan]')
             phase_start = time.time()
-            apps = self.scan_system(getattr(args, 'source', None))
+            apps = self.scan_system(args.source)
             console.print(
                 f'\n📦 [bold]Discovered {len(apps)} unique apps.[/bold]')
             console.print(_phase_time_label('Scanning sources', phase_start))
@@ -759,7 +760,7 @@ class SystemUpdateApp(AppActionsMixin):
                 apps, scan_id, scanned_sources, scan_time)
 
             total_updates = _count_updates(apps)
-            if getattr(args, 'no_cache', False):
+            if args.no_cache:
                 console.print(
                     '[dim]💾 --no-cache: skipping cache write (scan results not persisted).[/dim]\n'
                 )
@@ -776,7 +777,7 @@ class SystemUpdateApp(AppActionsMixin):
             scan_time = 0.0
 
         # ── apply exclude list (CLI > env > config) ────────────────────────
-        exclude_tokens = _parse_exclude_list(getattr(args, 'exclude', None))
+        exclude_tokens = _parse_exclude_list(args.exclude)
         if not exclude_tokens:
             exclude_tokens = _parse_exclude_list(self.settings.get('exclude'))
         if exclude_tokens:
@@ -790,7 +791,7 @@ class SystemUpdateApp(AppActionsMixin):
                 )
             total_updates = _count_updates(apps)
 
-        if getattr(args, 'dependency_graph', None):
+        if args.dependency_graph:
             self._handle_dependency_graph(apps, args)
             return
 
@@ -824,11 +825,11 @@ class SystemUpdateApp(AppActionsMixin):
             total_updates,
             scan_time,
             sources_count,
-            show_all=getattr(args, 'show_all', False),
+            show_all=args.show_all,
             security_stats=security_stats,
         )
 
-        if getattr(args, 'package', None):
+        if args.package:
             self._handle_single_update(apps, args)
             return
 
@@ -844,11 +845,11 @@ class SystemUpdateApp(AppActionsMixin):
             ui_settings.get('display_format', 'auto'),
             ui_settings.get('theme', 'default'),
             True,
-            show_all=getattr(args, 'show_all', False),
+            show_all=args.show_all,
         )
         console.print(apps_table)
 
-        if getattr(args, 'show_all', False):
+        if args.show_all:
             console.print('\n[dim]💾 Showing: all packages[/dim]')
         else:
             console.print('\n[dim]💾 Showing: updates only[/dim]')
@@ -861,20 +862,20 @@ class SystemUpdateApp(AppActionsMixin):
             total_count = self._print_available_updates_summary(
                 updates, security_updates)
 
-            if getattr(args, 'notify', False):
+            if args.notify:
                 self.notifier.notify_updates_available(
                     total_count, len(security_updates), force=True
                 )
 
-            if getattr(args, 'interactive', False):
+            if args.interactive:
                 self._interactive_update(updates, vulnerable, args)
-            elif getattr(args, 'update_all', False):
+            elif args.update_all:
                 self._update_all_workflow(updates, vulnerable, args)
         else:
             console.print('\n[green]✨ System is up to date![/green]')
 
-        export_format = getattr(args, 'export', None)
-        output_path = getattr(args, 'output', None)
+        export_format = args.export
+        output_path = args.output
         if isinstance(export_format, str) and export_format:
             from system_update import export as export_module
 
@@ -884,12 +885,12 @@ class SystemUpdateApp(AppActionsMixin):
                 from system_update.report_templates import resolve_branding
 
                 cli_overrides = {
-                    'title': getattr(args, 'html_title', None),
-                    'company_name': getattr(args, 'html_company', None),
-                    'logo_path': getattr(args, 'html_logo', None),
+                    'title': args.html_title,
+                    'company_name': args.html_company,
+                    'logo_path': args.html_logo,
                 }
                 branding = resolve_branding(self.settings, cli_overrides)
-                template_path = getattr(args, 'html_template', None) or (
+                template_path = args.html_template or (
                     self.settings.get('report', {}).get(
                         'template_path') or None
                 )

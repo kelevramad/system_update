@@ -130,3 +130,23 @@ def test_main_with_invalid_args():
 	with pytest.raises(SystemExit) as exc_info:
 		app(['--invalid-arg-xyz'], standalone_mode=True)
 	assert exc_info.value.code != 0
+
+
+def test_cli_options_from_namespace_defaults():
+	from argparse import Namespace
+
+	from system_update.cli_options import CLIOptions
+
+	opts = CLIOptions.from_namespace(Namespace(source='pip', dry_run=True))
+	assert opts.source == 'pip'
+	assert opts.dry_run is True
+	assert opts.remote_timeout == 600
+	assert opts.schedule_name == 'SystemUpdate_Scan'
+
+
+def test_cli_options_validate_rejects_update_all_with_package():
+	from system_update.cli_options import CLIOptions
+
+	opts = CLIOptions(update_all=True, package='git')
+	with pytest.raises(ValueError, match='--update-all'):
+		opts.validate()

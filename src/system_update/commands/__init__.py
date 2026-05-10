@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from argparse import Namespace
-from typing import Protocol
-
+from typing import Any, Protocol
 
 class Command(Protocol):
 	"""Small command protocol shared by extracted CLI verbs."""
 
-	def execute(self, args: Namespace, app_ctx: object) -> int:
+	def execute(self, args: Any, app_ctx: object) -> int:
 		"""Run this command against an application context."""
 		...
 

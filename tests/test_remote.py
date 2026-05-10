@@ -19,6 +19,7 @@ from system_update.remote import (
 	build_remote_update_command,
 	execute_many,
 	execute_remote,
+	validate_remote_scan_payload,
 )
 from system_update.app import SystemUpdateApp
 
@@ -538,5 +539,24 @@ def test_aggregate_scans_handles_bare_list_payload():
 
 def test_aggregate_scans_empty_input():
 	report = aggregate_scans([])
+	assert report.hosts == []
 	assert report['host_count'] == 0
 	assert report['package_index'] == []
+
+
+def test_validate_remote_scan_payload_accepts_apps_shape():
+	payload = validate_remote_scan_payload({
+		'apps': [_sample_pkg('git')],
+		'summary': {'total_apps': 1},
+		'extra': 'ignored',
+	})
+
+	apps = payload.get('apps')
+	assert apps is not None
+	assert apps[0]['name'] == 'git'
+	assert 'extra' not in payload
+
+
+def test_validate_remote_scan_payload_rejects_missing_name():
+	with pytest.raises(ValueError, match='packages\\[0\\]\\.name missing'):
+		validate_remote_scan_payload({'packages': [{'source': 'winget'}]})

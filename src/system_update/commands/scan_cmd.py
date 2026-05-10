@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-from argparse import Namespace
+from typing import Any
+
+from system_update.cli_options import CLIOptions
 
 
 class ScanCommand:
 	"""Dispatch scan-only work through the app context."""
 
-	def execute(self, args: Namespace, app_ctx: object) -> int:
+	def execute(self, args: Any, app_ctx: object) -> int:
+		args = CLIOptions.from_namespace(args)
 		handler = getattr(app_ctx, 'scan_system')
-		handler(getattr(args, 'source', None))
+		handler(args.source)
 		return 0
 
 

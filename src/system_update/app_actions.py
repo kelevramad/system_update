@@ -7,13 +7,13 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from argparse import Namespace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from rich.prompt import Prompt
 
+from system_update.cli_options import CLIOptions
 from system_update.models import AppInfo, UpdateStatus
 from system_update.network import configure_network
 from system_update.plugins import checker_map, updater_map
@@ -38,9 +38,10 @@ def _confirm_default_no(message: str) -> bool:
 class AppActionsMixin:
     """Compatibility mixin for command handlers and legacy app helpers."""
 
-    def _scanned_sources_label(self, args: Namespace) -> str:
+    def _scanned_sources_label(self, args: Any) -> str:
         """Return the comma-separated label to record in the history DB for this scan."""
-        if getattr(args, 'source', None):
+        args = CLIOptions.from_namespace(args)
+        if args.source:
             return args.source
         enabled = self.settings.get('sources', {})
         return ','.join(name for name in self._scanner_order() if enabled.get(name, True))
@@ -58,14 +59,15 @@ class AppActionsMixin:
         return total_count
 
     def _update_all_workflow(
-            self, updates: List[AppInfo], vulnerable: List[AppInfo], args: Namespace
+            self, updates: List[AppInfo], vulnerable: List[AppInfo], args: Any
     ) -> None:
         """Security-first update flow: vulnerable packages get their own confirmation + pass."""
+        args = CLIOptions.from_namespace(args)
         security_updates = [a for a in vulnerable if a.has_update]
         regular_updates = [
             a for a in updates if a.update_status != UpdateStatus.VULNERABLE]
-        dry_run = getattr(args, 'dry_run', False)
-        yes = getattr(args, 'yes', False)
+        dry_run = args.dry_run
+        yes = args.yes
 
         store = None if dry_run else self._snapshot_store()
         import sys as _sys
@@ -185,10 +187,11 @@ class AppActionsMixin:
                 f'in {pkg_count} package(s).[/bold red]'
             )
 
-    def _handle_single_update(self, apps: List[AppInfo], args: Namespace) -> None:
+    def _handle_single_update(self, apps: List[AppInfo], args: Any) -> None:
         """Update one package by name, optionally constrained by source/version."""
-        target_name = (getattr(args, 'package', '') or '').lower()
-        source_arg = getattr(args, 'source', None)
+        args = CLIOptions.from_namespace(args)
+        target_name = (args.package or '').lower()
+        source_arg = args.source
         target_sources = (
             {item.strip().lower()
              for item in source_arg.split(',') if item.strip()}
@@ -221,7 +224,7 @@ class AppActionsMixin:
             return
 
         target_app = candidates[0]
-        version = getattr(args, 'version', None)
+        version = args.version
         if version:
             target_app.latest_version = version
             console.print(f'[cyan]🎯 Targeting version: {version}[/cyan]')
@@ -229,12 +232,12 @@ class AppActionsMixin:
             console.print(
                 f'[green]✅ {target_app.name} is up to date ({target_app.version})[/green]'
             )
-            if not (getattr(args, 'yes', False) or _confirm_default_no('🔄 Force reinstall?')):
+            if not (args.yes or _confirm_default_no('🔄 Force reinstall?')):
                 return
             target_app.latest_version = ''
 
-        dry_run = getattr(args, 'dry_run', False)
-        yes = getattr(args, 'yes', False)
+        dry_run = args.dry_run
+        yes = args.yes
         from rich.table import Table
 
         t = Table(title='Package queued for update', expand=True)
@@ -321,22 +324,22 @@ class AppActionsMixin:
 
         return export_module.export(apps, format_type, output_file)
 
-    def _handle_dependency_graph(self, apps: List[AppInfo], args: Namespace) -> None:
+    def _handle_dependency_graph(self, apps: List[AppInfo], args: Any) -> None:
         """Handle ``--dependency-graph`` actions after scan/cache/import resolution."""
+        args = CLIOptions.from_namespace(args)
         from rich.table import Table
 
         from system_update import dependency_graph
         from system_update import subhelp
 
-        action = (getattr(args, 'dependency_graph', '') or '').lower()
+        action = (args.dependency_graph or '').lower()
         if action == 'help':
             subhelp.show('dependency-graph')
             return
 
         graph = dependency_graph.build_graph(apps)
         if action == 'dot':
-            output = getattr(args, 'graph_output',
-                             None) or 'dependency-graph.dot'
+            output = args.graph_output or 'dependency-graph.dot'
             path = dependency_graph.export_dot(graph, output)
             console.print(
                 f'[green]✓[/green] Dependency graph exported to [cyan]{path}[/cyan] '
@@ -390,56 +393,57 @@ class AppActionsMixin:
 
     # ── Meta commands (history / report / interactive) ─────────────────────
 
-    def _handle_meta_commands(self, args: Namespace) -> bool:
+    def _handle_meta_commands(self, args: Any) -> bool:
         """Route history/report/interactive flags; return True if the command was consumed."""
-        if getattr(args, 'list_plugins_detail', False):
+        args = CLIOptions.from_namespace(args)
+        if args.list_plugins_detail:
             self._show_plugins(detail=True)
             return True
-        if getattr(args, 'list_plugins', False):
+        if args.list_plugins:
             self._show_plugins(detail=False)
             return True
-        if getattr(args, 'history', False):
+        if args.history:
             self._show_history()
             return True
-        if getattr(args, 'history_package', None):
+        if args.history_package:
             self._show_package_history(args.history_package)
             return True
-        if getattr(args, 'history_trends', False):
+        if args.history_trends:
             self._show_trends()
             return True
-        if getattr(args, 'history_stale', 0) and args.history_stale > 0:
+        if args.history_stale and args.history_stale > 0:
             self._show_stale(args.history_stale)
             return True
-        if getattr(args, 'report', None):
+        if args.report:
             self._generate_history_report(
-                args.report, getattr(args, 'report_output', None))
+                args.report, args.report_output)
             return True
-        if getattr(args, 'cloud_sync', None):
+        if args.cloud_sync:
             self._handle_cloud_sync(args.cloud_sync)
             return True
-        if getattr(args, 'schedule', None):
+        if args.schedule:
             from system_update.commands.schedule_cmd import ScheduleCommand
 
             ScheduleCommand().execute(args, self)
             return True
-        if getattr(args, 'profile_export', None):
+        if args.profile_export:
             self._export_profile(args.profile_export)
             return True
-        if getattr(args, 'profile_import', None):
+        if args.profile_import:
             self._import_profile(
                 args.profile_import,
-                target_name=getattr(args, 'profile', None),
+                target_name=args.profile,
             )
             return True
-        if getattr(args, 'snapshot', None):
+        if args.snapshot:
             from system_update.commands.snapshot_cmd import SnapshotCommand
 
             SnapshotCommand().execute(args, self)
             return True
-        if getattr(args, 'rollback', None):
+        if args.rollback:
             self._handle_rollback(args)
             return True
-        if getattr(args, 'remote', None):
+        if args.remote:
             from system_update.commands.remote_cmd import RemoteCommand
 
             RemoteCommand().execute(args, self)
@@ -579,8 +583,9 @@ class AppActionsMixin:
 
     # ── Remote management (6.4) ───────────────────────────────────────────
 
-    def _handle_remote(self, args: Namespace) -> None:
+    def _handle_remote(self, args: Any) -> None:
         """Dispatch ``--remote list|add|remove|scan|update|report|help``."""
+        args = CLIOptions.from_namespace(args)
         from system_update import remote as remote_mod
         from system_update import subhelp
 
@@ -617,21 +622,21 @@ class AppActionsMixin:
             return
 
         if action == 'add':
-            name = getattr(args, 'remote_host', None)
+            name = args.remote_host
             if not isinstance(name, str) or not name:
                 console.print(
                     '[red]✗ --remote add requires --remote-host NAME[/red]'
                 )
                 return
             groups = []
-            raw_groups = getattr(args, 'remote_groups', None)
+            raw_groups = args.remote_groups
             if isinstance(raw_groups, str) and raw_groups:
                 groups = [g.strip()
                           for g in raw_groups.split(',') if g.strip()]
             host = remote_mod.RemoteHost(
                 name=name,
-                address=getattr(args, 'remote_address', None) or name,
-                user=getattr(args, 'remote_user', None) or '',
+                address=args.remote_address or name,
+                user=args.remote_user or '',
                 transport='winrs',
                 groups=groups,
             )
@@ -644,7 +649,7 @@ class AppActionsMixin:
             return
 
         if action == 'remove':
-            name = getattr(args, 'remote_host', None)
+            name = args.remote_host
             if not isinstance(name, str) or not name:
                 console.print(
                     '[red]✗ --remote remove requires --remote-host NAME[/red]'
@@ -660,8 +665,8 @@ class AppActionsMixin:
 
         # scan / update / report all need a target list.
         hosts = inv.resolve(
-            host=getattr(args, 'remote_host', None),
-            group=getattr(args, 'remote_group', None),
+            host=args.remote_host,
+            group=args.remote_group,
         )
         if not hosts:
             console.print(
@@ -671,8 +676,8 @@ class AppActionsMixin:
             )
             return
 
-        extra = getattr(args, 'remote_args', None) or ''
-        timeout = int(getattr(args, 'remote_timeout', 600) or 600)
+        extra = args.remote_args or ''
+        timeout = int(args.remote_timeout or 600)
 
         if action in ('scan', 'report'):
             cmd = remote_mod.build_remote_scan_command(extra)
@@ -687,8 +692,8 @@ class AppActionsMixin:
             f'[dim]{cmd}[/dim]'
         )
 
-        debug = bool(getattr(args, 'remote_debug', False))
-        verbose = bool(getattr(args, 'remote_verbose', False)) or debug
+        debug = bool(args.remote_debug)
+        verbose = bool(args.remote_verbose) or debug
         results = self._run_remote_with_progress(
             hosts, cmd, timeout, verbose, debug)
         self._render_remote_results(results, action, args)
@@ -791,9 +796,10 @@ class AppActionsMixin:
         return results
 
     def _render_remote_results(
-            self, results: List, action: str, args: Namespace
+            self, results: List, action: str, args: Any
     ) -> None:
         """Print a summary table + optional consolidated JSON report."""
+        args = CLIOptions.from_namespace(args)
         from rich.table import Table
 
         t = Table(title=f'🌐 Remote {action} results', expand=True)
@@ -828,8 +834,8 @@ class AppActionsMixin:
             from system_update import remote as remote_mod
 
             report = remote_mod.aggregate_scans(results)
-            out_path = getattr(args, 'remote_output', None)
-            payload = json.dumps(report, indent=2, default=str)
+            out_path = args.remote_output
+            payload = json.dumps(report.to_dict(), indent=2, default=str)
             if isinstance(out_path, str) and out_path:
                 from pathlib import Path as _Path
 
@@ -838,15 +844,15 @@ class AppActionsMixin:
                 console.print(
                     f'[green]✓ Wrote consolidated report[/green] '
                     f'→ [cyan]{out_path}[/cyan] '
-                    f'({report["host_count"]} hosts, '
-                    f'{len(report["package_index"])} unique packages)'
+                    f'({report.host_count} hosts, '
+                    f'{len(report.package_index)} unique packages)'
                 )
             else:
                 console.print()
                 console.print(
-                    f'[bold]🧾 Consolidated:[/bold] {report["host_count"]} hosts, '
-                    f'{len(report["package_index"])} unique packages, '
-                    f'{report["error_count"]} errors. '
+                    f'[bold]🧾 Consolidated:[/bold] {report.host_count} hosts, '
+                    f'{len(report.package_index)} unique packages, '
+                    f'{report.error_count} errors. '
                     f'Pass [cyan]--remote-output PATH[/cyan] to save full JSON.'
                 )
 
@@ -858,8 +864,9 @@ class AppActionsMixin:
 
         return SnapshotStore(Path(self.config.config_dir) / 'history.db')
 
-    def _handle_snapshot(self, args: Namespace) -> None:
+    def _handle_snapshot(self, args: Any) -> None:
         """Dispatch ``--snapshot list|show|delete|help``."""
+        args = CLIOptions.from_namespace(args)
         from system_update import subhelp
 
         action = (args.snapshot or '').lower()
@@ -893,7 +900,7 @@ class AppActionsMixin:
                 console.print(t)
                 return
 
-            target_id = getattr(args, 'snapshot_id', None) or 'last'
+            target_id = args.snapshot_id or 'last'
 
             if action == 'show':
                 snap = store.get(target_id)
@@ -936,8 +943,9 @@ class AppActionsMixin:
                         f'[yellow]No snapshot found:[/yellow] {target_id}')
                 return
 
-    def _handle_rollback(self, args: Namespace) -> None:
+    def _handle_rollback(self, args: Any) -> None:
         """Restore packages captured in a snapshot to their previous versions."""
+        args = CLIOptions.from_namespace(args)
         from system_update import subhelp
 
         token = (args.rollback or '').strip()
@@ -980,8 +988,8 @@ class AppActionsMixin:
             )
         console.print(t)
 
-        dry_run = getattr(args, 'dry_run', False)
-        yes = getattr(args, 'yes', False)
+        dry_run = args.dry_run
+        yes = args.yes
         if not yes and not dry_run:
             if not _confirm_default_no(
                     'Proceed with rollback? This will run install commands for each recorded package.',
@@ -1029,9 +1037,10 @@ class AppActionsMixin:
         enabled = self.settings.get('sources', {})
         return {name for name in self._scanner_order() if enabled.get(name, True)}
 
-    def _fresh_scan_sources(self, args: Namespace, apps: List[AppInfo]) -> Set[str]:
+    def _fresh_scan_sources(self, args: Any, apps: List[AppInfo]) -> Set[str]:
         """Sources refreshed by a full live scan."""
-        if getattr(args, 'source', None):
+        args = CLIOptions.from_namespace(args)
+        if args.source:
             return _parse_source_filter(args.source)
         return {a.source.lower() for a in apps}
 
@@ -1085,18 +1094,19 @@ class AppActionsMixin:
 
     # ── Persist CLI overrides ──────────────────────────────────────────────
 
-    def _persist_cli_overrides(self, args: Namespace) -> None:
+    def _persist_cli_overrides(self, args: Any) -> None:
         """Write current CLI overrides (sources, theme, format) into config.json.
 
         Only ``--source`` rewrites the ``sources`` block — every named source
         gets ``true`` and every other one gets ``false``. UI flags merge into
         ``ui``. Called when the user passes ``--save-config``.
         """
+        args = CLIOptions.from_namespace(args)
         changed: List[str] = []
 
         def _str_arg(name: str):
             """Pull ``args.<name>`` only if it's a real non-empty string."""
-            v = getattr(args, name, None)
+            v = vars(args).get(name)
             return v if isinstance(v, str) and v else None
 
         raw_source = _str_arg('source')
@@ -1208,12 +1218,13 @@ class AppActionsMixin:
 
     # ── Scheduled tasks (6.1) ──────────────────────────────────────────────
 
-    def _handle_schedule(self, args: Namespace) -> None:
+    def _handle_schedule(self, args: Any) -> None:
         """Dispatch ``--schedule create|delete|list|status|run|eval|help``."""
+        args = CLIOptions.from_namespace(args)
         from system_update import scheduler, subhelp
 
-        action = args.schedule.lower()
-        name = getattr(args, 'schedule_name', None) or 'SystemUpdate_Scan'
+        action = (args.schedule or '').lower()
+        name = args.schedule_name or 'SystemUpdate_Scan'
 
         if action == 'help':
             subhelp.show('schedule')
@@ -1227,11 +1238,10 @@ class AppActionsMixin:
             if action == 'create':
                 spec = scheduler.ScheduleSpec(
                     name=name,
-                    frequency=getattr(args, 'schedule_when',
-                                      'daily') or 'daily',
-                    time=getattr(args, 'schedule_time', '09:00') or '09:00',
-                    days=getattr(args, 'schedule_days', '') or '',
-                    command_args=getattr(args, 'schedule_args', '') or '',
+                    frequency=args.schedule_when or 'daily',
+                    time=args.schedule_time or '09:00',
+                    days=args.schedule_days or '',
+                    command_args=args.schedule_args or '',
                 )
                 result = scheduler.create_task(spec)
                 console.print(
@@ -1311,18 +1321,19 @@ class AppActionsMixin:
         except ValueError as e:
             console.print(f'[red]✗ Invalid schedule spec:[/red] {e}')
 
-    def _evaluate_conditional_actions(self, args: Namespace) -> None:
+    def _evaluate_conditional_actions(self, args: Any) -> None:
         """Run a scan, evaluate ``conditional_actions`` rules, fire matched actions.
 
         Used by scheduled tasks: configure ``--schedule-args "--schedule eval"``
         (or any combination) to have the task run a scan and act on the result
         without prompts.
         """
+        args = CLIOptions.from_namespace(args)
         from system_update import conditions
 
         console.print(
             '[bold cyan]🤖 Evaluating conditional actions...[/bold cyan]')
-        apps = self.scan_system(getattr(args, 'source', None))
+        apps = self.scan_system(args.source)
         try:
             from system_update.checkers import check_all_updates
 
@@ -1347,7 +1358,7 @@ class AppActionsMixin:
             notifier=self.notifier,
             executor=self.executor,
             console=console,
-            dry_run=getattr(args, 'dry_run', False),
+            dry_run=args.dry_run,
         )
 
     # ── Data sharing (5.4) ─────────────────────────────────────────────────
@@ -1443,13 +1454,14 @@ class AppActionsMixin:
             self,
             updates: List[AppInfo],
             vulnerable: List[AppInfo],
-            args: Namespace,
+            args: Any,
     ) -> None:
         """Show numbered list of update candidates, let user pick which to apply.
 
         Input syntax: ``all`` / ``none`` / comma-and-range list (e.g. ``1,3,5-7``).
         Vulnerable packages are listed first and pre-marked with [VULN].
         """
+        args = CLIOptions.from_namespace(args)
         from rich.table import Table
 
         from system_update.executors import UpdateExecutor
@@ -1525,7 +1537,7 @@ class AppActionsMixin:
         if vuln_chosen:
             self._display_security_table(vuln_chosen)
 
-        if not getattr(args, 'yes', False):
+        if not args.yes:
             try:
                 confirm = Prompt.ask(
                     '[bold]Proceed with updates?[/bold] [dim](y/N)[/dim]', default='n'
@@ -1537,7 +1549,7 @@ class AppActionsMixin:
                 console.print('[yellow]Aborted.[/yellow]')
                 return
 
-        dry_run = getattr(args, 'dry_run', False)
+        dry_run = args.dry_run
         console.print(
             f'\n[bold]{"🧪 Dry-run" if dry_run else "🚀 Updating"} '
             f'{len(chosen)} package(s)...[/bold]'
