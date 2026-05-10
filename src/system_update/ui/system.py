@@ -14,7 +14,7 @@ from system_update.models import AppInfo, UpdateStatus
 from system_update.ui.theme import ThemeManager
 from system_update.utils import console, display_source, source_chip, source_icon
 
-_VERSION = '8.6.0'
+_VERSION = '8.7.0'
 _SEVERITY_PRIORITY = {'CRITICAL': 0, 'HIGH': 1,
                       'MEDIUM': 2, 'LOW': 3, 'UNKNOWN': 4}
 _SEVERITY_COLORS = {
