@@ -163,3 +163,116 @@ def test_inventory_save_uses_secure_write(tmp_path, monkeypatch):
 	if platform.system() != 'Windows':
 		mode = stat.S_IMODE(inv_path.stat().st_mode)
 		assert mode == 0o600
+
+
+# ─── Windows ACL hardening (icacls) ───────────────────────────────────────
+#
+# The mode-bit checks above are skipped on Windows because os.chmod and
+# Path.mkdir(mode=...) are degenerate there. The actual security on
+# Windows comes from icacls. These tests cover that path.
+
+
+@pytest.mark.skipif(platform.system() != 'Windows', reason='Windows-only ACL path')
+def test_secure_write_invokes_icacls_on_windows(tmp_path, monkeypatch):
+	"""Unit test: secure_write must shell out to icacls with /inheritance:r.
+
+	Mock the subprocess so the test is fast and deterministic, and assert
+	the argv is the exact one that produces a per-user ACL (no inheritance,
+	current user gets Full control).
+	"""
+	monkeypatch.setenv('USERNAME', 'testuser')
+
+	captured = []
+
+	def fake_run(argv, **kwargs):
+		captured.append(argv)
+		# Match subprocess.run's CompletedProcess shape just enough for the
+		# caller to keep going.
+		from types import SimpleNamespace
+		return SimpleNamespace(returncode=0, stdout=b'', stderr=b'')
+
+	monkeypatch.setattr('system_update.utils.subprocess.run', fake_run)
+
+	target = tmp_path / 'acl.json'
+	secure_write(target, '{"x": 1}')
+
+	# Two icacls calls: one on the temp file (before rename), one on the
+	# destination as belt-and-suspenders. Both must use /inheritance:r and
+	# grant the current user Full control with nothing else.
+	assert len(captured) == 2, f'expected 2 icacls calls, got {len(captured)}: {captured}'
+	for argv in captured:
+		assert argv[0] == 'icacls'
+		assert '/inheritance:r' in argv
+		grant_idx = argv.index('/grant')
+		assert argv[grant_idx + 1] == 'testuser:(F)'
+
+
+@pytest.mark.skipif(platform.system() != 'Windows', reason='Windows-only ACL path')
+def test_secure_write_windows_acl_excludes_others(tmp_path):
+	"""Integration test: shell out to icacls and verify the on-disk ACL.
+
+	Slower (one real icacls invocation per call) but proves the file is
+	actually locked down rather than just that we asked for it to be.
+	"""
+	import getpass
+	import subprocess as _sp
+
+	target = tmp_path / 'real-acl.json'
+	secure_write(target, b'\x00secret\x00')
+
+	# Verify with icacls /q (quiet, no summary line).
+	result = _sp.run(
+		['icacls', str(target)],
+		capture_output=True,
+		text=True,
+		timeout=10,
+	)
+	assert result.returncode == 0, f'icacls failed: {result.stderr}'
+	output = result.stdout
+
+	# Current user should appear with Full control.
+	user = getpass.getuser()
+	# icacls prints either "DOMAIN\\user:(F)" or just "user:(F)"; accept both.
+	# Use raw strings to avoid Python interpreting \U as a unicode escape.
+	assert (
+		f'{user}:(F)' in output
+		or rf'\{user}:(F)' in output
+	), f'expected {user}:(F) in icacls output, got:\n{output}'
+
+	# After /inheritance:r the only ACEs are explicit grants we made.
+	# No "Everyone" or "BUILTIN\\Users" / "BUILTIN\\Authenticated Users"
+	# should appear with any access right.
+	forbidden_aces = (
+		'Everyone:',
+		r'BUILTIN\Users:',
+		r'NT AUTHORITY\Authenticated Users:',
+	)
+	for forbidden in forbidden_aces:
+		assert forbidden not in output, (
+			f'unexpected ACE for {forbidden!r} in icacls output:\n{output}'
+		)
+
+
+@pytest.mark.skipif(platform.system() != 'Windows', reason='Windows-only ACL path')
+def test_harden_existing_file_invokes_icacls_on_windows(tmp_path, monkeypatch):
+	"""harden_existing_file must produce one icacls call per non-empty path."""
+	monkeypatch.setenv('USERNAME', 'testuser')
+	captured = []
+
+	def fake_run(argv, **kwargs):
+		captured.append(argv)
+		from types import SimpleNamespace
+		return SimpleNamespace(returncode=0, stdout=b'', stderr=b'')
+
+	monkeypatch.setattr('system_update.utils.subprocess.run', fake_run)
+
+	target = tmp_path / 'pre-existing.db'
+	target.write_bytes(b'\x00')
+	harden_existing_file(target)
+
+	assert len(captured) == 1
+	argv = captured[0]
+	assert argv[0] == 'icacls'
+	assert '/inheritance:r' in argv
+	grant_idx = argv.index('/grant')
+	assert argv[grant_idx + 1] == 'testuser:(F)'
