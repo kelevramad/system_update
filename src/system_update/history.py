@@ -54,9 +54,9 @@ class HistoryDatabase:
 		# other than the opening one (test fixtures, __del__ from main).
 		# We still hold one Connection per thread (threading.local) for
 		# safety; the flag only relaxes the close() restriction.
-		conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+		conn = sqlite3.connect(str(self.db_path), check_same_thread=False, timeout=30)
 		conn.row_factory = sqlite3.Row
-		conn.execute('PRAGMA journal_mode=WAL')
+		conn.execute('PRAGMA busy_timeout=30000')
 		conn.execute('PRAGMA synchronous=NORMAL')
 		conn.execute('PRAGMA foreign_keys=ON')
 		self._tls.conn = conn
@@ -68,6 +68,7 @@ class HistoryDatabase:
 		# avoids an extra round-trip on every new thread).
 		with self._schema_lock:
 			if not self._schema_initialized:
+				conn.execute('PRAGMA journal_mode=WAL')
 				self._create_schema(conn)
 				self._schema_initialized = True
 				# Hardening 1.4.1 — restrict the db file to the user.

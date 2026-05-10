@@ -121,9 +121,9 @@ class SnapshotStore:
 		# check_same_thread=False so close() works from any thread —
 		# we still hold one Connection per thread via threading.local
 		# for safety; the flag only relaxes the close() restriction.
-		conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+		conn = sqlite3.connect(str(self.db_path), check_same_thread=False, timeout=30)
 		conn.row_factory = sqlite3.Row
-		conn.execute('PRAGMA journal_mode=WAL')
+		conn.execute('PRAGMA busy_timeout=30000')
 		conn.execute('PRAGMA synchronous=NORMAL')
 		conn.execute('PRAGMA foreign_keys=ON')
 		self._tls.conn = conn
@@ -135,6 +135,7 @@ class SnapshotStore:
 		# race deterministic).
 		with self._schema_lock:
 			if not self._schema_initialized:
+				conn.execute('PRAGMA journal_mode=WAL')
 				self._ensure_schema(conn)
 				self._schema_initialized = True
 				# Restrict the snapshot db to the user (1.4.1) — only

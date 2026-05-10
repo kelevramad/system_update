@@ -1,4 +1,5 @@
 import json
+import builtins
 import logging
 from types import SimpleNamespace
 from typing import cast
@@ -223,6 +224,107 @@ def test_system_config_yaml_support(tmp_path, monkeypatch):
 	config.load()
 
 	assert config.settings['cache']['duration_hours'] == 10
+
+
+def test_system_config_yaml_missing_pyyaml_raises_clear_error(tmp_path, monkeypatch):
+	from system_update import SystemConfig
+
+	config_dir = tmp_path / '.system_update'
+	config_dir.mkdir()
+	yaml_config_file = config_dir / 'config.yaml'
+	yaml_config_file.write_text('cache:\n  duration_hours: 10\n', encoding='utf-8')
+
+	monkeypatch.setattr(SystemConfig, '__init__', lambda self: None)
+	config = SystemConfig()
+	config.config_dir = config_dir
+	config.config_file = config_dir / 'config.json'
+	config.yaml_config_file = yaml_config_file
+	config.yml_config_file = config_dir / 'config.yml'
+	config.settings = {
+		'version': 1,
+		'cache': {'duration_hours': 2, 'enabled': True},
+		'performance': {'max_workers': 6, 'timeout_seconds': 45},
+		'security': {'severity_threshold': 'medium', 'enabled': True},
+	}
+
+	real_import = builtins.__import__
+
+	def fake_import(name, *args, **kwargs):
+		if name == 'yaml':
+			raise ImportError('No module named yaml')
+		return real_import(name, *args, **kwargs)
+
+	with patch('builtins.__import__', side_effect=fake_import):
+		with pytest.raises(RuntimeError, match='PyYAML is required to load'):
+			config.load()
+
+
+def test_system_config_json_does_not_import_yaml(tmp_path, monkeypatch):
+	from system_update import SystemConfig
+
+	config_dir = tmp_path / '.system_update'
+	config_dir.mkdir()
+	json_config_file = config_dir / 'config.json'
+	json_config_file.write_text(
+		json.dumps({'version': 1, 'cache': {'duration_hours': 12}}),
+		encoding='utf-8',
+	)
+
+	monkeypatch.setattr(SystemConfig, '__init__', lambda self: None)
+	config = SystemConfig()
+	config.config_dir = config_dir
+	config.config_file = json_config_file
+	config.yaml_config_file = config_dir / 'config.yaml'
+	config.yml_config_file = config_dir / 'config.yml'
+	config.settings = {
+		'version': 1,
+		'cache': {'duration_hours': 2, 'enabled': True},
+		'performance': {'max_workers': 6, 'timeout_seconds': 45},
+		'security': {'severity_threshold': 'medium', 'enabled': True},
+	}
+
+	real_import = builtins.__import__
+
+	def fake_import(name, *args, **kwargs):
+		if name == 'yaml':
+			raise AssertionError('yaml should not be imported when config.json exists')
+		return real_import(name, *args, **kwargs)
+
+	with patch('builtins.__import__', side_effect=fake_import):
+		config.load()
+
+	assert config.settings['cache']['duration_hours'] == 12
+
+
+def test_system_config_prefers_json_when_yaml_also_exists(tmp_path, monkeypatch):
+	from system_update import SystemConfig
+
+	config_dir = tmp_path / '.system_update'
+	config_dir.mkdir()
+	json_config_file = config_dir / 'config.json'
+	yaml_config_file = config_dir / 'config.yaml'
+	json_config_file.write_text(
+		json.dumps({'version': 1, 'cache': {'duration_hours': 12}}),
+		encoding='utf-8',
+	)
+	yaml_config_file.write_text('cache:\n  duration_hours: 4\n', encoding='utf-8')
+
+	monkeypatch.setattr(SystemConfig, '__init__', lambda self: None)
+	config = SystemConfig()
+	config.config_dir = config_dir
+	config.config_file = json_config_file
+	config.yaml_config_file = yaml_config_file
+	config.yml_config_file = config_dir / 'config.yml'
+	config.settings = {
+		'version': 1,
+		'cache': {'duration_hours': 2, 'enabled': True},
+		'performance': {'max_workers': 6, 'timeout_seconds': 45},
+		'security': {'severity_threshold': 'medium', 'enabled': True},
+	}
+
+	config.load()
+
+	assert config.settings['cache']['duration_hours'] == 12
 
 
 def test_system_config_sources_default(tmp_path, monkeypatch):

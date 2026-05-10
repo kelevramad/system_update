@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from system_update.models import AppInfo
 from system_update.security import github, local, npm, osv, pip, pypi
-from system_update.security.common import OSV_ECOSYSTEM_MAP, score_to_severity
+from system_update.security.common import OSV_ECOSYSTEM_MAP, is_security_issue, score_to_severity
 from system_update.ui.progress import make_progress
 
 logger = logging.getLogger(__name__)
@@ -102,8 +102,11 @@ def check_all(
 					source_vulns = list(plugin_checkers[source_name](source_apps) or [])
 				else:
 					source_vulns = _dispatch(source_name, source_apps, local_data)
+				issue_count = sum(1 for item in source_vulns if is_security_issue(item))
+				vuln_count = len(source_vulns) - issue_count
 				logger.info(
-					f'Security check done for {source_name}: {len(source_vulns)} vulns'
+					f'Security check done for {source_name}: '
+					f'{vuln_count} vulns, {issue_count} issue(s)'
 				)
 			except Exception as e:
 				logger.warning(f'Security check failed for {source_name}: {e}')
@@ -111,11 +114,13 @@ def check_all(
 
 			vulns.extend(source_vulns)
 
-			icon = '🔥' if source_vulns else '✓'
+			issue_count = sum(1 for item in source_vulns if is_security_issue(item))
+			vuln_count = len(source_vulns) - issue_count
+			icon = '!' if issue_count else ('🔥' if vuln_count else '✓')
 			progress.update(
 				tasks[source_name],
 				completed=1,
-				description=f'{icon} {source_name} [{len(source_vulns)}]',
+				description=f'{icon} {source_name} [{vuln_count}]',
 			)
 
 	return vulns
@@ -138,5 +143,6 @@ __all__ = [
 	'OSV_ECOSYSTEM_MAP',
 	'SecurityChecker',
 	'check_all',
+	'is_security_issue',
 	'score_to_severity',
 ]

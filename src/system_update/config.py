@@ -259,7 +259,14 @@ class SystemConfig:
 		self._validate_config()
 
 	def _read_config_file(self) -> Optional[Dict]:
-		"""Attempt to read settings from YAML (preferred) or JSON on disk."""
+		"""Attempt to read settings from JSON first, then YAML."""
+		if self.config_file.exists():
+			try:
+				with open(self.config_file, 'r', encoding='utf-8') as f:
+					return json.load(f)
+			except Exception as e:
+				logging.warning(f'Failed to load config: {e}')
+
 		yaml_path = (
 			self.yaml_config_file
 			if self.yaml_config_file.exists()
@@ -272,17 +279,13 @@ class SystemConfig:
 
 				with open(yaml_path, 'r', encoding='utf-8') as f:
 					return yaml.safe_load(f)
-			except ImportError:
-				logging.warning('PyYAML not installed but YAML config found.')
+			except ImportError as exc:
+				raise RuntimeError(
+					f'PyYAML is required to load {yaml_path}. '
+					'Install with: uv pip install pyyaml or use a JSON config.'
+				) from exc
 			except Exception as e:
 				logging.warning(f'Failed to load YAML config: {e}')
-
-		if self.config_file.exists():
-			try:
-				with open(self.config_file, 'r', encoding='utf-8') as f:
-					return json.load(f)
-			except Exception as e:
-				logging.warning(f'Failed to load config: {e}')
 
 		return None
 

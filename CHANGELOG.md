@@ -15,6 +15,14 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.8.0 (May 2026)
+
+- **Security Observability (Hardening 2.3.1)**: OSV scanner failures now use specific exception handling for URL, timeout, JSON, and OS-level errors. Failures log a WARNING with the OSV host and return a structured `security_issue` marker instead of silently reporting an empty clean scan.
+- **NPM Audit Clarity (Hardening 2.3.2)**: `npm audit` now runs against a local `package.json` when present, otherwise against the global npm root via `--prefix`. Missing audit targets, malformed JSON, and npm exit code 2+ now return distinguishable skipped/error markers; exit code 1 remains valid vulnerability output.
+- **YAML Config Safety (Hardening 2.3.3)**: config loading now prefers `config.json`; YAML is loaded only when JSON is absent, and missing PyYAML with a YAML config raises a clear startup error instead of falling back to defaults. README documents the JSON/YAML precedence.
+- **Tests**: 616 passing, 4 skipped. New coverage in `tests/test_security.py` and `tests/test_config.py` verifies OSV issue markers, npm audit skip/global-root behavior, and YAML missing-PyYAML failure handling.
+- **Verification**: `uv run pytest`, `uv run ruff check .`, and `uv run task typecheck` are clean.
+
 ### v8.7.0 (May 2026)
 
 - **Windows Encoding (Hardening 2.2.1)**: `run_command` now captures subprocess stdout/stderr as raw bytes and decodes through centralized `decode_command_output()` fallback handling: UTF-8, UTF-16-LE BOM, active Windows OEM code page, CP1252, then safe replacement. Accented package/vendor names now survive scans without mojibake, and `errors='ignore'` is gone from the codebase.

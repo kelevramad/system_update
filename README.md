@@ -4,7 +4,7 @@
 
 A comprehensive Python-based system package management tool that scans, checks, and updates software from multiple sources.
 
-**Version:** 8.7.0
+**Version:** 8.8.0
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
 **Layout:** Modular package at `src/system_update/` (typer CLI)
@@ -272,6 +272,11 @@ oversized responses. The default is 10 MiB and can be changed with
 ### Default Configuration
 
 The script uses the following default settings stored in `~/.system_update/config.json`:
+
+Configuration loading prefers `config.json` when it exists. If no JSON config
+exists, `config.yaml` or `config.yml` can be used, but PyYAML must be installed;
+otherwise startup raises a clear error instead of silently ignoring the YAML
+file and running with defaults.
 
 ```json
 {

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Dict, Optional
 
 
 OSV_ECOSYSTEM_MAP = {
@@ -32,3 +32,19 @@ def score_to_severity(cvss_score: Optional[float]) -> str:
 	if cvss_score > 0:
 		return 'LOW'
 	return 'NONE'
+
+
+def security_issue(source: str, status: str, message: str) -> Dict:
+	"""Return a structured non-vulnerability security scan issue marker."""
+	return {
+		'type': 'security_issue',
+		'source': source,
+		'status': status,
+		'message': message,
+		'error': message,
+	}
+
+
+def is_security_issue(item: Dict) -> bool:
+	"""Return True when ``item`` is a scanner failure/skip marker, not a CVE."""
+	return item.get('type') == 'security_issue'
