@@ -11,6 +11,7 @@ from rich.text import Text
 
 from system_update.config import SystemConfig
 from system_update.models import AppInfo, UpdateStatus
+from system_update.security.common import is_security_issue
 from system_update.ui.theme import ThemeManager
 from system_update.utils import console, display_source, source_chip, source_icon
 
@@ -444,6 +445,8 @@ def create_apps_table(
 def compute_security_stats(vulns: List[Dict]) -> Dict:
     """Aggregate a list of vulnerability dicts into summary counts."""
     severity_counts = {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0}
+    security_issues = [v for v in vulns if is_security_issue(v)]
+    vulns = [v for v in vulns if not is_security_issue(v)]
     if not vulns:
         return {
             'total_vulnerabilities': 0,
@@ -455,6 +458,7 @@ def compute_security_stats(vulns: List[Dict]) -> Dict:
             'low_count': 0,
             'packages_affected': 0,
             'persistent_vulnerabilities': 0,
+            'security_issues': len(security_issues),
         }
 
     packages: set[str] = set()
@@ -475,6 +479,7 @@ def compute_security_stats(vulns: List[Dict]) -> Dict:
         'low_count': severity_counts['LOW'],
         'packages_affected': len(packages),
         'persistent_vulnerabilities': 0,
+        'security_issues': len(security_issues),
     }
 
 

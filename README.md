@@ -273,6 +273,11 @@ oversized responses. The default is 10 MiB and can be changed with
 
 The script uses the following default settings stored in `~/.system_update/config.json`:
 
+Configuration loading prefers `config.json` when it exists. If no JSON config
+exists, `config.yaml` or `config.yml` can be used, but PyYAML must be installed;
+otherwise startup raises a clear error instead of silently ignoring the YAML
+file and running with defaults.
+
 ```json
 {
     "cache": {

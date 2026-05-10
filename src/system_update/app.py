@@ -39,10 +39,18 @@ from system_update.plugins import (
 )
 from system_update.scanners import PackageScanner
 from system_update.security import SecurityChecker
+from system_update.security.common import is_security_issue
 from system_update.ui import DisplayFormatter, UISystem
 from system_update.utils import console, dedupe_apps, display_source, source_chip
 
 logger = logging.getLogger(__name__)
+
+
+def _split_security_results(results: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
+    """Return ``(vulnerabilities, scanner_issues)`` for security check output."""
+    issues = [item for item in results if is_security_issue(item)]
+    vulns = [item for item in results if not is_security_issue(item)]
+    return vulns, issues
 
 
 _SOURCE_ALIASES = {'choco': 'chocolatey'}
@@ -430,10 +438,11 @@ class SystemUpdateApp:
             advisory_file = os.path.join(
                 os.path.expanduser('~'), '.system_update', 'advisories.json'
             )
-            security_vulns = self.security.check_all(
+            security_results = self.security.check_all(
                 new_apps, advisory_file,
                 extra_checkers=security_checker_map(self.plugins),
             )
+            security_vulns, security_issues = _split_security_results(security_results)
             if security_vulns:
                 console.print(
                     f'[bold red]🔥 Found {len(security_vulns)} '
@@ -442,6 +451,8 @@ class SystemUpdateApp:
             else:
                 console.print(
                     '[bold green]🛡️ No security vulnerabilities found.[/bold green]\n')
+            for issue in security_issues:
+                console.print(f'[yellow]! {issue.get("message", "Security check skipped")}[/yellow]')
             console.print(_phase_time_label(
                 'Checking security vulnerabilities', phase_start))
             _pypi_fallback_latest(new_apps)
@@ -713,10 +724,11 @@ class SystemUpdateApp:
             advisory_file = os.path.join(
                 os.path.expanduser('~'), '.system_update', 'advisories.json'
             )
-            security_vulns = self.security.check_all(
+            security_results = self.security.check_all(
                 apps, advisory_file,
                 extra_checkers=security_checker_map(self.plugins),
             )
+            security_vulns, security_issues = _split_security_results(security_results)
 
             if security_vulns:
                 console.print(
@@ -726,6 +738,8 @@ class SystemUpdateApp:
             else:
                 console.print(
                     '[bold green]🛡️ No security vulnerabilities found.[/bold green]\n')
+            for issue in security_issues:
+                console.print(f'[yellow]! {issue.get("message", "Security check skipped")}[/yellow]')
             console.print(_phase_time_label(
                 'Checking security vulnerabilities', phase_start))
 
@@ -792,6 +806,8 @@ class SystemUpdateApp:
         all_vulns: List[Dict] = []
         for a in apps:
             for f in a.security_findings or []:
+                if is_security_issue(f):
+                    continue
                 cve = f.get('cve') or f.get('cve_id') or 'N/A'
                 key = f'{a.name.lower()}|{cve}'
                 if key in seen_keys:
