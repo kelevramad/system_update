@@ -15,6 +15,14 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.10.0 (May 2026)
+
+- **Typing Contracts (Hardening 3.2)**: Added a frozen `CLIOptions` dataclass as the typed boundary between Typer and the app layer. The app/action surface now normalizes options once and reads explicit fields instead of scattered defensive `getattr(args, ...)` calls.
+- **Remote Payload Contracts**: Remote scan JSON now flows through `RemoteScanPayload` / `RemoteParsedPayload` contracts and `validate_remote_scan_payload()`, with clear schema errors such as `packages[0].name missing`.
+- **Aggregate Report Dataclass**: `aggregate_scans()` now returns `AggregateReport` with `HostSummary` rows and a `to_dict()` compatibility method for external JSON/report consumers.
+- **Tests**: 624 passing, 4 skipped. New coverage verifies CLI option conversion/validation and remote payload validation.
+- **Verification**: `uv run pytest`, `uv run ruff check .`, `uv run task typecheck`, and `git grep -nE "getattr\\(\\s*args" src/` are clean.
+
 ### v8.9.0 (May 2026)
 
 - **Architecture Hardening (Hardening 3.1)**: `app.py` has been reduced from a god-object surface to 913 lines by extracting the large command/action body into `app_actions.AppActionsMixin` while keeping the public `SystemUpdateApp` orchestration API stable.
