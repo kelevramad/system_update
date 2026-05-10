@@ -15,7 +15,7 @@ import threading
 import time
 from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
@@ -34,14 +34,23 @@ from system_update.plugins import (
     checker_map,
     load_plugins,
     scanner_map,
+    security_checker_map,
     updater_map,
 )
 from system_update.scanners import PackageScanner
 from system_update.security import SecurityChecker
+from system_update.security.common import is_security_issue
 from system_update.ui import DisplayFormatter, UISystem
 from system_update.utils import console, dedupe_apps, display_source, source_chip
 
 logger = logging.getLogger(__name__)
+
+
+def _split_security_results(results: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
+    """Return ``(vulnerabilities, scanner_issues)`` for security check output."""
+    issues = [item for item in results if is_security_issue(item)]
+    vulns = [item for item in results if not is_security_issue(item)]
+    return vulns, issues
 
 
 _SOURCE_ALIASES = {'choco': 'chocolatey'}
@@ -429,7 +438,11 @@ class SystemUpdateApp:
             advisory_file = os.path.join(
                 os.path.expanduser('~'), '.system_update', 'advisories.json'
             )
-            security_vulns = self.security.check_all(new_apps, advisory_file)
+            security_results = self.security.check_all(
+                new_apps, advisory_file,
+                extra_checkers=security_checker_map(self.plugins),
+            )
+            security_vulns, security_issues = _split_security_results(security_results)
             if security_vulns:
                 console.print(
                     f'[bold red]🔥 Found {len(security_vulns)} '
@@ -438,6 +451,8 @@ class SystemUpdateApp:
             else:
                 console.print(
                     '[bold green]🛡️ No security vulnerabilities found.[/bold green]\n')
+            for issue in security_issues:
+                console.print(f'[yellow]! {issue.get("message", "Security check skipped")}[/yellow]')
             console.print(_phase_time_label(
                 'Checking security vulnerabilities', phase_start))
             _pypi_fallback_latest(new_apps)
@@ -709,7 +724,11 @@ class SystemUpdateApp:
             advisory_file = os.path.join(
                 os.path.expanduser('~'), '.system_update', 'advisories.json'
             )
-            security_vulns = self.security.check_all(apps, advisory_file)
+            security_results = self.security.check_all(
+                apps, advisory_file,
+                extra_checkers=security_checker_map(self.plugins),
+            )
+            security_vulns, security_issues = _split_security_results(security_results)
 
             if security_vulns:
                 console.print(
@@ -719,6 +738,8 @@ class SystemUpdateApp:
             else:
                 console.print(
                     '[bold green]🛡️ No security vulnerabilities found.[/bold green]\n')
+            for issue in security_issues:
+                console.print(f'[yellow]! {issue.get("message", "Security check skipped")}[/yellow]')
             console.print(_phase_time_label(
                 'Checking security vulnerabilities', phase_start))
 
@@ -785,6 +806,8 @@ class SystemUpdateApp:
         all_vulns: List[Dict] = []
         for a in apps:
             for f in a.security_findings or []:
+                if is_security_issue(f):
+                    continue
                 cve = f.get('cve') or f.get('cve_id') or 'N/A'
                 key = f'{a.name.lower()}|{cve}'
                 if key in seen_keys:
@@ -1242,8 +1265,11 @@ class SystemUpdateApp:
 
     def _handle_meta_commands(self, args: Namespace) -> bool:
         """Route history/report/interactive flags; return True if the command was consumed."""
+        if getattr(args, 'list_plugins_detail', False):
+            self._show_plugins(detail=True)
+            return True
         if getattr(args, 'list_plugins', False):
-            self._show_plugins()
+            self._show_plugins(detail=False)
             return True
         if getattr(args, 'history', False):
             self._show_history()
@@ -1287,11 +1313,91 @@ class SystemUpdateApp:
             return True
         return False
 
-    def _show_plugins(self) -> None:
-        """Display loaded plugin scanners/notifiers and load errors."""
+    def _show_plugins(self, detail: bool = False) -> None:
+        """Display loaded plugins.
+
+        Default (``detail=False``) shows one row per plugin file with
+        capability chips and the first line of its module docstring.
+        ``detail=True`` (mapped from ``--list-plugins-detail``) keeps the
+        old per-extension-type breakdown for debugging.
+        """
+        empty = (
+            not self.plugins.scanners
+            and not self.plugins.checkers
+            and not self.plugins.updaters
+            and not self.plugins.security_checkers
+            and not self.plugins.notifiers
+        )
+        if empty:
+            console.print(
+                '[yellow]No plugins loaded.[/yellow] '
+                f'[dim]Add .py plugins under {Path(self.config.config_dir) / "plugins"} '
+                'or configure plugins.paths.[/dim]'
+            )
+            for error in self.plugins.errors:
+                console.print(f'[red]✗[/red] {error.path}: {error.error}')
+            return
+
+        if detail:
+            self._show_plugins_detail()
+        else:
+            self._show_plugins_summary()
+
+        for error in self.plugins.errors:
+            console.print(f'[red]✗[/red] {error.path}: {error.error}')
+
+    def _show_plugins_summary(self) -> None:
+        """One-line-per-plugin summary with compact capability icons."""
         from rich.table import Table
 
+        # Compact icons keep the row narrow so the description column has
+        # room. Run --list-plugins-detail when you need the labels.
+        icon_for = {
+            'scanner': '[bold cyan]🧩[/bold cyan]',
+            'checker': '[bold yellow]🔄[/bold yellow]',
+            'updater': '[bold green]⬆️[/bold green]',
+            'security': '[bold red]🔒[/bold red]',
+            'notifier': '[bold magenta]🔔[/bold magenta]',
+        }
+
         table = Table(title='Plugins', expand=True)
+        table.add_column('Plugin', style='bold cyan', no_wrap=True)
+        table.add_column('Caps', no_wrap=True, justify='left')
+        table.add_column('Description', style='dim')
+
+        # Collect all plugin names from metadata + any registrations whose
+        # plugin is not yet in metadata (e.g. registered via SCANNERS dict).
+        names = set(self.plugins.metadata.keys())
+        for bucket in (self.plugins.scanners, self.plugins.checkers,
+                       self.plugins.updaters, self.plugins.security_checkers,
+                       self.plugins.notifiers):
+            for entry in bucket.values():
+                if entry.plugin:
+                    names.add(entry.plugin)
+
+        for name in sorted(names):
+            meta = self.plugins.metadata.get(name)
+            if meta is None:
+                # Synthesize from registrations only.
+                caps = self._capabilities_for(name)
+                description = '(no description)'
+            else:
+                caps = meta.capabilities or self._capabilities_for(name)
+                description = meta.description
+            icons = ' '.join(icon_for.get(c, c) for c in caps) or '[dim]-[/dim]'
+            table.add_row(name or '<unnamed>', icons, description)
+
+        console.print(table)
+        console.print(
+            '[dim]Use [cyan]--list-plugins-detail[/cyan] to see each '
+            'extension point per plugin.[/dim]'
+        )
+
+    def _show_plugins_detail(self) -> None:
+        """Per-extension-point table — useful when debugging registrations."""
+        from rich.table import Table
+
+        table = Table(title='Plugins (detailed)', expand=True)
         table.add_column('Type', style='cyan')
         table.add_column('Name', style='bold')
         table.add_column('Plugin')
@@ -1299,49 +1405,44 @@ class SystemUpdateApp:
 
         for scanner in sorted(self.plugins.scanners.values(), key=lambda s: s.source):
             table.add_row(
-                'scanner',
-                scanner.source,
-                scanner.plugin or '-',
+                'scanner', scanner.source, scanner.plugin or '-',
                 scanner.description or '-',
             )
         for checker in sorted(self.plugins.checkers.values(), key=lambda c: c.source):
             table.add_row(
-                'checker',
-                checker.source,
-                checker.plugin or '-',
+                'checker', checker.source, checker.plugin or '-',
                 checker.description or '-',
             )
         for updater in sorted(self.plugins.updaters.values(), key=lambda u: u.source):
             table.add_row(
-                'updater',
-                updater.source,
-                updater.plugin or '-',
+                'updater', updater.source, updater.plugin or '-',
                 updater.description or '-',
+            )
+        for sec in sorted(self.plugins.security_checkers.values(), key=lambda s: s.source):
+            table.add_row(
+                'security', sec.source, sec.plugin or '-',
+                sec.description or '-',
             )
         for notifier in sorted(self.plugins.notifiers.values(), key=lambda n: n.name):
             table.add_row(
-                'notifier',
-                notifier.name,
-                notifier.plugin or '-',
+                'notifier', notifier.name, notifier.plugin or '-',
                 notifier.description or '-',
             )
+        console.print(table)
 
-        if (
-            not self.plugins.scanners
-            and not self.plugins.checkers
-            and not self.plugins.updaters
-            and not self.plugins.notifiers
-        ):
-            console.print(
-                '[yellow]No plugins loaded.[/yellow] '
-                f'[dim]Add .py plugins under {Path(self.config.config_dir) / "plugins"} '
-                'or configure plugins.paths.[/dim]'
-            )
-        else:
-            console.print(table)
-
-        for error in self.plugins.errors:
-            console.print(f'[red]✗[/red] {error.path}: {error.error}')
+    def _capabilities_for(self, plugin_name: str) -> list:
+        caps: list = []
+        if any(s.plugin == plugin_name for s in self.plugins.scanners.values()):
+            caps.append('scanner')
+        if any(c.plugin == plugin_name for c in self.plugins.checkers.values()):
+            caps.append('checker')
+        if any(u.plugin == plugin_name for u in self.plugins.updaters.values()):
+            caps.append('updater')
+        if any(s.plugin == plugin_name for s in self.plugins.security_checkers.values()):
+            caps.append('security')
+        if any(n.plugin == plugin_name for n in self.plugins.notifiers.values()):
+            caps.append('notifier')
+        return caps
 
     # ── Remote management (6.4) ───────────────────────────────────────────
 
@@ -1810,7 +1911,7 @@ class SystemUpdateApp:
         if remaining is None:
             return
         threshold = cache_settings.get('prefetch_threshold_minutes', 15)
-        if (remaining - datetime.now()).total_seconds() > threshold * 60:
+        if (remaining - datetime.now(timezone.utc)).total_seconds() > threshold * 60:
             return
         sources = set(candidate_sources)
         if not sources:

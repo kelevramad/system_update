@@ -36,6 +36,28 @@ def test_help_flag_shows_usage(help_output):
 	assert 'usage' in output.lower() or 'system' in output.lower()
 
 
+def test_help_banner_includes_version_and_runtime_info(help_output):
+	"""--help opens with the unified System Update panel.
+
+	The same panel is rendered when the CLI runs normally, so this test
+	also acts as a contract: version, runtime, profile, data dir, cache,
+	sources, security, and repo all show up together.
+	"""
+	from system_update.cli import _APP_VERSION
+
+	plain = re.sub(r'\x1b\[[0-9;]*m', '', help_output['stdout'] + help_output['stderr'])
+	# Panel title now carries the version: '🚀 System Update  ·  v8.2.0'.
+	assert '🚀 System Update' in plain
+	assert f'v{_APP_VERSION}' in plain
+	# Combined info rows.
+	assert 'Cache TTL' in plain
+	assert 'Sources' in plain
+	assert 'Security' in plain
+	assert 'github.com/kelevramad/system_update' in plain
+	# File inventory header is still present.
+	assert '.system_update' in plain
+
+
 def test_help_panels_are_width_capped(help_output):
 	output = re.sub(r'\x1b\[[0-9;]*m', '', help_output['stdout'] + help_output['stderr'])
 	panel_lines = [line for line in output.splitlines() if line.startswith(('┌', '│', '└'))]

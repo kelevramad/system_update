@@ -132,9 +132,13 @@ def test_cache_selective_storage_omits_unrequested_fields(tmp_path):
 		]
 	)
 
-	item = _read_cache_json(cache_file)['apps'][0]
+	loaded_data = _read_cache_json(cache_file)
+	assert loaded_data is not None
+	item = loaded_data['apps'][0]
 	assert set(item) == {'name', 'source', 'version', 'status'}
-	assert cache.load()[0].app_id is None
+	cache_apps = cache.load()
+	assert cache_apps is not None
+	assert cache_apps[0].app_id is None
 
 
 def test_selective_storage_does_not_create_false_delta_updates(tmp_path):
@@ -162,7 +166,9 @@ def test_lru_hot_package_cache_evicts_oldest(tmp_path):
 
 	assert cache.hot_cache_size() == 2
 	assert cache.get_hot_package('pip', 'A') is None
-	assert cache.get_hot_package('pip', 'C').name == 'C'
+	hot_c = cache.get_hot_package('pip', 'C')
+	assert hot_c is not None
+	assert hot_c.name == 'C'
 
 
 def test_app_prefetch_starts_background_refresh(tmp_path):
@@ -189,9 +195,9 @@ def test_partial_cache_message_shows_hits_and_missing(monkeypatch, tmp_path):
 	app.history_db.close()
 	app.config.config_dir = tmp_path
 	app.cache_mgr = CacheManager(tmp_path / 'cache.json')
-	app.scan_system = lambda source: [AppInfo(name='Lib', source=source, version='1.0')]
-	app.checker.check_all_updates = lambda apps, max_workers=None, extra_checkers=None: None
-	app.security.check_all = lambda apps, advisory_file: []
+	app.scan_system = lambda source: [AppInfo(name='Lib', source=source or '', version='1.0')]  # type: ignore[method-assign]
+	app.checker.check_all_updates = lambda apps, max_workers=None, extra_checkers=None: None  # type: ignore[method-assign]
+	app.security.check_all = lambda apps, advisory_file, extra_checkers=None: []  # type: ignore[method-assign]
 	console = Console(record=True, width=160)
 	monkeypatch.setattr(app_module, 'console', console)
 

@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import json
+import logging
 from typing import Dict, List
+from urllib.error import URLError
+from urllib.parse import urlparse
 
 from system_update.models import AppInfo, UpdateStatus
 from system_update.network import fetch_json
-from system_update.security.common import OSV_ECOSYSTEM_MAP, score_to_severity
+from system_update.security.common import OSV_ECOSYSTEM_MAP, score_to_severity, security_issue
+
+logger = logging.getLogger(__name__)
+
+_OSV_URL = 'https://api.osv.dev/v1/querybatch'
 
 
 def check(apps: List[AppInfo]) -> List[Dict]:
@@ -28,14 +36,20 @@ def check(apps: List[AppInfo]) -> List[Dict]:
 			}
 		)
 
-	try:
-		data = fetch_json(
-			'https://api.osv.dev/v1/querybatch',
-			method='POST',
-			payload={'queries': requests},
-		) if requests else {}
-	except Exception:
-		data = {}
+	if not requests:
+		data: Dict = {}
+	else:
+		try:
+			data = fetch_json(
+				_OSV_URL,
+				method='POST',
+				payload={'queries': requests},
+			)
+		except (URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+			host = urlparse(_OSV_URL).netloc or 'api.osv.dev'
+			message = f'OSV check skipped: {type(exc).__name__}: {exc}'
+			logger.warning('OSV check failed for %s: %s', host, message)
+			return [security_issue('OSV', 'error', message)]
 
 	results = data.get('results') if isinstance(data, dict) else []
 	if not isinstance(results, list):
