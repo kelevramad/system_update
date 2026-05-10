@@ -61,3 +61,4 @@ CLAUDE.md
 # Graphviz files
 .graphviz/
 *.dot
+HARDENING_PLAN.md

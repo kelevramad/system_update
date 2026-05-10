@@ -4,7 +4,7 @@
 
 A comprehensive Python-based system package management tool that scans, checks, and updates software from multiple sources.
 
-**Version:** 8.1.6
+**Version:** 8.9.0
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
 **Layout:** Modular package at `src/system_update/` (typer CLI)
@@ -20,11 +20,11 @@ A comprehensive Python-based system package management tool that scans, checks, 
 - **Dry-run & Output Options**: Safely preview updates before applying them and export reports to JSON, CSV, HTML, XML, Markdown, or diff formats.
 - **Rich Terminal UI**: Beautiful, colorful console output built with the `rich` library, featuring spinners, progress bars, and emoji indicators.
 - **Parallel Processing**: Per-source scanner and update-checker worker pools with graceful degradation when one source fails.
-- **Modular Architecture**: Clean separation of concerns with dataclasses.
+- **Modular Architecture**: Thin CLI orchestration with command modules, dataclasses, and separated rendering helpers.
 - **Smart Version Comparison**: Handles preview/stable version detection.
 - **Interactive TUI**: Fuzzy search, multi-select, and preview for package selection.
 - **Remote Management**: Manage a Windows host inventory and run scans, updates, and consolidated reports over WinRS/WinRM.
-- **Plugin Architecture**: Add custom scanners, update checkers, package updaters, and notification channels from local Python plugins.
+- **Plugin Architecture**: Add custom scanners, update checkers, package updaters, **vulnerability checkers**, and notification channels from local Python plugins. Plugin loading is **opt-in** (`plugins.enabled=true`) and can be hardened further with a SHA-256 allowlist; bypass entirely with `--no-plugins`.
 
 ---
 
@@ -111,7 +111,9 @@ python -m system_update --export json --output report.json
 | `--remote-timeout <seconds>` | Per-host remote execution timeout; default is `600` |
 | `--remote-verbose` | Show each host's stdout/stderr tail when it completes |
 | `--remote-debug` | Print target metadata, timeout, redacted `winrs` command, progress heartbeat, and completion output |
-| `--list-plugins` | Show loaded scanner/checker/updater/notifier plugins and load errors |
+| `--list-plugins` | Show loaded plugins (one row per plugin with capability icons + docstring summary) |
+| `--list-plugins-detail` | Per-extension-point breakdown of every registered scanner/checker/updater/security/notifier |
+| `--no-plugins` | Bypass the plugin loader entirely (security kill switch) |
 | `--source <csv>` | Limit scan to specific sources (e.g., `winget,npm,pip`) |
 | `--yes`, `-y` | Skip confirmation prompts |
 | `--help`, `-h` | Show help message |
@@ -258,6 +260,11 @@ Use `--remote-verbose` when you want completion details: the command still runs 
 
 Use `--remote-debug` when a host appears frozen. It implies verbose output and additionally prints the remote command, timeout, host metadata, redacted local `winrs` argv, a start message, and a heartbeat every 30 seconds until completion or timeout. Password values are masked as `-p:***`.
 
+Remote JSON stdout is capped before parsing to protect the orchestrator from
+oversized responses. The default is 10 MiB and can be changed with
+`remote.max_response_bytes` in the config file or
+`SYSTEM_UPDATE_REMOTE__MAX_RESPONSE_BYTES`.
+
 ---
 
 ## 🔧 Configuration
@@ -265,6 +272,11 @@ Use `--remote-debug` when a host appears frozen. It implies verbose output and a
 ### Default Configuration
 
 The script uses the following default settings stored in `~/.system_update/config.json`:
+
+Configuration loading prefers `config.json` when it exists. If no JSON config
+exists, `config.yaml` or `config.yml` can be used, but PyYAML must be installed;
+otherwise startup raises a clear error instead of silently ignoring the YAML
+file and running with defaults.
 
 ```json
 {
@@ -395,6 +407,276 @@ Vulnerabilities are filtered by severity level:
 - **High** - Serious security risk (CVSS 7.0-8.9)
 - **Medium** - Moderate risk (CVSS 4.0-6.9) - *default threshold*
 - **Low** - Minor issues (CVSS 0.1-3.9)
+
+---
+
+## 🧩 Plugins
+
+Plugins extend `system-update` with custom package sources, update checkers, updaters, vulnerability feeds, and notification channels. Each plugin is a single Python file under `~/.system_update/plugins/` (or any directory listed under `plugins.paths` in `config.json`).
+
+### Opt-in by default (Hardening 1.2)
+
+Since plugins execute arbitrary Python at scan time, the loader is **off by default**. To enable:
+
+```jsonc
+// ~/.system_update/config.json
+{
+  "plugins": {
+    "enabled": true,
+    "paths": [],
+    "require_hash_allowlist": false
+  }
+}
+```
+
+**Hardened mode (recommended for shared machines):** drop a SHA-256 manifest next to your plugins so only known-good files load.
+
+```bash
+# Compute the digest of every plugin you want to load:
+python -c "import hashlib; print(hashlib.sha256(open(r'~\.system_update\plugins\demo_plugin.py','rb').read()).hexdigest())"
+```
+
+```text
+# ~/.system_update/plugins/allowed.sha256
+5da4642db1db34e1ac5c2030bfa6975591e52fd504df5d027b8b9b6e452072c6  demo_plugin.py
+```
+
+Set `plugins.require_hash_allowlist: true` to refuse loading any plugin without a manifest entry. Bypass the loader at any time with `--no-plugins`.
+
+### Extension points
+
+| Hook | Registry call | Receives | Returns |
+|------|---------------|----------|---------|
+| Scanner | `register_scanner(source, scan, …)` | _no args_ | `Iterable[AppInfo]` (or dicts) |
+| Checker | `register_checker(source, check, …)` | `List[AppInfo]` | int (count of updates found) |
+| Updater | `register_updater(source, update, …)` | `AppInfo` | `bool` (success) |
+| Security | `register_security_checker(source, check, …)` | `List[AppInfo]` | `List[dict]` of vulnerability findings |
+| Notifier | `register_notifier(name, notify, …)` | `(event, title, message, payload, config)` | `None` |
+
+Plugin security checkers participate in the `🔒 Checking security vulnerabilities` stage as their own progress row, alongside the built-in OSV / npm / pip / PyPI / GitHub Advisory feeds.
+
+### Reference template
+
+A complete, working reference plugin lives in this repo at
+[`examples/plugins/demo_plugin.py`](examples/plugins/demo_plugin.py). It implements every extension point and demonstrates the recommended shape:
+
+- Returning typed `AppInfo` (not dicts).
+- Filtering by `app.source` so the plugin never mutates apps owned by other plugins.
+- Using the `UpdateStatus` enum.
+- Resolving the data dir via `context.data_dir` from `register_plugin(registry, context)`.
+- Wrapping I/O in `try/except OSError` and logging via `logging`.
+
+### How to create a plugin (step-by-step)
+
+This walkthrough shows how to ship a working scanner + security checker for a fictional `mytool` source.
+
+**1. Create the file**
+
+```bash
+mkdir -p ~/.system_update/plugins
+$EDITOR ~/.system_update/plugins/mytool_plugin.py
+```
+
+**2. Implement the extension points you need**
+
+```python
+"""mytool-plugin — discover and check mytool packages.
+
+The first non-empty line of this docstring becomes the description
+shown by ``--list-plugins``.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Iterable, List
+
+from system_update.models import AppInfo, UpdateStatus
+from system_update.plugins import PluginContext, PluginRegistry
+
+PLUGIN_NAME = 'mytool-plugin'
+SOURCE = 'mytool'
+
+logger = logging.getLogger(f'system_update.plugin.{SOURCE}')
+
+
+def scan() -> Iterable[AppInfo]:
+    """Return everything mytool has installed."""
+    return [
+        AppInfo(name='mytool-cli', source=SOURCE, version='1.2.3',
+                update_status=UpdateStatus.UNKNOWN),
+    ]
+
+
+def check(apps: List[AppInfo]) -> int:
+    """Set ``latest_version`` for our packages — the rest of the CLI
+    handles the diff and the post-scan display."""
+    count = 0
+    for app in apps:
+        if app.source != SOURCE:
+            continue
+        # Replace this with a real version lookup against your registry.
+        app.latest_version = '1.3.0'
+        app.update_status = UpdateStatus.UPDATE_AVAILABLE
+        count += 1
+    return count
+
+
+def update(app: AppInfo) -> bool:
+    """Apply the update; return True on success."""
+    if app.source != SOURCE:
+        return False
+    # Run your actual installer here and verify the result.
+    app.version = app.latest_version or app.version
+    app.latest_version = ''
+    app.update_status = UpdateStatus.UP_TO_DATE
+    return True
+
+
+def security_check(apps: List[AppInfo]) -> List[dict]:
+    """Return a list of vulnerability dicts for our packages.
+
+    The shape mirrors what the built-in checkers produce; see
+    ``system_update/security/local.py`` for the canonical fields.
+    """
+    findings: List[dict] = []
+    for app in apps:
+        if app.source != SOURCE or app.name != 'mytool-cli':
+            continue
+        finding = {
+            'package': app.name,
+            'severity': 'HIGH',
+            'cvss_score': 7.5,
+            'cve': 'CVE-2026-EXAMPLE',
+            'description': 'Replace this with a real advisory description.',
+            'source': PLUGIN_NAME,
+            'affected_versions': ['<1.3.0'],
+            'fix_available': True,
+            'fixed_version': '1.3.0',
+            'installed_version': app.version,
+            'advisory_url': 'https://example.com/advisories/CVE-2026-EXAMPLE',
+        }
+        app.security_findings.append(finding)
+        app.update_status = UpdateStatus.VULNERABLE
+        findings.append(finding)
+    return findings
+
+
+def register_plugin(registry: PluginRegistry, context: PluginContext) -> None:
+    registry.register_scanner(SOURCE, scan, description='mytool scanner')
+    registry.register_checker(SOURCE, check, description='mytool update checker')
+    registry.register_updater(SOURCE, update, description='mytool installer')
+    registry.register_security_checker(
+        SOURCE, security_check, description='mytool advisory feed',
+    )
+```
+
+You can register only the hooks you need — every `register_*` call is independent.
+
+**3. Opt in via config**
+
+```jsonc
+// ~/.system_update/config.json
+{
+  "plugins": {
+    "enabled": true
+  }
+}
+```
+
+**4. (Optional) Pin the file with SHA-256**
+
+```bash
+python -c "import hashlib; print(hashlib.sha256(open(r'~/.system_update/plugins/mytool_plugin.py','rb').read()).hexdigest())" \
+  > /tmp/digest
+
+cat /tmp/digest mytool_plugin.py > ~/.system_update/plugins/allowed.sha256
+```
+
+```text
+# allowed.sha256 format (one line per plugin)
+<sha256>  mytool_plugin.py
+```
+
+Then set `plugins.require_hash_allowlist: true` to refuse loading any plugin not listed.
+
+**5. Verify it loaded**
+
+```bash
+system-update --list-plugins
+```
+
+```
+┌──────────────┬─────────────┬────────────────────────────────────┐
+│ Plugin       │ Caps        │ Description                        │
+├──────────────┼─────────────┼────────────────────────────────────┤
+│ mytool-plugin│ 🧩 🔄 ⬆️ 🔒│ mytool-plugin — discover and check │
+│              │             │ mytool packages.                   │
+└──────────────┴─────────────┴────────────────────────────────────┘
+```
+
+**6. Run a scan and confirm the results**
+
+```bash
+system-update --source mytool --no-cache --show-all
+```
+
+The plugin's `security_check` runs as its own row in the **🔒 Checking security vulnerabilities** stage, and findings show up in the apps table as `🔥 vulnerable`.
+
+### Plugin contract reference
+
+| Function | When it runs | Receives | Returns |
+|----------|--------------|----------|---------|
+| `scan()` | During scan phase, when its source is enabled | _no args_ | `Iterable[AppInfo]` (or dicts; auto-coerced) |
+| `check(apps)` | During update-check phase | apps owned by this source | `int` — number of updates found |
+| `update(app)` | When the user runs `--update-all`, `--update-source`, or `--update-package` | one `AppInfo` | `bool` — success |
+| `security_check(apps)` | During the **🔒 Checking security vulnerabilities** stage | apps owned by this source | `List[dict]` of vulnerability findings |
+| `notify(event, title, message, payload, config)` | Any time the CLI dispatches a notification | event name + body + payload | `None` |
+
+The vulnerability dict shape (mirrors the built-in checkers):
+
+```python
+{
+    'package': str,
+    'severity': 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW',
+    'cvss_score': float | None,
+    'cve': str,
+    'description': str,
+    'source': str,
+    'affected_versions': list[str],
+    'published_date': str,
+    'advisory_url': str,
+    'fix_available': bool,
+    'fixed_version': str,        # optional but recommended
+    'installed_version': str,    # optional but recommended
+}
+```
+
+Plugins that need a writable directory should use `context.data_dir` (passed to `register_plugin`) instead of hard-coding paths.
+
+### Listing plugins
+
+```bash
+# One-line summary with capability icons and docstring description:
+system-update --list-plugins
+
+# Full per-extension-point breakdown:
+system-update --list-plugins-detail
+```
+
+### Plugin-load warning
+
+When a plugin loads, a bold-yellow `PLUGIN LOAD` Rich panel appears above the startup banner:
+
+```
+┌─  PLUGIN LOAD  ──────────────────────────────────────────────────────────┐
+│ ⚠️  Loading plugin: C:\Users\vchav\.system_update\plugins\demo_plugin.py │
+│    Disable with plugins.enabled=false in ~/.system_update/config.json    │
+│    or run with --no-plugins.                                             │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+The warning fires once per process per plugin file; the same line is also written to `system.log` at DEBUG level when `--debug` is used.
 
 ---
 
@@ -537,7 +819,7 @@ SystemUpdateApp          - Orchestrator (scan → check → security → display
 ├── DependencyGraph      - Graphviz DOT, conflict detection, minimal update set
 ├── HistoryDatabase      - SQLite history (scans, package_snapshots, version_history)
 ├── VulnerabilityHistory - Persistent CVE tracking (JSON)
-├── PluginRegistry       - Custom scanner/checker/updater/notifier registration
+├── PluginRegistry       - Custom scanner/checker/updater/security/notifier registration (opt-in)
 ├── RemoteManagement     - Inventory, remote scan/update/report fan-out
 └── NotificationManager  - Toast/email/webhook/hook/plugin dispatch
 ```

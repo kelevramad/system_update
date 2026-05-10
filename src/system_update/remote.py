@@ -37,8 +37,9 @@ import shlex
 import subprocess
 import time
 from dataclasses import dataclass, field
+from json import JSONDecodeError
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,9 @@ class RemoteResult:
 	stdout: str = ''
 	stderr: str = ''
 	duration: float = 0.0
-	parsed: Optional[Dict] = None  # decoded JSON when remote returned a scan
+	# decoded JSON when remote returned a scan — may be a dict (newer
+	# payload shape) or a bare list (legacy export format)
+	parsed: Optional[Any] = None
 
 	def to_dict(self) -> Dict:
 		out = {
@@ -123,7 +126,9 @@ class Inventory:
 	"""JSON-file inventory at ``~/.system_update/inventory.json``."""
 
 	def __init__(self, path: Optional[Path] = None) -> None:
-		self.path = path or (Path.home() / '.system_update' / 'inventory.json')
+		from system_update.utils import data_dir
+
+		self.path = path or (data_dir() / 'inventory.json')
 		self.hosts: List[RemoteHost] = []
 		self._load()
 
@@ -131,7 +136,8 @@ class Inventory:
 		if not self.path.exists():
 			return
 		try:
-			data = json.loads(self.path.read_text(encoding='utf-8'))
+			with open(self.path, 'r', encoding='utf-8') as f:
+				data = json.load(f)
 		except Exception as e:
 			logger.warning(f'Failed to load inventory: {e}')
 			return
@@ -140,9 +146,12 @@ class Inventory:
 			self.hosts = [RemoteHost.from_dict(h) for h in raw if isinstance(h, dict)]
 
 	def save(self) -> None:
-		self.path.parent.mkdir(parents=True, exist_ok=True)
+		from system_update.utils import secure_write
+
+		# Inventory contains hostnames and usernames — restrict to 0o600
+		# so other local users cannot enumerate the fleet.
 		payload = {'hosts': [h.to_dict() for h in self.hosts]}
-		self.path.write_text(json.dumps(payload, indent=2), encoding='utf-8')
+		secure_write(self.path, json.dumps(payload, indent=2))
 
 	# ── 6.4.2 — CRUD ─────────────────────────────────────────────────────
 
@@ -190,10 +199,75 @@ class Inventory:
 
 
 _DEFAULT_REMOTE_TIMEOUT = 600
+_DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024
+
+
+_SUPPORTED_TRANSPORTS = ('winrs', 'pywinrm')
+
+# One-shot guard so the winrs-with-password warning fires once per process.
+_WINRS_WARNED = False
+
+
+def _max_response_bytes() -> int:
+	"""Return the configured remote JSON response cap in bytes."""
+	try:
+		from system_update.config import SystemConfig
+
+		remote_cfg = SystemConfig().settings.get('remote', {})
+		value = remote_cfg.get('max_response_bytes', _DEFAULT_MAX_RESPONSE_BYTES)
+		if isinstance(value, int) and value > 0:
+			return value
+	except Exception:
+		logger.warning('Failed to read remote.max_response_bytes; using default.', exc_info=True)
+	return _DEFAULT_MAX_RESPONSE_BYTES
+
+
+def _format_bytes(size: int) -> str:
+	"""Format bytes in a compact form for remote parse errors."""
+	if size % (1024 * 1024) == 0:
+		return f'{size // (1024 * 1024)} MiB'
+	if size % 1024 == 0:
+		return f'{size // 1024} KiB'
+	return f'{size} bytes'
+
+
+def _parse_remote_stdout(stdout: str, max_response_bytes: Optional[int] = None) -> Tuple[Any, str]:
+	"""Parse JSON remote stdout after enforcing the configured size cap.
+
+	Returns ``(parsed, error)``. Non-JSON-looking stdout is left untouched and
+	does not count as a parse error.
+	"""
+	stripped = stdout.strip()
+	if not stripped.startswith(('{', '[')):
+		return None, ''
+
+	limit = max_response_bytes or _max_response_bytes()
+	response_size = len(stdout.encode('utf-8'))
+	if response_size > limit:
+		return None, (
+			f'Remote JSON response exceeded {_format_bytes(limit)} '
+			f'({response_size} bytes received).'
+		)
+
+	try:
+		return json.loads(stdout), ''
+	except JSONDecodeError as e:
+		return None, f'Remote JSON response was invalid: {e.msg}.'
+
+
+_SUPPORTED_TRANSPORTS = ('winrs', 'pywinrm')
+
+# One-shot guard so the winrs-with-password warning fires once per process.
+_WINRS_WARNED = False
 
 
 def _build_winrs_argv(host: RemoteHost, command: str, password: str = '') -> List[str]:
-	"""Build the ``winrs`` argv. Password comes from env if not provided."""
+	"""Build the ``winrs`` argv. Password comes from env if not provided.
+
+	Note: the password ends up on the spawned process's command line. Other
+	local users can read it via ``Get-CimInstance Win32_Process``. The
+	``pywinrm`` transport (see :func:`_execute_via_pywinrm`) avoids this.
+	"""
 	target = host.address or host.name
 	argv = ['winrs', f'-r:{target}']
 	if host.user:
@@ -203,6 +277,10 @@ def _build_winrs_argv(host: RemoteHost, command: str, password: str = '') -> Lis
 		argv.append(f'-p:{pw}')
 	argv.append(command)
 	return argv
+
+
+def _password_for(host: RemoteHost, password: str) -> str:
+	return password or os.environ.get('SYSTEM_UPDATE_REMOTE_PASS', '')
 
 
 def build_debug_argv(host: RemoteHost, command: str) -> List[str]:
@@ -216,25 +294,94 @@ def argv_to_display(argv: List[str]) -> str:
 	return ' '.join(shlex.quote(part) if re.search(r'\s', part) else part for part in argv)
 
 
-def execute_remote(
+def _warn_winrs_password_in_argv() -> None:
+	"""Emit a one-shot warning that ``winrs`` leaks the password via argv."""
+	global _WINRS_WARNED
+	if _WINRS_WARNED:
+		return
+	_WINRS_WARNED = True
+	logger.warning(
+		"WinRS password is visible to other local users via Win32_Process. "
+		"Install 'pywinrm' and set host transport='pywinrm' for HTTPS-based delivery: "
+		"uv pip install 'system-update-cli[remote-secure]'"
+	)
+
+
+def _execute_via_pywinrm(
 	host: RemoteHost,
 	command: str,
-	timeout: int = _DEFAULT_REMOTE_TIMEOUT,
-	password: str = '',
+	timeout: int,
+	password: str,
 ) -> RemoteResult:
-	"""Run ``command`` on ``host`` and return a :class:`RemoteResult`.
+	"""Run ``command`` on ``host`` via the ``pywinrm`` HTTPS transport.
 
-	Currently only the ``winrs`` transport is implemented. Other values are
-	rejected with a clear error so the user knows what's missing.
+	The password is sent inside the SOAP request body and never appears on
+	the local process's command line.
 	"""
-	if host.transport != 'winrs':
+	try:
+		import winrm  # type: ignore[import-not-found]
+	except ImportError:
 		return RemoteResult(
-			host=host.name, ok=False,
+			host=host.name,
+			ok=False,
+			exit_code=-1,
 			stderr=(
-				f'Transport {host.transport!r} not supported yet — only "winrs". '
-				f'Patches welcome.'
+				"pywinrm is not installed. Install with: "
+				"uv pip install 'system-update-cli[remote-secure]'"
 			),
 		)
+
+	pw = _password_for(host, password)
+	target = host.address or host.name
+	port = host.port or 5986
+	endpoint = f'https://{target}:{port}/wsman'
+
+	start = time.monotonic()
+	try:
+		session = winrm.Session(
+			endpoint,
+			auth=(host.user, pw),
+			transport='ntlm',
+			server_cert_validation='validate',
+			operation_timeout_sec=max(1, timeout - 5),
+			read_timeout_sec=timeout,
+		)
+		response = session.run_cmd(command)
+	except Exception as e:
+		return RemoteResult(
+			host=host.name,
+			ok=False,
+			exit_code=-1,
+			stderr=f'pywinrm error: {type(e).__name__}: {e}',
+			duration=time.monotonic() - start,
+		)
+
+	duration = time.monotonic() - start
+	stdout = response.std_out.decode('utf-8', errors='replace') if response.std_out else ''
+	stderr = response.std_err.decode('utf-8', errors='replace') if response.std_err else ''
+	parsed, parse_error = _parse_remote_stdout(stdout)
+	if parse_error:
+		stderr = f'{stderr}\n{parse_error}'.strip()
+	return RemoteResult(
+		host=host.name,
+		ok=response.status_code == 0 and not parse_error,
+		exit_code=response.status_code,
+		stdout=stdout,
+		stderr=stderr,
+		duration=duration,
+		parsed=parsed,
+	)
+
+
+def _execute_via_winrs(
+	host: RemoteHost,
+	command: str,
+	timeout: int,
+	password: str,
+) -> RemoteResult:
+	"""Legacy ``winrs`` transport — password ends up on argv (see warning)."""
+	if _password_for(host, password):
+		_warn_winrs_password_in_argv()
 
 	argv = _build_winrs_argv(host, command, password=password)
 	start = time.monotonic()
@@ -249,18 +396,16 @@ def execute_remote(
 		)
 		duration = time.monotonic() - start
 		stdout = proc.stdout or ''
-		parsed = None
-		if stdout.strip().startswith('{') or stdout.strip().startswith('['):
-			try:
-				parsed = json.loads(stdout)
-			except Exception:
-				parsed = None
+		stderr = proc.stderr or ''
+		parsed, parse_error = _parse_remote_stdout(stdout)
+		if parse_error:
+			stderr = f'{stderr}\n{parse_error}'.strip()
 		return RemoteResult(
 			host=host.name,
-			ok=proc.returncode == 0,
+			ok=proc.returncode == 0 and not parse_error,
 			exit_code=proc.returncode,
 			stdout=stdout,
-			stderr=proc.stderr or '',
+			stderr=stderr,
 			duration=duration,
 			parsed=parsed,
 		)
@@ -280,6 +425,31 @@ def execute_remote(
 			stderr=f'Unexpected error: {e}',
 			duration=time.monotonic() - start,
 		)
+
+
+def execute_remote(
+	host: RemoteHost,
+	command: str,
+	timeout: int = _DEFAULT_REMOTE_TIMEOUT,
+	password: str = '',
+) -> RemoteResult:
+	"""Run ``command`` on ``host`` and return a :class:`RemoteResult`.
+
+	Supported transports:
+	    * ``winrs`` (default, legacy) — password leaks on argv; warns once.
+	    * ``pywinrm`` — HTTPS WinRM via ``pywinrm`` extra; password kept off argv.
+	"""
+	if host.transport == 'pywinrm':
+		return _execute_via_pywinrm(host, command, timeout, password)
+	if host.transport == 'winrs':
+		return _execute_via_winrs(host, command, timeout, password)
+	return RemoteResult(
+		host=host.name, ok=False,
+		stderr=(
+			f'Transport {host.transport!r} not supported. '
+			f'Use one of: {", ".join(_SUPPORTED_TRANSPORTS)}.'
+		),
+	)
 
 
 def execute_many(
@@ -385,7 +555,7 @@ def aggregate_scans(results: List[RemoteResult]) -> Dict:
 	contribute to the package totals; hosts with errors are surfaced in
 	the ``errors`` block so the operator sees what failed.
 	"""
-	by_host: Dict[str, Dict] = {}
+	by_host: Dict[str, Any] = {}
 	per_host_summary: List[Dict] = []
 	errors: List[Dict] = []
 

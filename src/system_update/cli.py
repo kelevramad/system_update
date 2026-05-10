@@ -7,23 +7,42 @@ scan → check → security → display → export → update workflow.
 
 from __future__ import annotations
 
-import sys
+import io
 import shutil
+import sys
 from argparse import Namespace
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
 from typing import List, Optional
 
 import typer
 import typer.rich_utils as typer_rich_utils
+
+
+def _resolve_version() -> str:
+	"""Best-effort package version, with fallback to the UI constant."""
+	try:
+		return _pkg_version('system-update-cli')
+	except PackageNotFoundError:
+		try:
+			from system_update.ui.system import _VERSION
+
+			return _VERSION
+		except Exception:
+			return '0.0.0'
+
+
+_APP_VERSION = _resolve_version()
 
 # Force UTF-8 on stdout/stderr so emoji-rich help/sub-help renders on
 # Windows cp1252 consoles. Applied here so it covers both the
 # ``python -m system_update`` entry point and the installed
 # ``system-update`` script entry-point.
 for _stream in (sys.stdout, sys.stderr):
-	try:
-		_stream.reconfigure(encoding='utf-8', errors='replace')
-	except Exception:
-		pass
+	if isinstance(_stream, io.TextIOWrapper):
+		try:
+			_stream.reconfigure(encoding='utf-8', errors='replace')
+		except Exception:
+			pass
 
 
 def _configure_rich_help_width() -> None:
@@ -55,6 +74,29 @@ Scans [yellow]winget, choco, scoop, npm, pnpm, yarn, bun, pip, cargo, PATH, regi
 checks for updates, runs [red]security audits[/red] (OSV, pip-audit, npm audit, PyPI, GH Advisory),
 and can [green]apply updates[/green] or export branded [magenta]HTML/JSON/CSV/XML/Markdown[/magenta] reports.
 """
+
+
+def print_banner() -> None:
+	"""Print the unified System Update panel before Typer renders help.
+
+	Reuses the same panel builder as the runtime banner so ``--help`` and
+	the regular run show identical context (version, runtime, profile,
+	data dir contents, cache TTL, sources, security, repo). The banner
+	is rendered with ``force_terminal=True`` and the same width Typer
+	uses, so its right edge aligns with the help panels.
+	"""
+	from rich.console import Console
+
+	from system_update.config import SystemConfig
+	from system_update.ui.system import build_system_panel
+
+	try:
+		config = SystemConfig()
+	except Exception:
+		config = None  # fall back to defaults inside build_system_panel
+	Console(force_terminal=True, width=typer_rich_utils.MAX_WIDTH).print(
+		build_system_panel(config)
+	)
 
 
 EPILOG = """
@@ -370,7 +412,19 @@ def main(
 	list_plugins: bool = typer.Option(
 		False,
 		'--list-plugins',
-		help='🧩 Show loaded custom scanners and notification plugins.',
+		help='🧩 Show loaded plugins (one row per plugin file with capability chips).',
+		rich_help_panel=PANEL_DATA,
+	),
+	list_plugins_detail: bool = typer.Option(
+		False,
+		'--list-plugins-detail',
+		help='🧬 Show every registered extension point per plugin (per-type table).',
+		rich_help_panel=PANEL_DATA,
+	),
+	no_plugins: bool = typer.Option(
+		False,
+		'--no-plugins',
+		help='🛡️  Bypass the plugin loader entirely (security kill switch).',
 		rich_help_panel=PANEL_DATA,
 	),
 	cloud_sync: Optional[str] = typer.Option(
@@ -654,6 +708,8 @@ def main(
 		import_files=import_files,
 		merge_with_cache=merge_with_cache,
 		list_plugins=list_plugins,
+		list_plugins_detail=list_plugins_detail,
+		no_plugins=no_plugins,
 		cloud_sync=cloud_sync,
 		schedule=schedule,
 		schedule_name=schedule_name,
@@ -679,6 +735,10 @@ def main(
 		log=log,
 	)
 
+	if no_plugins:
+		from system_update.plugins import disable_plugin_loading
+
+		disable_plugin_loading()
 	SystemUpdateApp().run(args)
 
 
@@ -689,6 +749,8 @@ def _main_entry() -> None:
 	"""
 	if _intercept_subhelp_argv():
 		sys.exit(0)
+	if any(arg in ('--help', '-h') for arg in sys.argv[1:]):
+		print_banner()
 	app()
 
 

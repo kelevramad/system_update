@@ -134,12 +134,12 @@ def _rewire_run_command():
 			continue
 		if hasattr(mod, 'run_command'):
 			originals[name] = mod.run_command
-			mod.run_command = _proxy
+			mod.run_command = _proxy  # type: ignore[attr-defined]
 	yield
 	for name, original in originals.items():
 		try:
 			mod = importlib.import_module(name)
-			mod.run_command = original
+			mod.run_command = original  # type: ignore[attr-defined]
 		except Exception:
 			pass
 

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from system_update.models import AppInfo
 from system_update.security import github, local, npm, osv, pip, pypi
-from system_update.security.common import OSV_ECOSYSTEM_MAP, score_to_severity
+from system_update.security.common import OSV_ECOSYSTEM_MAP, is_security_issue, score_to_severity
 from system_update.ui.progress import make_progress
 
 logger = logging.getLogger(__name__)
@@ -63,10 +63,29 @@ def _dispatch(source: str, apps: List[AppInfo], local_data: Dict) -> List[Dict]:
 	return []
 
 
-def check_all(apps: List[AppInfo], advisory_file: str = '') -> List[Dict]:
-	"""Run every enabled security source with a per-source progress bar and return all findings."""
+def check_all(
+	apps: List[AppInfo],
+	advisory_file: str = '',
+	extra_checkers: Optional[Dict[str, Callable[[List[AppInfo]], List[Dict[str, Any]]]]] = None,
+) -> List[Dict]:
+	"""Run every enabled security source with a per-source progress bar.
+
+	``extra_checkers`` maps a source name (typically the same identifier
+	the plugin's scanner registered) to a callable that returns the list
+	of vulnerability dicts found in those packages. Plugin-supplied
+	checkers participate as normal rows in the progress display, just
+	like the built-in ``npm`` / ``pip`` / ``osv`` / ``github`` ones.
+	"""
 	apps_by_source = _group_apps_by_source(apps)
 	active, local_data = _active_sources(apps_by_source, advisory_file)
+
+	# Append plugin-provided checkers as additional active sources so they
+	# show up alongside the built-ins in the progress display.
+	plugin_checkers = extra_checkers or {}
+	for source_name, _ in plugin_checkers.items():
+		bucket = apps_by_source.get(source_name.lower())
+		if bucket:
+			active.append((source_name, bucket))
 
 	if not active:
 		return []
@@ -79,9 +98,15 @@ def check_all(apps: List[AppInfo], advisory_file: str = '') -> List[Dict]:
 
 		for source_name, source_apps in active:
 			try:
-				source_vulns = _dispatch(source_name, source_apps, local_data)
+				if source_name in plugin_checkers:
+					source_vulns = list(plugin_checkers[source_name](source_apps) or [])
+				else:
+					source_vulns = _dispatch(source_name, source_apps, local_data)
+				issue_count = sum(1 for item in source_vulns if is_security_issue(item))
+				vuln_count = len(source_vulns) - issue_count
 				logger.info(
-					f'Security check done for {source_name}: {len(source_vulns)} vulns'
+					f'Security check done for {source_name}: '
+					f'{vuln_count} vulns, {issue_count} issue(s)'
 				)
 			except Exception as e:
 				logger.warning(f'Security check failed for {source_name}: {e}')
@@ -89,11 +114,13 @@ def check_all(apps: List[AppInfo], advisory_file: str = '') -> List[Dict]:
 
 			vulns.extend(source_vulns)
 
-			icon = '🔥' if source_vulns else '✓'
+			issue_count = sum(1 for item in source_vulns if is_security_issue(item))
+			vuln_count = len(source_vulns) - issue_count
+			icon = '!' if issue_count else ('🔥' if vuln_count else '✓')
 			progress.update(
 				tasks[source_name],
 				completed=1,
-				description=f'{icon} {source_name} [{len(source_vulns)}]',
+				description=f'{icon} {source_name} [{vuln_count}]',
 			)
 
 	return vulns
@@ -116,5 +143,6 @@ __all__ = [
 	'OSV_ECOSYSTEM_MAP',
 	'SecurityChecker',
 	'check_all',
+	'is_security_issue',
 	'score_to_severity',
 ]
