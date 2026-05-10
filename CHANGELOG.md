@@ -15,6 +15,12 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.5.2 (May 2026)
+
+- **Security — Safe Parsing (Hardening 1.5)**: Remote WinRM JSON stdout is now capped before parsing with a configurable `remote.max_response_bytes` setting (default 10 MiB). Oversized or malformed JSON-looking responses from `winrs` and `pywinrm` now become per-host errors instead of unbounded `json.loads` work or silent parse drops.
+- **XML Export Guardrail**: Documented that `export.py` only generates XML and does not parse untrusted XML input. Regression coverage asserts no stdlib XML parser imports are present in the export path.
+- **Tests**: Added focused regression coverage for oversized remote JSON, malformed remote JSON, pywinrm parity, and XML parser absence.
+
 ### v8.5.1 (May 2026)
 
 - **Tests — Windows ACL Coverage**: filled the gap left by v8.5.0, where the file-permission tests skipped on Windows because POSIX mode-bit assertions don't translate. Three new tests in `tests/test_secure_paths.py` (each gated `@pytest.mark.skipif(platform.system() != 'Windows')`):
