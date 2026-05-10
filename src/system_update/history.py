@@ -6,7 +6,7 @@ import json
 import logging
 import sqlite3
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -467,11 +467,15 @@ class VulnerabilityHistory:
 
 	def get_vulnerability_trends(self, days: int = 30) -> Dict[str, int]:
 		"""Return a mapping of ``YYYY-MM-DD`` → new-vuln count for the last ``days``."""
-		cutoff = datetime.now() - timedelta(days=days)
+		from system_update.utils import parse_iso_utc
+
+		# Hardening 2.2.3 — both sides timezone-aware so the < comparison
+		# doesn't silently raise (and get swallowed by the bare except).
+		cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 		trends: Dict[str, int] = {}
 		for record in self.history:
 			try:
-				ts = datetime.fromisoformat(record.get('timestamp', '').replace('Z', '+00:00'))
+				ts = parse_iso_utc(record.get('timestamp', ''))
 				if ts < cutoff:
 					continue
 				date_str = ts.strftime('%Y-%m-%d')

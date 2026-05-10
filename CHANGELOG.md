@@ -15,6 +15,14 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.7.0 (May 2026)
+
+- **Windows Encoding (Hardening 2.2.1)**: `run_command` now captures subprocess stdout/stderr as raw bytes and decodes through centralized `decode_command_output()` fallback handling: UTF-8, UTF-16-LE BOM, active Windows OEM code page, CP1252, then safe replacement. Accented package/vendor names now survive scans without mojibake, and `errors='ignore'` is gone from the codebase.
+- **Locale-agnostic Winget Parsing (Hardening 2.2.2)**: Winget scanner/checker parsing moved into shared `scanners/_winget_table.py`. The parser tries the winget 1.7+ JSON format first, then falls back to a dashed-separator table parser that computes column positions from the localized header, covering en-US, pt-BR, and de-DE output.
+- **UTC Cache Timestamps (Hardening 2.2.3)**: new `parse_iso_utc()` helper replaces `fromisoformat(...replace('Z', ''))` usage in cache/history paths. Cache freshness and prefetch comparisons now use timezone-aware UTC arithmetic.
+- **Tests**: 607 passing (up from 582), 4 skipped. New `tests/test_windows_encoding.py` covers UTF-8/UTF-16/CP850 decoding, localized winget table fixtures, JSON fast-path parsing, malformed output fallback, and UTC-Z cache freshness.
+- **Verification**: `uv run pytest`, `uv run ruff check .`, and `uv run task typecheck` are clean.
+
 ### v8.6.0 (May 2026)
 
 - **Concurrency — Thread-safe SQLite (Hardening 2.1.1)**: `HistoryDatabase` and `SnapshotStore` previously cached a single `sqlite3.Connection` and shared it across threads, which raises `ProgrammingError: SQLite objects created in a thread can only be used in that same thread.` under any parallel rollback or batched snapshot work. Each thread now lazily opens its own Connection via `threading.local`; the underlying database is shared via `journal_mode=WAL` + `synchronous=NORMAL` + `foreign_keys=ON` so concurrent readers coexist with one writer. Connections are opened with `check_same_thread=False` so `close()` works from any thread, and every Connection is tracked in a per-instance list so `close()` drains them deterministically across threads (eliminates `ResourceWarning: unclosed database` on GC).
