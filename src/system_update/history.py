@@ -34,6 +34,11 @@ class HistoryDatabase:
 		self._tls = threading.local()
 		self._schema_initialized = False
 		self._schema_lock = threading.Lock()
+		# Track every Connection we hand out so close() can drain them
+		# from the main thread regardless of which thread opened them.
+		# Without this, ResourceWarning "unclosed database" fires on GC.
+		self._all_conns: List[sqlite3.Connection] = []
+		self._all_conns_lock = threading.Lock()
 		if connect:
 			self._connect()
 
@@ -45,12 +50,18 @@ class HistoryDatabase:
 		if conn is not None:
 			return
 		self.db_path.parent.mkdir(exist_ok=True)
-		conn = sqlite3.connect(str(self.db_path))
+		# check_same_thread=False so close() can be called from a thread
+		# other than the opening one (test fixtures, __del__ from main).
+		# We still hold one Connection per thread (threading.local) for
+		# safety; the flag only relaxes the close() restriction.
+		conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
 		conn.row_factory = sqlite3.Row
 		conn.execute('PRAGMA journal_mode=WAL')
 		conn.execute('PRAGMA synchronous=NORMAL')
 		conn.execute('PRAGMA foreign_keys=ON')
 		self._tls.conn = conn
+		with self._all_conns_lock:
+			self._all_conns.append(conn)
 
 		# Schema is created exactly once per process; subsequent threads
 		# skip it (CREATE TABLE IF NOT EXISTS is idempotent but skipping
@@ -256,17 +267,25 @@ class HistoryDatabase:
 		return {row['source']: row['count'] for row in cursor.fetchall()}
 
 	def close(self) -> None:
-		"""Close *this thread's* database connection if open.
+		"""Close every Connection this instance has opened, across threads.
 
-		Note: connections are per-thread (see threading.local in
-		__init__). Calling ``close()`` from a worker thread releases
-		that thread's connection only; sibling threads keep theirs.
-		For full cleanup at shutdown, call ``close()`` from each
-		thread that opened a connection.
+		Connections are per-thread (threading.local), but ``close()``
+		drains the bookkeeping list so a single call from any thread
+		(typically the test fixture / main thread at shutdown) releases
+		all of them. Without this, ``threading.local`` would hold the
+		Connection until each opening thread terminates, producing
+		``ResourceWarning: unclosed database`` under GC.
 		"""
-		conn = getattr(self._tls, 'conn', None)
-		if conn is not None:
-			conn.close()
+		with self._all_conns_lock:
+			for conn in self._all_conns:
+				try:
+					conn.close()
+				except Exception:
+					pass
+			self._all_conns.clear()
+		# Drop the current thread's TLS reference so a subsequent call
+		# on this instance reopens a fresh connection.
+		if hasattr(self._tls, 'conn'):
 			self._tls.conn = None
 
 	def __enter__(self) -> 'HistoryDatabase':
@@ -276,9 +295,21 @@ class HistoryDatabase:
 		self.close()
 
 	def __del__(self) -> None:
-		"""Best-effort connection close on garbage collection."""
+		"""Best-effort connection close on garbage collection.
+
+		Closes every Connection without taking the lock — the object is
+		being GC'd, no other thread will ever touch it. Avoids the
+		``ResourceWarning: unclosed database`` that fires if any per-
+		thread connection is still open when the parent object dies.
+		"""
 		try:
-			self.close()
+			conns = getattr(self, '_all_conns', None) or []
+			for conn in conns:
+				try:
+					conn.close()
+				except Exception:
+					pass
+			conns.clear() if isinstance(conns, list) else None
 		except Exception:
 			pass
 

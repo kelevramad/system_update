@@ -28,50 +28,55 @@ def test_snapshot_store_writes_concurrent_records(tmp_path: Path):
 	"""Eight threads each record a snapshot — all rows present, no
 	ProgrammingError, and WAL mode is active."""
 	store = SnapshotStore(tmp_path / 'history.db')
+	try:
+		def _record(i: int) -> str:
+			pkg = SnapshotPackage(name=f'pkg-{i}', source='pip', app_id=None,
+			                      version_before='1.0', version_after='1.1',
+			                      success=True)
+			return store.record([pkg], label=f'thread-{i}')
 
-	def _record(i: int) -> str:
-		pkg = SnapshotPackage(name=f'pkg-{i}', source='pip', app_id=None,
-		                      version_before='1.0', version_after='1.1',
-		                      success=True)
-		return store.record([pkg], label=f'thread-{i}')
+		with ThreadPoolExecutor(max_workers=8) as ex:
+			futures = [ex.submit(_record, i) for i in range(8)]
+			ids = [f.result() for f in as_completed(futures)]
 
-	with ThreadPoolExecutor(max_workers=8) as ex:
-		futures = [ex.submit(_record, i) for i in range(8)]
-		ids = [f.result() for f in as_completed(futures)]
+		assert len(ids) == 8
+		assert len(set(ids)) == 8, 'IDs must be unique across threads'
 
-	assert len(ids) == 8
-	assert len(set(ids)) == 8, 'IDs must be unique across threads'
+		# Verify all 8 snapshots are persisted.
+		all_snaps = store.list_snapshots(limit=20)
+		assert len(all_snaps) == 8
 
-	# Verify all 8 snapshots are persisted.
-	all_snaps = store.list_snapshots(limit=20)
-	assert len(all_snaps) == 8
-
-	# Verify WAL mode is on (the journal_mode pragma returns 'wal').
-	conn = store._connect()
-	row = conn.execute('PRAGMA journal_mode').fetchone()
-	assert (row[0] if row is not None else '').lower() == 'wal', (
-		'WAL journal mode should be active'
-	)
+		# Verify WAL mode is on (the journal_mode pragma returns 'wal').
+		conn = store._connect()
+		row = conn.execute('PRAGMA journal_mode').fetchone()
+		assert (row[0] if row is not None else '').lower() == 'wal', (
+			'WAL journal mode should be active'
+		)
+	finally:
+		store.close()
 
 
 def test_history_database_writes_concurrent_records(tmp_path: Path):
 	"""Same shape for HistoryDatabase — concurrent record_scan calls."""
 	db = HistoryDatabase(tmp_path / 'history.db')
-	apps = [AppInfo(name='git', source='winget', version='1.0',
-	                latest_version='1.1')]
+	try:
+		apps = [AppInfo(name='git', source='winget', version='1.0',
+		                latest_version='1.1')]
 
-	def _record(i: int) -> None:
-		db.record_scan(apps, scan_id=f'scan-{i}', source='winget',
-		               duration_seconds=0.1)
+		def _record(i: int) -> None:
+			db.record_scan(apps, scan_id=f'scan-{i}', source='winget',
+			               duration_seconds=0.1)
 
-	with ThreadPoolExecutor(max_workers=8) as ex:
-		list(ex.map(_record, range(8)))
+		with ThreadPoolExecutor(max_workers=8) as ex:
+			list(ex.map(_record, range(8)))
 
-	scans = db.get_scans(limit=20)
-	assert len(scans) == 8
-	# Every scan id we wrote should be present.
-	ids = {row['id'] for row in scans}
-	assert ids == {f'scan-{i}' for i in range(8)}
+		scans = db.get_scans(limit=20)
+		assert len(scans) == 8
+		# Every scan id we wrote should be present.
+		ids = {row['id'] for row in scans}
+		assert ids == {f'scan-{i}' for i in range(8)}
+	finally:
+		db.close()
 
 
 def test_snapshot_store_per_thread_connections_are_isolated(tmp_path: Path):
@@ -81,24 +86,27 @@ def test_snapshot_store_per_thread_connections_are_isolated(tmp_path: Path):
 	import threading
 
 	store = SnapshotStore(tmp_path / 'history.db')
-	# Force the main-thread connection.
-	main_conn = store._connect()
-	captured: dict = {}
+	try:
+		# Force the main-thread connection.
+		main_conn = store._connect()
+		captured: dict = {}
 
-	def _grab_in_thread() -> None:
-		captured['conn'] = store._connect()
+		def _grab_in_thread() -> None:
+			captured['conn'] = store._connect()
 
-	t = threading.Thread(target=_grab_in_thread)
-	t.start()
-	t.join()
+		t = threading.Thread(target=_grab_in_thread)
+		t.start()
+		t.join()
 
-	worker_conn = captured['conn']
-	assert isinstance(main_conn, sqlite3.Connection)
-	assert isinstance(worker_conn, sqlite3.Connection)
-	assert main_conn is not worker_conn, (
-		'Each thread must hold its own Connection — sharing one across '
-		'threads raises ProgrammingError on commit/execute.'
-	)
+		worker_conn = captured['conn']
+		assert isinstance(main_conn, sqlite3.Connection)
+		assert isinstance(worker_conn, sqlite3.Connection)
+		assert main_conn is not worker_conn, (
+			'Each thread must hold its own Connection — sharing one across '
+			'threads raises ProgrammingError on commit/execute.'
+		)
+	finally:
+		store.close()
 
 
 def test_history_database_per_thread_connections_are_isolated(tmp_path: Path):
@@ -106,21 +114,27 @@ def test_history_database_per_thread_connections_are_isolated(tmp_path: Path):
 	import threading
 
 	db = HistoryDatabase(tmp_path / 'history.db')
-	main_conn = db.conn  # property triggers connect on the main thread
-	captured: dict = {}
+	try:
+		main_conn = db.conn  # property triggers connect on the main thread
+		captured: dict = {}
 
-	def _grab_in_thread() -> None:
-		captured['conn'] = db.conn
+		def _grab_in_thread() -> None:
+			captured['conn'] = db.conn
 
-	t = threading.Thread(target=_grab_in_thread)
-	t.start()
-	t.join()
+		t = threading.Thread(target=_grab_in_thread)
+		t.start()
+		t.join()
 
-	worker_conn = captured['conn']
-	assert main_conn is not worker_conn
+		worker_conn = captured['conn']
+		assert main_conn is not worker_conn
+	finally:
+		db.close()
 
 
 def test_history_database_wal_mode_is_active(tmp_path: Path):
 	db = HistoryDatabase(tmp_path / 'history.db')
-	row = db.conn.execute('PRAGMA journal_mode').fetchone()
-	assert (row[0] if row is not None else '').lower() == 'wal'
+	try:
+		row = db.conn.execute('PRAGMA journal_mode').fetchone()
+		assert (row[0] if row is not None else '').lower() == 'wal'
+	finally:
+		db.close()

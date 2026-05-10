@@ -97,6 +97,11 @@ class SnapshotStore:
 		self._tls = threading.local()
 		self._schema_initialized = False
 		self._schema_lock = threading.Lock()
+		# Track every Connection so close() can drain them from any
+		# thread (avoids ResourceWarning on GC when the opening thread
+		# has already terminated).
+		self._all_conns: List[sqlite3.Connection] = []
+		self._all_conns_lock = threading.Lock()
 
 	@property
 	def _conn(self) -> Optional[sqlite3.Connection]:
@@ -113,12 +118,17 @@ class SnapshotStore:
 
 		self.db_path.parent.mkdir(exist_ok=True)
 		# WAL mode lets concurrent readers coexist with one writer.
-		conn = sqlite3.connect(str(self.db_path))
+		# check_same_thread=False so close() works from any thread —
+		# we still hold one Connection per thread via threading.local
+		# for safety; the flag only relaxes the close() restriction.
+		conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
 		conn.row_factory = sqlite3.Row
 		conn.execute('PRAGMA journal_mode=WAL')
 		conn.execute('PRAGMA synchronous=NORMAL')
 		conn.execute('PRAGMA foreign_keys=ON')
 		self._tls.conn = conn
+		with self._all_conns_lock:
+			self._all_conns.append(conn)
 
 		# Schema setup runs exactly once per process (CREATE TABLE IF
 		# NOT EXISTS is idempotent but the lock keeps the first-thread
@@ -279,10 +289,23 @@ class SnapshotStore:
 			return False
 
 	def close(self) -> None:
-		"""Close *this thread's* connection. Per-thread (see __init__)."""
-		conn = getattr(self._tls, 'conn', None)
-		if conn is not None:
-			conn.close()
+		"""Close every Connection this store has opened, across threads.
+
+		Connections are per-thread (threading.local), but ``close()``
+		drains the bookkeeping list so a single call from any thread
+		(typically the test fixture / main thread at shutdown) releases
+		all of them. Without this, ``threading.local`` would hold the
+		Connection until each opening thread terminates, producing
+		``ResourceWarning: unclosed database`` under GC.
+		"""
+		with self._all_conns_lock:
+			for conn in self._all_conns:
+				try:
+					conn.close()
+				except Exception:
+					pass
+			self._all_conns.clear()
+		if hasattr(self._tls, 'conn'):
 			self._tls.conn = None
 
 	def __enter__(self) -> 'SnapshotStore':
@@ -293,9 +316,21 @@ class SnapshotStore:
 		self.close()
 
 	def __del__(self) -> None:
-		"""Best-effort connection close on garbage collection."""
+		"""Best-effort connection close on garbage collection.
+
+		Closes every Connection without taking the lock — the object is
+		being GC'd, no other thread will ever touch it. Avoids the
+		``ResourceWarning: unclosed database`` that fires if a per-
+		thread connection is still open when the parent object dies.
+		"""
 		try:
-			self.close()
+			conns = getattr(self, '_all_conns', None) or []
+			for conn in conns:
+				try:
+					conn.close()
+				except Exception:
+					pass
+			conns.clear() if isinstance(conns, list) else None
 		except Exception:
 			pass
 
