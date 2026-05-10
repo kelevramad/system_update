@@ -161,6 +161,12 @@ class SystemConfig:
 				'custom_script_enabled': False,
 				'custom_script_path': '',
 			},
+			'remote': {
+				# Hardening 1.5.2 — cap JSON stdout accepted from remote hosts
+				# before decoding it. Users may override with
+				# remote.max_response_bytes or SYSTEM_UPDATE_REMOTE__MAX_RESPONSE_BYTES.
+				'max_response_bytes': 10 * 1024 * 1024,
+			},
 			# Hardening 1.2.1 — Plugin loading is **off by default**. Plugins
 			# under ``~/.system_update/plugins/`` execute arbitrary Python at
 			# scan time, so the user must opt in. When enabled, the loader
@@ -458,6 +464,14 @@ class SystemConfig:
 				'storage_fields'
 			]
 		self.settings['security']['enabled'] = bool(self.settings['security']['enabled'])
+
+		remote = self.settings.setdefault('remote', {})
+		if (
+			not isinstance(remote.get('max_response_bytes'), int)
+			or remote['max_response_bytes'] < 1
+		):
+			logging.warning('Invalid remote.max_response_bytes. Resetting to default (10485760).')
+			remote['max_response_bytes'] = 10 * 1024 * 1024
 
 	def _merge_settings(self, base: Dict, loaded: Dict) -> None:
 		"""Recursively merge ``loaded`` into ``base`` (in-place)."""

@@ -4,7 +4,7 @@
 
 A comprehensive Python-based system package management tool that scans, checks, and updates software from multiple sources.
 
-**Version:** 8.5.1
+**Version:** 8.5.2
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
 **Layout:** Modular package at `src/system_update/` (typer CLI)
@@ -259,6 +259,11 @@ python -m system_update --remote scan --remote-host build01 --remote-debug
 Use `--remote-verbose` when you want completion details: the command still runs normally, and each host prints stdout/stderr tails after it finishes.
 
 Use `--remote-debug` when a host appears frozen. It implies verbose output and additionally prints the remote command, timeout, host metadata, redacted local `winrs` argv, a start message, and a heartbeat every 30 seconds until completion or timeout. Password values are masked as `-p:***`.
+
+Remote JSON stdout is capped before parsing to protect the orchestrator from
+oversized responses. The default is 10 MiB and can be changed with
+`remote.max_response_bytes` in the config file or
+`SYSTEM_UPDATE_REMOTE__MAX_RESPONSE_BYTES`.
 
 ---
 

@@ -2,6 +2,9 @@
 
 Each exporter is a pure function that writes ``output_file`` and returns the
 path. They have no UI dependencies so they are trivially testable.
+
+XML is generation-only in this module: no untrusted XML input is parsed here.
+If XML import support is added later, use ``defusedxml`` and a file-size cap.
 """
 
 from __future__ import annotations
