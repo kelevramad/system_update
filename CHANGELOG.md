@@ -15,6 +15,14 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.5.1 (May 2026)
+
+- **Tests — Windows ACL Coverage**: filled the gap left by v8.5.0, where the file-permission tests skipped on Windows because POSIX mode-bit assertions don't translate. Three new tests in `tests/test_secure_paths.py` (each gated `@pytest.mark.skipif(platform.system() != 'Windows')`):
+  - **Unit (mocked subprocess)** — `secure_write` must spawn two `icacls <path> /inheritance:r /grant <USER>:(F)` calls per write (temp file before rename + destination as belt-and-suspenders).
+  - **Integration (real `icacls`)** — write a file via `secure_write`, run `icacls <path>` for real, and assert the current user appears with `(F)` while no `Everyone:`, `BUILTIN\Users:`, or `NT AUTHORITY\Authenticated Users:` ACE survives the `/inheritance:r` reset.
+  - **Unit (mocked subprocess)** — `harden_existing_file` must spawn one icacls call with the same argv shape.
+- **Result**: `uv run pytest` on Windows is now **571 passed, 4 skipped** (up from 568 / 4). No runtime behavior change.
+
 ### v8.5.0 (May 2026)
 
 - **Security — Restrictive File Permissions (Hardening 1.4.1)**: Every data file under `~/.system_update/` is now written through a new `secure_write()` helper that produces a `0o600` file on POSIX and an `icacls /inheritance:r /grant USER:(F)` user-only ACL on Windows. The temp file is hardened **before** any data hits disk and `os.replace` makes the swap atomic, so the file never exists with looser permissions. Failed writes wipe the temp and leave the previous content intact. Affects `cache.json`, `config.json`/`config.yaml`, exported profiles, `inventory.json`, `vulnerability_history.json`, and `api_cache.json`.
