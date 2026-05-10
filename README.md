@@ -4,7 +4,7 @@
 
 A comprehensive Python-based system package management tool that scans, checks, and updates software from multiple sources.
 
-**Version:** 8.8.0
+**Version:** 8.9.0
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
 **Layout:** Modular package at `src/system_update/` (typer CLI)
@@ -20,7 +20,7 @@ A comprehensive Python-based system package management tool that scans, checks, 
 - **Dry-run & Output Options**: Safely preview updates before applying them and export reports to JSON, CSV, HTML, XML, Markdown, or diff formats.
 - **Rich Terminal UI**: Beautiful, colorful console output built with the `rich` library, featuring spinners, progress bars, and emoji indicators.
 - **Parallel Processing**: Per-source scanner and update-checker worker pools with graceful degradation when one source fails.
-- **Modular Architecture**: Clean separation of concerns with dataclasses.
+- **Modular Architecture**: Thin CLI orchestration with command modules, dataclasses, and separated rendering helpers.
 - **Smart Version Comparison**: Handles preview/stable version detection.
 - **Interactive TUI**: Fuzzy search, multi-select, and preview for package selection.
 - **Remote Management**: Manage a Windows host inventory and run scans, updates, and consolidated reports over WinRS/WinRM.

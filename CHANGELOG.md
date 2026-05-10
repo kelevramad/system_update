@@ -15,6 +15,14 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.9.0 (May 2026)
+
+- **Architecture Hardening (Hardening 3.1)**: `app.py` has been reduced from a god-object surface to 913 lines by extracting the large command/action body into `app_actions.AppActionsMixin` while keeping the public `SystemUpdateApp` orchestration API stable.
+- **Command Package**: Added `system_update.commands` with remote, snapshot, schedule, run, scan, and update command surfaces so command behavior can be tested and evolved independently of `SystemUpdateApp`.
+- **Report Template Split**: History HTML rendering moved into `report_templates.render_history_html()` with a compatibility wrapper for existing callers.
+- **Tests**: 620 passing, 4 skipped. New `tests/test_commands.py` covers direct command execution without constructing `SystemUpdateApp`.
+- **Verification**: `uv run pytest`, `uv run ruff check .`, and `uv run task typecheck` are clean.
+
 ### v8.8.0 (May 2026)
 
 - **Security Observability (Hardening 2.3.1)**: OSV scanner failures now use specific exception handling for URL, timeout, JSON, and OS-level errors. Failures log a WARNING with the OSV host and return a structured `security_issue` marker instead of silently reporting an empty clean scan.
