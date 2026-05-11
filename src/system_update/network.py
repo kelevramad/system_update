@@ -5,8 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import random
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -112,7 +114,14 @@ _SETTINGS = {
 	'rate_limit_seconds': 0.2,
 	'timeout_seconds': 10,
 	'cache_file': _DEFAULT_CACHE_FILE,
+	# Hardening 4.6 — retry policy for transient HTTP errors.
+	'retry_max_attempts': 3,
+	'retry_base_seconds': 0.5,
+	'retry_max_seconds': 30.0,
 }
+
+
+_RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 
 
 def configure_network(settings: Optional[Dict[str, Any]] = None, config_dir: str | Path | None = None) -> None:
@@ -133,6 +142,15 @@ def configure_network(settings: Optional[Dict[str, Any]] = None, config_dir: str
 		)
 		_SETTINGS['timeout_seconds'] = _positive_number(settings.get('timeout_seconds'), 10)
 		_SETTINGS['cache_file'] = Path(cache_file or _DEFAULT_CACHE_FILE)
+		_SETTINGS['retry_max_attempts'] = int(
+			_positive_number(settings.get('retry_max_attempts'), 3, allow_zero=True)
+		)
+		_SETTINGS['retry_base_seconds'] = _positive_number(
+			settings.get('retry_base_seconds'), 0.5, allow_zero=True
+		)
+		_SETTINGS['retry_max_seconds'] = _positive_number(
+			settings.get('retry_max_seconds'), 30.0
+		)
 		_reset_cache_locked()
 
 
@@ -173,9 +191,7 @@ def fetch_json(
 
 	req = urllib.request.Request(url, data=body, method=method, headers=request_headers)
 	request_timeout = _positive_number(timeout, _SETTINGS['timeout_seconds'])
-	# Use the http-only opener so a 30x redirect to file:// is refused too.
-	with _SAFE_OPENER.open(req, timeout=request_timeout) as response:
-		data = json.loads(response.read().decode('utf-8'))
+	data = _open_with_retry(req, request_timeout)
 
 	if use_cache and _SETTINGS['cache_enabled']:
 		_cache_set(key, data)
@@ -241,6 +257,81 @@ def _rate_limit(host: str) -> None:
 		limiter.next_allowed = now + max(wait, 0.0) + delay
 	if wait > 0:
 		time.sleep(wait)
+
+
+def _open_with_retry(req: 'urllib.request.Request', timeout: float) -> Any:
+	"""Open ``req`` with retry/backoff on transient HTTP errors.
+
+	Hardening 4.6 — retries on 429, 5xx, and connection errors with
+	exponential backoff + jitter, honoring ``Retry-After`` headers when
+	present. 4xx errors other than 429 fail immediately. The total
+	attempt count (initial + retries) is bounded by
+	``network.retry_max_attempts``.
+	"""
+	max_attempts = max(1, int(_SETTINGS.get('retry_max_attempts') or 1))
+	base = float(_SETTINGS.get('retry_base_seconds') or 0.5)
+	cap = float(_SETTINGS.get('retry_max_seconds') or 30.0)
+
+	last_exc: Optional[BaseException] = None
+	for attempt in range(max_attempts):
+		try:
+			# Use the http-only opener so a 30x redirect to file:// is refused too.
+			with _SAFE_OPENER.open(req, timeout=timeout) as response:
+				return json.loads(response.read().decode('utf-8'))
+		except urllib.error.HTTPError as exc:
+			last_exc = exc
+			if exc.code not in _RETRY_STATUSES or attempt + 1 >= max_attempts:
+				raise
+			delay = _retry_after_seconds(exc) or _backoff(attempt, base, cap)
+			logger.info(
+				'HTTP %s on %s — retry %d/%d after %.2fs',
+				exc.code, req.full_url, attempt + 1, max_attempts - 1, delay,
+			)
+			time.sleep(delay)
+		except (urllib.error.URLError, TimeoutError, OSError) as exc:
+			last_exc = exc
+			if attempt + 1 >= max_attempts:
+				raise
+			delay = _backoff(attempt, base, cap)
+			logger.info(
+				'Network error on %s (%s) — retry %d/%d after %.2fs',
+				req.full_url, exc, attempt + 1, max_attempts - 1, delay,
+			)
+			time.sleep(delay)
+	# Defensive — loop always returns or raises above.
+	if last_exc is not None:
+		raise last_exc
+	raise RuntimeError('retry loop exited without result')
+
+
+def _retry_after_seconds(exc: 'urllib.error.HTTPError') -> Optional[float]:
+	"""Parse a ``Retry-After`` header into seconds, if sane.
+
+	Supports the integer-seconds form. HTTP-date form is ignored — the
+	exponential backoff is a safe fallback.
+	"""
+	try:
+		header = exc.headers.get('Retry-After') if exc.headers else None
+	except Exception:
+		header = None
+	if not header:
+		return None
+	try:
+		secs = float(str(header).strip())
+		if secs < 0:
+			return None
+		cap = float(_SETTINGS.get('retry_max_seconds') or 30.0)
+		return min(secs, cap)
+	except (TypeError, ValueError):
+		return None
+
+
+def _backoff(attempt: int, base: float, cap: float) -> float:
+	"""Exponential backoff with jitter, capped at ``cap`` seconds."""
+	delay = base * (2 ** attempt)
+	delay = min(delay, cap)
+	jitter = random.uniform(0, base)
+	return min(delay + jitter, cap)
 
 
 def _cache_get(key: str, ttl: float) -> Any:

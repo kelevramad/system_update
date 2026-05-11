@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from system_update.models import AppInfo, UpdateStatus
+from system_update.security import github as github_security
 from system_update.security import npm as npm_security
 from system_update.security import osv
 from system_update.security.common import is_security_issue
@@ -219,3 +220,78 @@ def test_npm_audit_skipped_is_distinguishable_from_clean(tmp_path, monkeypatch):
 	assert is_security_issue(vulns[0])
 	assert vulns[0]['status'] == 'skipped'
 	assert 'no package.json or global root reachable' in vulns[0]['message']
+
+
+# ─── Hardening 4.5 — pip_apps indexed lookup ──────────────────────────────
+
+
+def test_pip_security_indexed_lookup_is_case_insensitive():
+	apps = [AppInfo(name='Requests', source='pip', version='2.0.0')]
+	pip_audit_json = json.dumps({
+		'dependencies': [
+			{
+				'name': 'requests',
+				'version': '2.0.0',
+				'vulns': [{'id': 'CVE-X', 'fix_versions': ['3.0.0']}],
+			},
+		],
+	})
+
+	with patch('system_update.security.pip.run_command', return_value=pip_audit_json):
+		vulns = pip_security.check(apps)
+
+	assert len(vulns) == 1
+	assert vulns[0]['cve'] == 'CVE-X'
+	assert apps[0].update_status == UpdateStatus.VULNERABLE
+
+
+def test_pip_security_ignores_packages_not_in_inventory():
+	apps = [AppInfo(name='requests', source='pip', version='2.0.0')]
+	pip_audit_json = json.dumps({
+		'dependencies': [
+			{'name': 'not-installed', 'version': '1.0.0', 'vulns': [{'id': 'CVE-Y'}]},
+		],
+	})
+
+	with patch('system_update.security.pip.run_command', return_value=pip_audit_json):
+		vulns = pip_security.check(apps)
+
+	assert vulns == []
+
+
+# ─── Hardening 4.1 — parallel GitHub Advisory queries ────────────────────
+
+
+def test_github_security_uses_thread_pool_for_queries():
+	apps = [
+		AppInfo(name='a', source='npm', version='1.0.0'),
+		AppInfo(name='b', source='npm', version='1.0.0'),
+		AppInfo(name='c', source='pip', version='1.0.0'),
+	]
+	advisory = {
+		'severity': 'HIGH',
+		'ghsa_id': 'GHSA-test',
+		'cve_id': 'CVE-Z',
+		'description': 'bad',
+		'affected': [
+			{'package': {'name': 'a'}, 'vulnerable_version_range': '<2.0.0'},
+		],
+	}
+
+	def fake_fetch_json(url, **_kwargs):
+		# Only the request for "a" returns the matching advisory.
+		if 'package=a' in url:
+			return [advisory]
+		return []
+
+	with patch.object(github_security, 'fetch_json', side_effect=fake_fetch_json) as fetch:
+		vulns = github_security.check(apps)
+
+	# One request per ecosystem-eligible candidate.
+	assert fetch.call_count == 3
+	assert len(vulns) == 1
+	assert vulns[0]['cve'] == 'CVE-Z'
+	# Only 'a' should be flagged as vulnerable.
+	by_name = {a.name: a for a in apps}
+	assert by_name['a'].update_status == UpdateStatus.VULNERABLE
+	assert by_name['b'].update_status != UpdateStatus.VULNERABLE

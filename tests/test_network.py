@@ -1,5 +1,7 @@
+import io
 import json
-from unittest.mock import patch
+import urllib.error
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -203,3 +205,126 @@ def test_rate_limit_releases_lock_before_sleeping(tmp_path):
 	assert captured['lock_held_during_sleep'] is False, (
 		'sleep ran while the per-host lock was held — the fix is incomplete'
 	)
+
+
+# ─── Hardening 4.6 — retry/backoff on transient HTTP errors ──────────────
+
+
+def _http_error(code, body=b'', headers=None):
+	"""Build a minimal urllib HTTPError suitable for raising from a mock."""
+	from email.message import Message
+
+	hdrs: Message = Message()
+	for key, value in (headers or {}).items():
+		hdrs[key] = value
+	return urllib.error.HTTPError(
+		url='https://retry.test/x',
+		code=code,
+		msg=f'HTTP {code}',
+		hdrs=hdrs,
+		fp=io.BytesIO(body),
+	)
+
+
+def test_fetch_json_retries_on_429_then_succeeds(tmp_path):
+	configure_network({
+		'cache_enabled': False,
+		'rate_limit_seconds': 0,
+		'retry_max_attempts': 3,
+		'retry_base_seconds': 0,
+		'cache_file': tmp_path / 'api_cache.json',
+	})
+
+	import system_update.network as net
+
+	responses = [_http_error(429), _Response({'ok': True})]
+
+	def open_side_effect(*_a, **_k):
+		result = responses.pop(0)
+		if isinstance(result, urllib.error.HTTPError):
+			raise result
+		return result
+
+	with (
+		patch.object(net._SAFE_OPENER, 'open', side_effect=open_side_effect),
+		patch('system_update.network.time.sleep'),
+	):
+		assert fetch_json('https://retry.test/x') == {'ok': True}
+
+
+def test_fetch_json_retries_503_until_max_attempts(tmp_path):
+	configure_network({
+		'cache_enabled': False,
+		'rate_limit_seconds': 0,
+		'retry_max_attempts': 3,
+		'retry_base_seconds': 0,
+		'cache_file': tmp_path / 'api_cache.json',
+	})
+
+	import system_update.network as net
+
+	with (
+		patch.object(net._SAFE_OPENER, 'open', side_effect=_http_error(503)),
+		patch('system_update.network.time.sleep') as sleep,
+	):
+		with pytest.raises(urllib.error.HTTPError) as excinfo:
+			fetch_json('https://retry.test/x')
+
+	assert excinfo.value.code == 503
+	# 3 attempts → 2 retries → 2 sleeps.
+	assert sleep.call_count == 2
+
+
+def test_fetch_json_does_not_retry_404(tmp_path):
+	configure_network({
+		'cache_enabled': False,
+		'rate_limit_seconds': 0,
+		'retry_max_attempts': 5,
+		'retry_base_seconds': 0,
+		'cache_file': tmp_path / 'api_cache.json',
+	})
+
+	import system_update.network as net
+
+	opener = MagicMock(side_effect=_http_error(404))
+	with (
+		patch.object(net._SAFE_OPENER, 'open', opener),
+		patch('system_update.network.time.sleep') as sleep,
+	):
+		with pytest.raises(urllib.error.HTTPError):
+			fetch_json('https://retry.test/x')
+
+	opener.assert_called_once()
+	sleep.assert_not_called()
+
+
+def test_fetch_json_honors_retry_after_header(tmp_path):
+	configure_network({
+		'cache_enabled': False,
+		'rate_limit_seconds': 0,
+		'retry_max_attempts': 2,
+		'retry_base_seconds': 0.01,
+		'cache_file': tmp_path / 'api_cache.json',
+	})
+
+	import system_update.network as net
+
+	responses = [
+		_http_error(429, headers={'Retry-After': '2'}),
+		_Response({'ok': True}),
+	]
+
+	def open_side_effect(*_a, **_k):
+		result = responses.pop(0)
+		if isinstance(result, urllib.error.HTTPError):
+			raise result
+		return result
+
+	with (
+		patch.object(net._SAFE_OPENER, 'open', side_effect=open_side_effect),
+		patch('system_update.network.time.sleep') as sleep,
+	):
+		assert fetch_json('https://retry.test/x') == {'ok': True}
+
+	# Retry-After=2 should produce a single 2.0-second sleep.
+	sleep.assert_called_once_with(2.0)

@@ -8,6 +8,8 @@ from typing import List
 from system_update.models import AppInfo
 from system_update.utils import run_command
 
+_YARN_ROW_RE = re.compile(r'^info "([^@]+)@([^"]+)"')
+
 
 def scan() -> List[AppInfo]:
 	"""Parse ``info "name@version"`` lines from Yarn's global list."""
@@ -17,7 +19,7 @@ def scan() -> List[AppInfo]:
 		return apps
 
 	for line in output.splitlines():
-		match = re.match(r'^info "([^@]+)@([^"]+)"', line)
+		match = _YARN_ROW_RE.match(line)
 		if match:
 			apps.append(
 				AppInfo(

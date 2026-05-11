@@ -90,6 +90,10 @@ class SystemConfig:
 				'cache_ttl_seconds': 3600,
 				'rate_limit_seconds': 0.2,
 				'timeout_seconds': 10,
+				# Hardening 4.6 — retry policy for transient HTTP errors.
+				'retry_max_attempts': 3,
+				'retry_base_seconds': 0.5,
+				'retry_max_seconds': 30.0,
 			},
 			'sources': {
 				'winget': True,
@@ -115,6 +119,8 @@ class SystemConfig:
 				'enabled': True,
 				'auto_check': True,
 				'severity_threshold': 'medium',
+				# Hardening 4.1 — parallel GitHub Advisory queries.
+				'github_workers': 4,
 			},
 			'ui': {
 				'theme': 'default',

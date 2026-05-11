@@ -8,6 +8,8 @@ from typing import List
 from system_update.models import AppInfo
 from system_update.utils import run_command
 
+_RUST_ROW_RE = re.compile(r'^([^\s]+)\s+v([^\s:]+):')
+
 
 def scan() -> List[AppInfo]:
 	"""Parse ``crate v1.2.3:`` header lines from cargo's installed list."""
@@ -17,7 +19,7 @@ def scan() -> List[AppInfo]:
 		return apps
 
 	for line in output.splitlines():
-		match = re.match(r'^([^\s]+)\s+v([^\s:]+):', line)
+		match = _RUST_ROW_RE.match(line)
 		if match:
 			apps.append(
 				AppInfo(
