@@ -132,9 +132,13 @@ def test_cache_selective_storage_omits_unrequested_fields(tmp_path):
 		]
 	)
 
-	item = _read_cache_json(cache_file)['apps'][0]
+	loaded_data = _read_cache_json(cache_file)
+	assert loaded_data is not None
+	item = loaded_data['apps'][0]
 	assert set(item) == {'name', 'source', 'version', 'status'}
-	assert cache.load()[0].app_id is None
+	cache_apps = cache.load()
+	assert cache_apps is not None
+	assert cache_apps[0].app_id is None
 
 
 def test_selective_storage_does_not_create_false_delta_updates(tmp_path):
@@ -162,7 +166,9 @@ def test_lru_hot_package_cache_evicts_oldest(tmp_path):
 
 	assert cache.hot_cache_size() == 2
 	assert cache.get_hot_package('pip', 'A') is None
-	assert cache.get_hot_package('pip', 'C').name == 'C'
+	hot_c = cache.get_hot_package('pip', 'C')
+	assert hot_c is not None
+	assert hot_c.name == 'C'
 
 
 def test_app_prefetch_starts_background_refresh(tmp_path):
@@ -189,9 +195,9 @@ def test_partial_cache_message_shows_hits_and_missing(monkeypatch, tmp_path):
 	app.history_db.close()
 	app.config.config_dir = tmp_path
 	app.cache_mgr = CacheManager(tmp_path / 'cache.json')
-	app.scan_system = lambda source: [AppInfo(name='Lib', source=source, version='1.0')]
-	app.checker.check_all_updates = lambda apps, max_workers=None, extra_checkers=None: None
-	app.security.check_all = lambda apps, advisory_file: []
+	app.scan_system = lambda source: [AppInfo(name='Lib', source=source or '', version='1.0')]  # type: ignore[method-assign]
+	app.checker.check_all_updates = lambda apps, max_workers=None, extra_checkers=None: None  # type: ignore[method-assign]
+	app.security.check_all = lambda apps, advisory_file, extra_checkers=None: []  # type: ignore[method-assign]
 	console = Console(record=True, width=160)
 	monkeypatch.setattr(app_module, 'console', console)
 
@@ -212,3 +218,67 @@ def test_partial_cache_message_shows_hits_and_missing(monkeypatch, tmp_path):
 	assert 'Cache updated' in output
 	assert 'expires' in output
 	assert 'in ' in output
+
+
+# ─── Hardening 4.3 — memoized cache reads ─────────────────────────────────
+
+
+def test_cache_memoizes_raw_reads_by_mtime(tmp_path):
+	"""Sequential is_valid + is_source_valid + load must only re-parse once."""
+	import system_update.cache as cache_module
+
+	cache = CacheManager(tmp_path / 'cache.json')
+	cache.save([AppInfo(name='Git', source='winget', version='1.0')])
+
+	calls = {'n': 0}
+	original_loads = cache_module.json.loads
+
+	def counting_loads(*args, **kwargs):
+		calls['n'] += 1
+		return original_loads(*args, **kwargs)
+
+	with patch.object(cache_module.json, 'loads', side_effect=counting_loads):
+		assert cache.is_valid() is True
+		assert cache.is_source_valid('winget') is True
+		loaded = cache.load()
+
+	assert loaded is not None
+	assert calls['n'] == 1, 'is_valid + is_source_valid + load must share a single parse'
+
+
+def test_cache_memoization_invalidates_on_external_mtime_change(tmp_path):
+	"""External file modification (mtime bump) re-reads from disk."""
+	import os
+	import system_update.cache as cache_module
+
+	cache_file = tmp_path / 'cache.json'
+	cache = CacheManager(cache_file)
+	cache.save([AppInfo(name='Git', source='winget', version='1.0')])
+	cache.is_valid()  # prime the memo
+
+	stat = cache_file.stat()
+	os.utime(cache_file, (stat.st_atime, stat.st_mtime + 1))
+
+	calls = {'n': 0}
+	original_loads = cache_module.json.loads
+
+	def counting_loads(*args, **kwargs):
+		calls['n'] += 1
+		return original_loads(*args, **kwargs)
+
+	with patch.object(cache_module.json, 'loads', side_effect=counting_loads):
+		cache.is_valid()
+
+	assert calls['n'] == 1, 'mtime change must invalidate the memo'
+
+
+def test_cache_memoization_invalidates_after_write(tmp_path):
+	"""Writing through the cache must drop the memo so readers see fresh data."""
+	cache = CacheManager(tmp_path / 'cache.json')
+	cache.save([AppInfo(name='Git', source='winget', version='1.0')])
+	cache.load()  # prime
+
+	cache.save([AppInfo(name='Other', source='npm', version='2.0')])
+	loaded = cache.load()
+	assert loaded is not None
+	assert any(app.name == 'Other' for app in loaded)

@@ -15,6 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from system_update.utils import data_dir
+
 
 class SystemConfig:
 	"""JSON/YAML-backed configuration with env var overrides and profiles.
@@ -26,11 +28,12 @@ class SystemConfig:
 	"""
 
 	def __init__(self, profile_name: Optional[str] = None) -> None:
-		self.config_dir = Path.home() / '.system_update'
+		# Hardening 1.4.2 — single accessor honors SYSTEM_UPDATE_HOME
+		# and creates the dir with mode 0o700 on POSIX.
+		self.config_dir = data_dir()
 		self.profiles_dir = self.config_dir / 'profiles'
 		self.current_profile = profile_name
 
-		self.config_dir.mkdir(exist_ok=True)
 		self.profiles_dir.mkdir(exist_ok=True)
 
 		self._update_paths(profile_name)
@@ -87,6 +90,10 @@ class SystemConfig:
 				'cache_ttl_seconds': 3600,
 				'rate_limit_seconds': 0.2,
 				'timeout_seconds': 10,
+				# Hardening 4.6 — retry policy for transient HTTP errors.
+				'retry_max_attempts': 3,
+				'retry_base_seconds': 0.5,
+				'retry_max_seconds': 30.0,
 			},
 			'sources': {
 				'winget': True,
@@ -112,6 +119,8 @@ class SystemConfig:
 				'enabled': True,
 				'auto_check': True,
 				'severity_threshold': 'medium',
+				# Hardening 4.1 — parallel GitHub Advisory queries.
+				'github_workers': 4,
 			},
 			'ui': {
 				'theme': 'default',
@@ -150,12 +159,29 @@ class SystemConfig:
 				'webhook_enabled': False,
 				'webhook_url': '',
 				'webhook_headers': {},
+				# Hardening 1.3.2 — by default refuse webhook URLs that
+				# resolve to private (RFC1918), loopback, link-local, or
+				# unique-local IP ranges. Set to true only for self-hosted
+				# ChatOps endpoints reachable inside the same network.
+				'allow_private_hosts': False,
 				'custom_script_enabled': False,
 				'custom_script_path': '',
 			},
+			'remote': {
+				# Hardening 1.5.2 — cap JSON stdout accepted from remote hosts
+				# before decoding it. Users may override with
+				# remote.max_response_bytes or SYSTEM_UPDATE_REMOTE__MAX_RESPONSE_BYTES.
+				'max_response_bytes': 10 * 1024 * 1024,
+			},
+			# Hardening 1.2.1 — Plugin loading is **off by default**. Plugins
+			# under ``~/.system_update/plugins/`` execute arbitrary Python at
+			# scan time, so the user must opt in. When enabled, the loader
+			# rejects world-writable directories and (optionally) enforces a
+			# SHA-256 allowlist at ``allowed.sha256``.
 			'plugins': {
-				'enabled': True,
+				'enabled': False,
 				'paths': [],
+				'require_hash_allowlist': False,
 			},
 		}
 
@@ -198,8 +224,9 @@ class SystemConfig:
 				'settings': self.settings,
 				'exported_at': datetime.now().isoformat(),
 			}
-			with open(output_path, 'w', encoding='utf-8') as f:
-				json.dump(export_data, f, indent=2)
+			from system_update.utils import secure_write
+
+			secure_write(output_path, json.dumps(export_data, indent=2))
 			return True
 		except Exception as e:
 			logging.error(f'Failed to export profile: {e}')
@@ -238,7 +265,14 @@ class SystemConfig:
 		self._validate_config()
 
 	def _read_config_file(self) -> Optional[Dict]:
-		"""Attempt to read settings from YAML (preferred) or JSON on disk."""
+		"""Attempt to read settings from JSON first, then YAML."""
+		if self.config_file.exists():
+			try:
+				with open(self.config_file, 'r', encoding='utf-8') as f:
+					return json.load(f)
+			except Exception as e:
+				logging.warning(f'Failed to load config: {e}')
+
 		yaml_path = (
 			self.yaml_config_file
 			if self.yaml_config_file.exists()
@@ -251,17 +285,13 @@ class SystemConfig:
 
 				with open(yaml_path, 'r', encoding='utf-8') as f:
 					return yaml.safe_load(f)
-			except ImportError:
-				logging.warning('PyYAML not installed but YAML config found.')
+			except ImportError as exc:
+				raise RuntimeError(
+					f'PyYAML is required to load {yaml_path}. '
+					'Install with: uv pip install pyyaml or use a JSON config.'
+				) from exc
 			except Exception as e:
 				logging.warning(f'Failed to load YAML config: {e}')
-
-		if self.config_file.exists():
-			try:
-				with open(self.config_file, 'r', encoding='utf-8') as f:
-					return json.load(f)
-			except Exception as e:
-				logging.warning(f'Failed to load config: {e}')
 
 		return None
 
@@ -444,6 +474,14 @@ class SystemConfig:
 			]
 		self.settings['security']['enabled'] = bool(self.settings['security']['enabled'])
 
+		remote = self.settings.setdefault('remote', {})
+		if (
+			not isinstance(remote.get('max_response_bytes'), int)
+			or remote['max_response_bytes'] < 1
+		):
+			logging.warning('Invalid remote.max_response_bytes. Resetting to default (10485760).')
+			remote['max_response_bytes'] = 10 * 1024 * 1024
+
 	def _merge_settings(self, base: Dict, loaded: Dict) -> None:
 		"""Recursively merge ``loaded`` into ``base`` (in-place)."""
 		for key, value in loaded.items():
@@ -461,18 +499,27 @@ class SystemConfig:
 		)
 
 		try:
+			from system_update.utils import secure_write
+
 			if yaml_path:
 				import yaml
-
-				with open(yaml_path, 'w', encoding='utf-8') as f:
-					yaml.dump(self.settings, f, default_flow_style=False, sort_keys=False)
+				secure_write(
+					yaml_path,
+					yaml.dump(self.settings, default_flow_style=False, sort_keys=False),
+				)
 			else:
-				with open(self.config_file, 'w', encoding='utf-8') as f:
-					json.dump(self.settings, f, indent=2, default=str)
+				secure_write(
+					self.config_file,
+					json.dumps(self.settings, indent=2, default=str),
+				)
 		except ImportError:
 			try:
-				with open(self.config_file, 'w', encoding='utf-8') as f:
-					json.dump(self.settings, f, indent=2, default=str)
+				from system_update.utils import secure_write
+
+				secure_write(
+					self.config_file,
+					json.dumps(self.settings, indent=2, default=str),
+				)
 			except Exception as e:
 				logging.error(f'Failed to save config: {e}')
 		except Exception as e:
@@ -604,8 +651,10 @@ def setup_logging(
 	console_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
 	console_handler.setLevel(logging.DEBUG if debug else logging.WARNING)
 	console_handler.addFilter(_SuppressExecFailureFilter())
-	if hasattr(console_handler.stream, 'reconfigure'):
-		console_handler.stream.reconfigure(encoding='utf-8', errors='replace')
+	stream = console_handler.stream
+	if hasattr(stream, 'reconfigure'):
+		# Pyright sees TextIO; the runtime check above guards the call.
+		stream.reconfigure(encoding='utf-8', errors='replace')  # type: ignore[union-attr]
 	root_logger.addHandler(console_handler)
 
 	error_handler = WarningFileHandler(config.config_dir / 'errors.log')

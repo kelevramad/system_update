@@ -1,80 +1,48 @@
-"""Scan Winget-managed packages via ``winget list``."""
+"""Scan Winget-managed packages via ``winget list``.
+
+Hardening 2.2.2 — parsing delegated to :mod:`_winget_table`, which
+locates columns from the dashed separator winget always emits below
+the header. That makes it locale-agnostic (pt-BR ``Nome / ID / Versão
+/ Origem`` and de-DE ``Name / ID / Version / Quelle`` parse the same
+as en-US) and tolerant of long names abutting the next column.
+"""
 
 from __future__ import annotations
 
-import re
 from typing import List
 
 from system_update.models import AppInfo, UpdateStatus
+from system_update.scanners._winget_table import (
+	parse_winget_json,
+	parse_winget_table,
+)
 from system_update.utils import run_command
 
 
 def scan() -> List[AppInfo]:
-	"""Parse ``winget list`` tabular output into :class:`AppInfo` records."""
+	"""Parse ``winget list`` output into :class:`AppInfo` records."""
 	apps: List[AppInfo] = []
 	output = run_command(['winget', 'list', '--accept-source-agreements'], allow_failure=True)
 	if not output:
 		return apps
 
-	lines = output.splitlines()
-	header_index = next(
-		(
-			i
-			for i, line in enumerate(lines)
-			if 'Name' in line and 'Id' in line and 'Version' in line
-		),
-		-1,
-	)
-	if header_index == -1:
-		return apps
-
-	header = lines[header_index]
-	name_match = re.search(r'Name\s+Id', header)
-	if name_match:
-		header = header[name_match.start() :]
-
-	positions = {
-		'name': 0,
-		'id': header.find('Id'),
-		'version': header.find('Version'),
-		'available': header.find('Available'),
-		'source': header.find('Source'),
-	}
-
-	for line in lines[header_index + 2 :]:
-		if not line.strip():
+	# Try the JSON path first (winget ≥ 1.7); fall back to the
+	# whitespace-separator parser for older versions and anything
+	# that happens to emit table output.
+	rows = parse_winget_json(output) or parse_winget_table(output)
+	for row in rows:
+		name = row.get('name', '').strip()
+		app_id = row.get('id', '').strip()
+		version = row.get('version', '').strip()
+		if not name or not app_id or not version:
 			continue
-		try:
-			name = line[0 : max(positions['id'], 0)].strip()
-			app_id = (
-				line[positions['id'] : positions['version']].strip()
-				if positions['version'] > 0
-				else ''
+		apps.append(
+			AppInfo(
+				name=name,
+				source='Winget',
+				version=version,
+				app_id=app_id,
+				update_status=UpdateStatus.UNKNOWN,
 			)
-			version_end = (
-				positions['available']
-				if positions['available'] != -1
-				else positions['source']
-				if positions['source'] != -1
-				else len(line)
-			)
-			version = (
-				line[positions['version'] : version_end].strip()
-				if positions['version'] != -1
-				else ''
-			)
-			if not name or not app_id or not version:
-				continue
-			apps.append(
-				AppInfo(
-					name=name,
-					source='Winget',
-					version=version,
-					app_id=app_id,
-					update_status=UpdateStatus.UNKNOWN,
-				)
-			)
-		except Exception:
-			continue
-
+		)
 	return apps

@@ -91,11 +91,14 @@ def check(apps: List[AppInfo]) -> List[Dict]:
 	except Exception:
 		return vulns
 
+	# Index once instead of an O(N·M) `next(...)` scan per advisory.
+	pip_index: Dict[str, AppInfo] = {a.name.lower(): a for a in pip_apps}
+
 	for dep in data.get('dependencies', []):
 		pkg_name = dep.get('name', '')
 		if not pkg_name:
 			continue
-		app = next((a for a in pip_apps if a.name.lower() == pkg_name.lower()), None)
+		app = pip_index.get(pkg_name.lower())
 		if not app:
 			continue
 
