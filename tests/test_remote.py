@@ -568,6 +568,51 @@ def test_aggregate_scans_empty_input():
 	assert report['package_index'] == []
 
 
+# ─── Hardening 5.2 — aggregate_scans malformed payloads ─────────────────
+
+
+def test_aggregate_scans_mixed_valid_and_malformed_payload():
+	"""Valid host contributes packages; malformed host surfaces in errors."""
+	results = [
+		RemoteResult(
+			host='ok',
+			ok=True,
+			parsed={'packages': [_sample_pkg('git', version='1.0')]},
+		),
+		# ``ok=True`` but ``parsed`` is None (e.g. JSON decode failed upstream).
+		RemoteResult(host='bad', ok=True, parsed=None, stderr='malformed json'),
+	]
+	report = aggregate_scans(results)
+	assert report['host_count'] == 1
+	assert report['error_count'] == 1
+	assert report['errors'][0]['host'] == 'bad'
+	assert report['package_index'][0]['name'] == 'git'
+
+
+def test_aggregate_scans_all_hosts_malformed_returns_zero_total():
+	"""Every host malformed → empty totals, no exception, errors populated."""
+	results = [
+		RemoteResult(host='a', ok=True, parsed=None, stderr='not json'),
+		RemoteResult(host='b', ok=False, exit_code=1, stderr='connection lost'),
+	]
+	report = aggregate_scans(results)
+	assert report['host_count'] == 0
+	assert report['error_count'] == 2
+	assert report['package_index'] == []
+	assert {e['host'] for e in report['errors']} == {'a', 'b'}
+
+
+def test_aggregate_scans_skips_non_dict_package_entries():
+	"""Garbage entries inside ``packages`` must not blow up the aggregator."""
+	from typing import Any, cast
+
+	parsed: Any = cast(Any, {'packages': [_sample_pkg('git'), 'not a dict', 42, None]})
+	results = [RemoteResult(host='a', ok=True, parsed=parsed)]
+	report = aggregate_scans(results)
+	assert report['package_index'][0]['name'] == 'git'
+	assert len(report['package_index']) == 1
+
+
 def test_validate_remote_scan_payload_accepts_apps_shape():
 	payload = validate_remote_scan_payload({
 		'apps': [_sample_pkg('git')],

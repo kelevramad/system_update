@@ -480,3 +480,55 @@ def test_system_config_validate_settings():
 	cfg.settings = cfg._get_default_settings()
 	result = cfg._validate_config()
 	assert result is None or isinstance(result, list)
+
+
+# ─── Hardening 5.2 — _apply_smart_sources_filtering ──────────────────────
+
+
+def test_smart_sources_filtering_whitelist_disables_unlisted():
+	"""Listing one source in the user config disables every other source."""
+	cfg = SystemConfig()
+	cfg.settings = cfg._get_default_settings()
+	cfg._apply_smart_sources_filtering({'sources': {'winget': True}})
+	assert cfg.settings['sources']['winget'] is True
+	assert cfg.settings['sources']['npm'] is False
+	assert cfg.settings['sources']['pip'] is False
+
+
+def test_smart_sources_filtering_choco_alias_normalized():
+	"""``choco`` in the user file is renamed to the canonical ``chocolatey`` key."""
+	cfg = SystemConfig()
+	cfg.settings = cfg._get_default_settings()
+	user_sources: dict = {'choco': True}
+	cfg._apply_smart_sources_filtering({'sources': user_sources})
+	assert 'choco' not in user_sources
+	assert user_sources['chocolatey'] is True
+	assert cfg.settings['sources']['npm'] is False
+
+
+def test_smart_sources_filtering_no_explicit_true_leaves_defaults():
+	"""When the user only disables sources, the whitelist trigger is not armed."""
+	cfg = SystemConfig()
+	cfg.settings = cfg._get_default_settings()
+	before = dict(cfg.settings['sources'])
+	cfg._apply_smart_sources_filtering({'sources': {'winget': False}})
+	for src, value in before.items():
+		if src == 'winget':
+			continue
+		assert cfg.settings['sources'][src] == value
+
+
+def test_smart_sources_filtering_no_sources_block_is_no_op():
+	cfg = SystemConfig()
+	cfg.settings = cfg._get_default_settings()
+	before = dict(cfg.settings['sources'])
+	cfg._apply_smart_sources_filtering({})
+	assert cfg.settings['sources'] == before
+
+
+def test_smart_sources_filtering_unknown_source_does_not_create_key():
+	"""Unknown source names from user config must not leak into the canonical map."""
+	cfg = SystemConfig()
+	cfg.settings = cfg._get_default_settings()
+	cfg._apply_smart_sources_filtering({'sources': {'winget': True, 'fake-src': True}})
+	assert 'fake-src' not in cfg.settings['sources']

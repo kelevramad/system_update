@@ -272,6 +272,57 @@ def test_cache_memoization_invalidates_on_external_mtime_change(tmp_path):
 	assert calls['n'] == 1, 'mtime change must invalidate the memo'
 
 
+# ─── Hardening 5.2 — cache.is_source_valid coverage ──────────────────────
+
+
+def test_is_source_valid_returns_true_for_fresh_entry(tmp_path):
+	cache = CacheManager(tmp_path / 'cache.json', duration_hours=2)
+	cache.save(
+		[AppInfo(name='Git', source='winget', version='1.0')],
+		refreshed_sources={'winget'},
+	)
+	assert cache.is_source_valid('winget') is True
+
+
+def test_is_source_valid_returns_false_for_expired_entry(tmp_path):
+	cache_file = tmp_path / 'cache.json'
+	cache = CacheManager(cache_file, duration_hours=2)
+	cache.save(
+		[AppInfo(name='Git', source='winget', version='1.0')],
+		refreshed_sources={'winget'},
+	)
+
+	data = json.loads(cache_file.read_text(encoding='utf-8'))
+	old = (datetime.now() - timedelta(hours=5)).isoformat()
+	data['source_metadata']['winget']['timestamp'] = old
+	cache_file.write_text(json.dumps(data), encoding='utf-8')
+
+	# Force a fresh read past the mtime-memoized payload.
+	cache._raw_cache = None
+	cache._raw_cache_mtime = None
+	assert cache.is_source_valid('winget') is False
+
+
+def test_is_source_valid_falls_back_to_cache_level_timestamp_for_absent_source(tmp_path):
+	"""When a source has no per-source metadata, the cache-level timestamp
+	is consulted instead. ``stale_sources`` separately checks that the
+	source is actually present in ``data['sources']``."""
+	cache = CacheManager(tmp_path / 'cache.json', duration_hours=2)
+	cache.save(
+		[AppInfo(name='Git', source='winget', version='1.0')],
+		refreshed_sources={'winget'},
+	)
+	assert cache.is_source_valid('npm') is True
+	# But ``stale_sources`` still flags 'npm' because it isn't in the cache.
+	assert 'npm' in cache.stale_sources({'npm'})
+
+
+def test_is_source_valid_returns_false_when_cache_missing(tmp_path):
+	cache = CacheManager(tmp_path / 'cache.json', duration_hours=2)
+	# No save() — file does not exist.
+	assert cache.is_source_valid('winget') is False
+
+
 def test_cache_memoization_invalidates_after_write(tmp_path):
 	"""Writing through the cache must drop the memo so readers see fresh data."""
 	cache = CacheManager(tmp_path / 'cache.json')
