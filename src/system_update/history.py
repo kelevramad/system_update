@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from datetime import datetime, timedelta
+import threading
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from system_update.config import data_dir
 from system_update.models import AppInfo
 
 logger = logging.getLogger(__name__)
@@ -25,23 +25,79 @@ class HistoryDatabase:
 	"""
 
 	def __init__(self, db_path: Optional[Path] = None, connect: bool = True) -> None:
+		from system_update.utils import data_dir
+
 		self.db_path = db_path or (data_dir() / 'history.db')
-		self.conn: Optional[sqlite3.Connection] = None
+		# Hardening 2.1.1 — sqlite3.Connection is not thread-safe. Use
+		# threading.local so every worker thread gets its own connection
+		# (the underlying file is shared via WAL).
+		self._tls = threading.local()
+		self._schema_initialized = False
+		self._schema_lock = threading.Lock()
+		# Track every Connection we hand out so close() can drain them
+		# from the main thread regardless of which thread opened them.
+		# Without this, ResourceWarning "unclosed database" fires on GC.
+		self._all_conns: List[sqlite3.Connection] = []
+		self._all_conns_lock = threading.Lock()
 		if connect:
 			self._connect()
 
 	def _connect(self) -> None:
 		"""Open the SQLite connection and ensure schema exists."""
-		if self.conn is not None:
+		from system_update.utils import harden_existing_file
+
+		conn = getattr(self._tls, 'conn', None)
+		if conn is not None:
 			return
 		self.db_path.parent.mkdir(exist_ok=True)
-		self.conn = sqlite3.connect(str(self.db_path))
-		self.conn.row_factory = sqlite3.Row
-		self._create_schema()
+		# check_same_thread=False so close() can be called from a thread
+		# other than the opening one (test fixtures, __del__ from main).
+		# We still hold one Connection per thread (threading.local) for
+		# safety; the flag only relaxes the close() restriction.
+		conn = sqlite3.connect(str(self.db_path), check_same_thread=False, timeout=30)
+		conn.row_factory = sqlite3.Row
+		conn.execute('PRAGMA busy_timeout=30000')
+		conn.execute('PRAGMA synchronous=NORMAL')
+		conn.execute('PRAGMA foreign_keys=ON')
+		self._tls.conn = conn
+		with self._all_conns_lock:
+			self._all_conns.append(conn)
 
-	def _create_schema(self) -> None:
+		# Schema is created exactly once per process; subsequent threads
+		# skip it (CREATE TABLE IF NOT EXISTS is idempotent but skipping
+		# avoids an extra round-trip on every new thread).
+		with self._schema_lock:
+			if not self._schema_initialized:
+				conn.execute('PRAGMA journal_mode=WAL')
+				self._create_schema(conn)
+				self._schema_initialized = True
+				# Hardening 1.4.1 — restrict the db file to the user.
+				harden_existing_file(self.db_path)
+
+	@property
+	def conn(self) -> sqlite3.Connection:
+		"""Per-thread lazy-connecting accessor.
+
+		Each thread gets its own ``sqlite3.Connection`` via
+		``threading.local``; the underlying database file is shared
+		(WAL journal mode allows concurrent readers + one writer).
+		"""
+		conn = getattr(self._tls, 'conn', None)
+		if conn is None:
+			self._connect()
+			conn = self._tls.conn
+		return conn
+
+	@property
+	def _conn(self) -> Optional[sqlite3.Connection]:
+		"""Back-compat accessor — tests inspect ``hd._conn`` to check
+		whether the current thread has connected. Returns ``None`` if
+		not yet connected, the live ``Connection`` otherwise."""
+		return getattr(self._tls, 'conn', None)
+
+	def _create_schema(self, conn: sqlite3.Connection) -> None:
 		"""Create tables and indexes if they don't already exist."""
-		self.conn.executescript("""
+		conn.executescript("""
 			CREATE TABLE IF NOT EXISTS scans (
 				id TEXT PRIMARY KEY,
 				timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -77,11 +133,15 @@ class HistoryDatabase:
 
 			CREATE INDEX IF NOT EXISTS idx_version_name ON version_history(package_name, source);
 		""")
-		self.conn.commit()
+		conn.commit()
 
 	def _ensure_connection(self) -> None:
-		"""Lazy-open the database connection if needed."""
-		if self.conn is None:
+		"""Lazy-open the database connection if needed.
+
+		Kept for backward compatibility — accessing ``self.conn`` already
+		triggers the lazy connect via the property.
+		"""
+		if self._conn is None:
 			self._connect()
 
 	def record_scan(
@@ -208,10 +268,26 @@ class HistoryDatabase:
 		return {row['source']: row['count'] for row in cursor.fetchall()}
 
 	def close(self) -> None:
-		"""Close the database connection if open."""
-		if self.conn:
-			self.conn.close()
-			self.conn = None
+		"""Close every Connection this instance has opened, across threads.
+
+		Connections are per-thread (threading.local), but ``close()``
+		drains the bookkeeping list so a single call from any thread
+		(typically the test fixture / main thread at shutdown) releases
+		all of them. Without this, ``threading.local`` would hold the
+		Connection until each opening thread terminates, producing
+		``ResourceWarning: unclosed database`` under GC.
+		"""
+		with self._all_conns_lock:
+			for conn in self._all_conns:
+				try:
+					conn.close()
+				except Exception:
+					pass
+			self._all_conns.clear()
+		# Drop the current thread's TLS reference so a subsequent call
+		# on this instance reopens a fresh connection.
+		if hasattr(self._tls, 'conn'):
+			self._tls.conn = None
 
 	def __enter__(self) -> 'HistoryDatabase':
 		return self
@@ -220,9 +296,21 @@ class HistoryDatabase:
 		self.close()
 
 	def __del__(self) -> None:
-		"""Best-effort connection close on garbage collection."""
+		"""Best-effort connection close on garbage collection.
+
+		Closes every Connection without taking the lock — the object is
+		being GC'd, no other thread will ever touch it. Avoids the
+		``ResourceWarning: unclosed database`` that fires if any per-
+		thread connection is still open when the parent object dies.
+		"""
 		try:
-			self.close()
+			conns = getattr(self, '_all_conns', None) or []
+			for conn in conns:
+				try:
+					conn.close()
+				except Exception:
+					pass
+			conns.clear() if isinstance(conns, list) else None
 		except Exception:
 			pass
 
@@ -236,6 +324,8 @@ class VulnerabilityHistory:
 	"""JSON-file log of discovered vulnerabilities with open/resolved status."""
 
 	def __init__(self, history_file: Optional[Path] = None) -> None:
+		from system_update.utils import data_dir
+
 		self.history_file = history_file or (data_dir() / 'vulnerability_history.json')
 		self.history: List[Dict] = []
 		self._load()
@@ -274,9 +364,12 @@ class VulnerabilityHistory:
 	def _save(self) -> None:
 		"""Write the current history list to disk."""
 		try:
-			self.history_file.parent.mkdir(exist_ok=True)
-			with open(self.history_file, 'w', encoding='utf-8') as f:
-				json.dump(self.history, f, indent=2, default=str)
+			from system_update.utils import secure_write
+
+			secure_write(
+				self.history_file,
+				json.dumps(self.history, indent=2, default=str),
+			)
 		except Exception as e:
 			logger.error(f'Failed to save vulnerability history: {e}')
 
@@ -375,11 +468,15 @@ class VulnerabilityHistory:
 
 	def get_vulnerability_trends(self, days: int = 30) -> Dict[str, int]:
 		"""Return a mapping of ``YYYY-MM-DD`` → new-vuln count for the last ``days``."""
-		cutoff = datetime.now() - timedelta(days=days)
+		from system_update.utils import parse_iso_utc
+
+		# Hardening 2.2.3 — both sides timezone-aware so the < comparison
+		# doesn't silently raise (and get swallowed by the bare except).
+		cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 		trends: Dict[str, int] = {}
 		for record in self.history:
 			try:
-				ts = datetime.fromisoformat(record.get('timestamp', '').replace('Z', '+00:00'))
+				ts = parse_iso_utc(record.get('timestamp', ''))
 				if ts < cutoff:
 					continue
 				date_str = ts.strftime('%Y-%m-%d')

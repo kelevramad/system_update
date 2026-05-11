@@ -535,7 +535,7 @@ def test_app_run_dry_run(mock_record, mock_print, mock_check, mock_scan):
 	args.dry_run = True
 	args.package = None
 	args.update_source = None
-	args.yes = False
+	args.yes = True
 	args.history = False
 	args.history_package = None
 	args.history_trends = False
@@ -564,7 +564,7 @@ def test_app_run_specific_package(mock_record, mock_print, mock_check, mock_scan
 	args.dry_run = False
 	args.package = 'Git'
 	args.update_source = None
-	args.yes = False
+	args.yes = True
 	args.history = False
 	args.history_package = None
 	args.history_trends = False
@@ -597,7 +597,7 @@ def test_app_run_update_source(
 	args.dry_run = False
 	args.package = None
 	args.update_source = 'winget'
-	args.yes = False
+	args.yes = True
 	args.history = False
 	args.history_package = None
 	args.history_trends = False

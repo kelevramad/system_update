@@ -12,16 +12,98 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from system_update.config import data_dir
+from system_update.utils import data_dir
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CACHE_FILE = data_dir() / 'api_cache.json'
 _CACHE_VERSION = '1.0'
 _LOCK = threading.RLock()
-_LAST_REQUEST_BY_HOST: Dict[str, float] = {}
 _RESPONSE_CACHE: Dict[str, Dict[str, Any]] = {}
+
+# Hardening 2.1.2 — per-host rate limiter.
+#
+# The previous implementation held a process-global RLock for the entire
+# duration of `time.sleep(wait)`, which serialized every HTTP call across
+# every host through one queue and defeated the worker pool. Each host
+# now gets its own small lock plus a "next allowed" timestamp; we
+# *reserve* the slot inside the per-host lock and then sleep outside it,
+# so threads targeting different hosts run in parallel.
+_HOST_LIMITERS_LOCK = threading.Lock()
+_HOST_LIMITERS: Dict[str, '_HostLimiter'] = {}
+
+
+class _HostLimiter:
+	"""Per-host rate-limit state. Lock serializes only the timestamp swap."""
+
+	__slots__ = ('lock', 'next_allowed')
+
+	def __init__(self) -> None:
+		self.lock = threading.Lock()
+		self.next_allowed: float = 0.0
+
+
+def _get_host_limiter(host: str) -> _HostLimiter:
+	"""Return the per-host limiter, creating it on first use."""
+	# Fast path — already registered.
+	limiter = _HOST_LIMITERS.get(host)
+	if limiter is not None:
+		return limiter
+	with _HOST_LIMITERS_LOCK:
+		# Double-checked pattern: another thread may have raced us.
+		limiter = _HOST_LIMITERS.get(host)
+		if limiter is None:
+			limiter = _HostLimiter()
+			_HOST_LIMITERS[host] = limiter
+		return limiter
 _CACHE_LOADED = False
+
+# Hardening 1.3.1 — only HTTP/HTTPS schemes are allowed. ``urllib`` will
+# happily open ``file://`` and ``ftp://`` URLs by default, which means a
+# user-supplied or config-supplied URL pointing at e.g. a local file
+# would be silently fetched and treated as an API response. Restrict at
+# two layers: validate the scheme up front *and* build a custom opener
+# that has no FileHandler / FTPHandler installed, so even a 30x redirect
+# to ``file://`` cannot escape the allowlist.
+_ALLOWED_SCHEMES = frozenset({'http', 'https'})
+
+
+def _build_safe_opener() -> 'urllib.request.OpenerDirector':
+	"""Custom OpenerDirector that only knows how to handle HTTP/HTTPS."""
+	opener = urllib.request.OpenerDirector()
+	opener.add_handler(urllib.request.HTTPHandler())
+	opener.add_handler(urllib.request.HTTPSHandler())
+	opener.add_handler(urllib.request.HTTPDefaultErrorHandler())
+	opener.add_handler(urllib.request.HTTPRedirectHandler())
+	opener.add_handler(urllib.request.HTTPErrorProcessor())
+	# Note: no FileHandler, no FTPHandler, no DataHandler.
+	return opener
+
+
+_SAFE_OPENER = _build_safe_opener()
+
+
+class UnsafeUrlError(ValueError):
+	"""Raised when a URL's scheme falls outside the allowlist."""
+
+
+def _validate_url(url: str) -> None:
+	"""Refuse non-HTTP(S) URLs before any network call.
+
+	Hardening 1.3.1: ``urllib.request.urlopen`` accepts ``file://`` /
+	``ftp://`` / ``data:`` schemes, which would let a hostile or
+	misconfigured URL coerce the CLI into reading local files or talking
+	to internal services. Reject anything that isn't ``http``/``https``
+	with an empty netloc.
+	"""
+	parsed = urllib.parse.urlparse(url)
+	scheme = (parsed.scheme or '').lower()
+	if scheme not in _ALLOWED_SCHEMES:
+		raise UnsafeUrlError(
+			f'Refusing non-HTTP URL (scheme={scheme!r}): only http/https are allowed'
+		)
+	if not parsed.netloc:
+		raise UnsafeUrlError(f'Refusing URL with no host: {url!r}')
 
 _SETTINGS = {
 	'enabled': True,
@@ -68,6 +150,7 @@ def fetch_json(
 	method = method.upper()
 	if not _SETTINGS.get('enabled', True):
 		raise RuntimeError('Network access is disabled by configuration')
+	_validate_url(url)
 	body = None
 	if payload is not None:
 		body = json.dumps(payload, sort_keys=True).encode('utf-8')
@@ -90,7 +173,8 @@ def fetch_json(
 
 	req = urllib.request.Request(url, data=body, method=method, headers=request_headers)
 	request_timeout = _positive_number(timeout, _SETTINGS['timeout_seconds'])
-	with urllib.request.urlopen(req, timeout=request_timeout) as response:
+	# Use the http-only opener so a 30x redirect to file:// is refused too.
+	with _SAFE_OPENER.open(req, timeout=request_timeout) as response:
 		data = json.loads(response.read().decode('utf-8'))
 
 	if use_cache and _SETTINGS['cache_enabled']:
@@ -130,15 +214,33 @@ def _cache_key(method: str, url: str, body: bytes | None) -> str:
 
 
 def _rate_limit(host: str) -> None:
+	"""Per-host rate limiter — sleep happens outside the lock.
+
+	1. Acquire the per-host lock briefly to compute ``wait`` and reserve
+	   the next slot (``next_allowed = now + wait``).
+	2. Release the lock.
+	3. Sleep for ``wait`` seconds.
+
+	Threads hitting *different* hosts contend on neither lock and run
+	in parallel. Threads hitting the *same* host still serialize on the
+	per-host slot reservation, but the slow ``time.sleep`` happens
+	without holding the lock so the next caller can already update the
+	reservation while the current one is waiting.
+	"""
 	delay = float(_SETTINGS.get('rate_limit_seconds') or 0)
 	if not host or delay <= 0:
 		return
-	with _LOCK:
+	limiter = _get_host_limiter(host)
+	with limiter.lock:
 		now = time.monotonic()
-		wait = delay - (now - _LAST_REQUEST_BY_HOST.get(host, 0.0))
-		if wait > 0:
-			time.sleep(wait)
-		_LAST_REQUEST_BY_HOST[host] = time.monotonic()
+		wait = limiter.next_allowed - now
+		if wait < 0:
+			wait = 0.0
+		# Reserve the slot before releasing the lock so concurrent callers
+		# stack up rather than dogpiling the same wakeup time.
+		limiter.next_allowed = now + max(wait, 0.0) + delay
+	if wait > 0:
+		time.sleep(wait)
 
 
 def _cache_get(key: str, ttl: float) -> Any:
@@ -178,10 +280,12 @@ def _load_cache() -> None:
 
 
 def _save_cache_locked() -> None:
+	from system_update.utils import secure_write
+
 	cache_file = Path(_SETTINGS['cache_file'])
 	try:
-		cache_file.parent.mkdir(parents=True, exist_ok=True)
-		cache_file.write_text(
+		secure_write(
+			cache_file,
 			json.dumps(
 				{
 					'version': _CACHE_VERSION,
@@ -190,7 +294,6 @@ def _save_cache_locked() -> None:
 				},
 				indent=2,
 			),
-			encoding='utf-8',
 		)
 	except OSError:
 		logger.debug('Failed to write API response cache', exc_info=True)
@@ -210,4 +313,7 @@ def _reset_cache_locked() -> None:
 	global _CACHE_LOADED
 	_CACHE_LOADED = False
 	_RESPONSE_CACHE.clear()
-	_LAST_REQUEST_BY_HOST.clear()
+	# Drop per-host limiters so the next configure_network() call starts
+	# from a clean slate (used in tests via configure_network()).
+	with _HOST_LIMITERS_LOCK:
+		_HOST_LIMITERS.clear()

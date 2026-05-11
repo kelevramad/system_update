@@ -6,7 +6,7 @@ Every name listed in ``__all__`` is importable directly from :mod:`system_update
 
 from system_update import dependency_graph, export
 from system_update.cache import CacheManager
-from system_update.config import SystemConfig, WarningFileHandler, data_dir, setup_logging
+from system_update.config import SystemConfig, WarningFileHandler, setup_logging
 from system_update.history import HistoryDatabase, VulnerabilityHistory
 from system_update.models import (
 	AppInfo,
@@ -38,6 +38,7 @@ from system_update.utils import (
 	SOURCE_ICONS,
 	THEMES,
 	console,
+	data_dir,
 	dedupe_apps,
 	display_source,
 	run_command,
