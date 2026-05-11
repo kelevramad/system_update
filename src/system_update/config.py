@@ -15,6 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from system_update.utils import data_dir
+
 
 class SystemConfig:
 	"""JSON/YAML-backed configuration with env var overrides and profiles.
@@ -26,8 +28,6 @@ class SystemConfig:
 	"""
 
 	def __init__(self, profile_name: Optional[str] = None) -> None:
-		from system_update.utils import data_dir
-
 		# Hardening 1.4.2 — single accessor honors SYSTEM_UPDATE_HOME
 		# and creates the dir with mode 0o700 on POSIX.
 		self.config_dir = data_dir()

@@ -2,6 +2,7 @@ import pytest
 import json
 from unittest.mock import patch
 from system_update import PackageScanner
+from system_update.scanners import get_scanner_map, scanner
 
 _SCANNER_MOCKS = {
 	'winget': 'Git                            Git.Git  2.40.0  2.41.0  winget',
@@ -22,6 +23,30 @@ _SCANNER_MOCKS = {
 	'yarn': json.dumps([{'name': 'test', 'version': '1.0.0'}]),
 	'pip': json.dumps([{'name': 'requests', 'version': '2.28.1'}]),
 }
+
+
+def test_scanner_decorator_registers_callable():
+	def demo_scan():
+		return []
+
+	registered = scanner('demo-unit')(demo_scan)
+	try:
+		assert registered is demo_scan
+		assert get_scanner_map()['demo-unit'] is demo_scan
+	finally:
+		from system_update.scanners import _SCANNERS
+
+		_SCANNERS.pop('demo-unit', None)
+
+
+def test_get_scanner_map_returns_defensive_copy():
+	scanners = get_scanner_map()
+	scanners.pop('winget')
+	assert 'winget' in get_scanner_map()
+
+
+def test_all_builtin_sources_are_registered():
+	assert set(_SCANNER_MOCKS) <= set(get_scanner_map())
 
 
 @pytest.mark.parametrize('source', list(_SCANNER_MOCKS.keys()))

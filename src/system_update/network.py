@@ -12,9 +12,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from system_update.utils import data_dir
+
 logger = logging.getLogger(__name__)
 
-_DEFAULT_CACHE_FILE = Path.home() / '.system_update' / 'api_cache.json'
+_DEFAULT_CACHE_FILE = data_dir() / 'api_cache.json'
 _CACHE_VERSION = '1.0'
 _LOCK = threading.RLock()
 _RESPONSE_CACHE: Dict[str, Dict[str, Any]] = {}
