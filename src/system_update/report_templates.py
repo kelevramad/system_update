@@ -424,3 +424,87 @@ def render_html(
 	except Exception as e:
 		logger.error(f'Template render failed ({e}); falling back to default.')
 		return DEFAULT_HTML_TEMPLATE.format_map(_SafeDict(ctx))
+
+
+def render_history_html(
+        scans: List[Dict],
+        trends: Dict,
+        stale: List[Dict],
+        vuln_stats: Dict,
+        generated: str,
+        branding,
+) -> str:
+    """Build a self-contained HTML history report."""
+
+    def _esc(text) -> str:
+        return (
+            str(text)
+            .replace('&', '&amp;')
+            .replace('<', '&lt;')
+            .replace('>', '&gt;')
+            .replace('"', '&quot;')
+        )
+
+    scan_rows = '\n'.join(
+        f'<tr><td>{_esc(s.get("timestamp", ""))}</td>'
+        f'<td>{_esc(display_source(str(s.get("source", "-"))))}</td>'
+        f'<td>{s.get("package_count", 0)}</td>'
+        f'<td>{s.get("update_count", 0)}</td>'
+        f'<td>{s.get("vulnerability_count", 0)}</td></tr>'
+        for s in scans[:50]
+    )
+    trend_rows = '\n'.join(
+        f'<tr><td>{_esc(display_source(str(r.get("source", "-"))))}</td>'
+        f'<td>{r.get("total_scans", 0)}</td>'
+        f'<td>{r.get("total_packages", 0) or 0}</td>'
+        f'<td>{r.get("total_updates", 0) or 0}</td></tr>'
+        for r in (trends.get('source_stats') or [])
+    )
+    stale_rows = '\n'.join(
+        f'<tr><td>{_esc(r.get("package_name", ""))}</td>'
+        f'<td>{_esc(display_source(str(r.get("source", "-"))))}</td>'
+        f'<td>{_esc(r.get("last_seen", ""))}</td></tr>'
+        for r in stale[:100]
+    )
+    return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<title>{_esc(branding.title)} — History — {_esc(generated)}</title>
+<style>
+body {{ font-family: -apple-system, "Segoe UI", sans-serif; max-width: 1100px; margin: 0 auto; padding: 20px; background: {branding.background_color}; color: {branding.accent_color}; }}
+h1, h2 {{ color: {branding.primary_color}; }}
+table {{ width: 100%; border-collapse: collapse; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.08); margin: 12px 0 24px; border-radius: 8px; overflow: hidden; }}
+th {{ background: {branding.primary_color}; color: white; padding: 10px; text-align: left; }}
+td {{ padding: 8px 10px; border-bottom: 1px solid #eee; }}
+.kpi {{ display: inline-block; margin-right: 18px; padding: 8px 14px; border-radius: 8px; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }}
+.kpi b {{ color: {branding.primary_color}; }}
+.footer {{ margin-top: 30px; color: #666; font-size: 12px; text-align: center; }}
+</style></head><body>
+<h1>📚 History Report</h1>
+<p><strong>Generated:</strong> {_esc(generated)}</p>
+
+<h2>🛡️ Vulnerabilities</h2>
+<div>
+  <span class="kpi"><b>{vuln_stats.get('total_vulnerabilities', 0)}</b> total</span>
+  <span class="kpi"><b>{vuln_stats.get('open_vulnerabilities', 0)}</b> open</span>
+  <span class="kpi"><b>{vuln_stats.get('resolved_vulnerabilities', 0)}</b> resolved</span>
+  <span class="kpi"><b>{vuln_stats.get('critical_count', 0)}</b> critical</span>
+  <span class="kpi"><b>{vuln_stats.get('high_count', 0)}</b> high</span>
+  <span class="kpi"><b>{vuln_stats.get('packages_affected', 0)}</b> packages affected</span>
+  <span class="kpi"><b>{vuln_stats.get('persistent_vulnerabilities', 0)}</b> persistent</span>
+</div>
+
+<h2>📈 Trends — last {trends.get('period_days', 30)} day(s)</h2>
+<p>Unique packages tracked: <b>{trends.get('unique_packages', 0)}</b></p>
+<table><thead><tr><th>Source</th><th>Scans</th><th>Packages</th><th>Updates</th></tr></thead>
+<tbody>{trend_rows or '<tr><td colspan="4">No data.</td></tr>'}</tbody></table>
+
+<h2>🕰️ Stale packages (>90d)</h2>
+<table><thead><tr><th>Package</th><th>Source</th><th>Last seen</th></tr></thead>
+<tbody>{stale_rows or '<tr><td colspan="3">None.</td></tr>'}</tbody></table>
+
+<h2>📜 Recent scans</h2>
+<table><thead><tr><th>Timestamp</th><th>Source</th><th>Pkgs</th><th>Updates</th><th>Vulns</th></tr></thead>
+<tbody>{scan_rows or '<tr><td colspan="5">No scans recorded.</td></tr>'}</tbody></table>
+
+<div class="footer"><p>{_esc(branding.footer_text)}</p></div>
+</body></html>"""

@@ -3,6 +3,7 @@ import sys
 import subprocess
 import tempfile
 import functools
+from pathlib import Path
 
 from system_update import AppInfo, UpdateStatus, export
 
@@ -104,3 +105,18 @@ def test_exports_render_sources_lowercase(tmp_path):
 		content = out.read_text(encoding='utf-8')
 		assert 'pip' in content
 		assert 'PIP' not in content
+
+
+def test_xml_export_module_is_generation_only():
+	"""Hardening 1.5.1: no untrusted XML input is parsed by export.py."""
+	source = Path(export.__file__).read_text(encoding='utf-8')
+	for forbidden in (
+		'xml.etree',
+		'xml.dom',
+		'xml.sax',
+		'minidom',
+		'fromstring',
+		'ElementTree',
+	):
+		assert forbidden not in source
+	assert 'XML is generation-only' in source

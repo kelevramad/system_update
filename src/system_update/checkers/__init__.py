@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Mapping, Optional
 
 from system_update.ui.progress import make_progress
 
@@ -51,7 +51,7 @@ _CHECKED_SOURCES = frozenset(
 	}
 )
 
-_SOURCE_CHECKERS = {
+_SOURCE_CHECKERS: Dict[str, Callable[[List[AppInfo]], object]] = {
 	'winget': winget.check,
 	'chocolatey': chocolatey.check,
 	'npm': npm.check,
@@ -75,7 +75,7 @@ _SOURCE_CHECKERS = {
 
 def _group_by_source(
 	apps: List[AppInfo],
-	source_checkers: Dict[str, Callable[[List[AppInfo]], object]],
+	source_checkers: Mapping[str, Callable[[List[AppInfo]], object]],
 ) -> Dict[str, List[AppInfo]]:
 	groups: Dict[str, List[AppInfo]] = {source: [] for source in source_checkers}
 	for app in apps:
@@ -121,7 +121,7 @@ def _reconcile_final_status(apps: List[AppInfo], checked_sources: set[str]) -> N
 def _check_source(
 	source: str,
 	source_apps: List[AppInfo],
-	source_checkers: Dict[str, Callable[[List[AppInfo]], object]],
+	source_checkers: Mapping[str, Callable[[List[AppInfo]], object]],
 ) -> tuple[int, int]:
 	checker = source_checkers.get(source)
 	if checker is not None:

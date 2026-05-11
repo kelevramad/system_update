@@ -267,7 +267,7 @@ def test_run_command_logs_failed_output_at_warning(mock_sub, caplog):
 def test_run_command_include_stderr(mock_sub):
 	mock_sub.return_value = MagicMock(returncode=0, stdout='stdout', stderr='stderr', text=True)
 	result = run_command(['test'], include_stderr=True)
-	assert 'stderr' in result
+	assert 'stderr' in (result or '')
 
 
 def test_cache_manager_clear(tmp_path):
@@ -307,6 +307,7 @@ def test_cache_manager_validation(tmp_path):
 	assert mgr.is_valid() is True
 
 	loaded = mgr.load()
+	assert loaded is not None
 	assert len(loaded) == 1
 	assert loaded[0].name == 'App1'
 
