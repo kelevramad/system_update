@@ -16,6 +16,12 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 
+def data_dir() -> Path:
+	"""Return the base System Update data directory."""
+	raw = os.environ.get('SYSTEM_UPDATE_HOME')
+	return Path(raw).expanduser() if raw else Path.home() / '.system_update'
+
+
 class SystemConfig:
 	"""JSON/YAML-backed configuration with env var overrides and profiles.
 
@@ -26,7 +32,7 @@ class SystemConfig:
 	"""
 
 	def __init__(self, profile_name: Optional[str] = None) -> None:
-		self.config_dir = Path.home() / '.system_update'
+		self.config_dir = data_dir()
 		self.profiles_dir = self.config_dir / 'profiles'
 		self.current_profile = profile_name
 

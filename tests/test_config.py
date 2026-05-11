@@ -342,6 +342,22 @@ def test_system_config_get_default_settings():
 	assert 'sources' in settings
 
 
+def test_data_dir_honors_system_update_home(tmp_path, monkeypatch):
+	from system_update.config import data_dir
+
+	home = tmp_path / 'custom-home'
+	monkeypatch.setenv('SYSTEM_UPDATE_HOME', str(home))
+	assert data_dir() == home
+
+
+def test_data_dir_is_stable_across_calls(tmp_path, monkeypatch):
+	from system_update.config import data_dir
+
+	home = tmp_path / 'stable-home'
+	monkeypatch.setenv('SYSTEM_UPDATE_HOME', str(home))
+	assert data_dir() == data_dir()
+
+
 def test_system_config_validate_settings():
 	from system_update import SystemConfig
 

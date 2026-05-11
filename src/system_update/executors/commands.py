@@ -8,14 +8,23 @@ module keeps builders as pure functions so they're trivially unit-testable.
 from __future__ import annotations
 
 import sys
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Literal, Optional
 
 from system_update.models import AppInfo
 
 Command = List[str]
+CommandAction = Literal['upgrade', 'rollback']
 
 
-def _winget(app: AppInfo) -> Optional[Command]:
+def _winget(action: CommandAction, app: AppInfo) -> Optional[Command]:
+	if action == 'rollback':
+		if not app.app_id or not app.latest_version:
+			return None
+		return [
+			'winget', 'install', '--id', app.app_id, '-v', app.latest_version,
+			'--accept-source-agreements', '--accept-package-agreements',
+			'--force',
+		]
 	cmd: Command = [
 		'winget', 'upgrade', '--id', app.app_id,
 		'--accept-source-agreements', '--accept-package-agreements',
@@ -25,7 +34,14 @@ def _winget(app: AppInfo) -> Optional[Command]:
 	return cmd
 
 
-def _chocolatey(app: AppInfo) -> Optional[Command]:
+def _chocolatey(action: CommandAction, app: AppInfo) -> Optional[Command]:
+	if action == 'rollback':
+		if not app.latest_version:
+			return None
+		return [
+			'choco', 'install', app.name, '--version', app.latest_version,
+			'--allow-downgrade', '-y', '-f',
+		]
 	cmd: Command = ['choco', 'upgrade', app.name, '-y']
 	if app.latest_version:
 		cmd.extend(['--version', app.latest_version])
@@ -37,19 +53,27 @@ def _spec(name: str, version: str, separator: str = '@') -> str:
 	return f'{name}{separator}{version}' if version else name
 
 
-def _npm(app: AppInfo) -> Optional[Command]:
+def _npm(action: CommandAction, app: AppInfo) -> Optional[Command]:
+	if action == 'rollback' and not app.latest_version:
+		return None
 	return ['npm', 'install', '-g', _spec(app.name, app.latest_version)]
 
 
-def _pnpm(app: AppInfo) -> Optional[Command]:
+def _pnpm(action: CommandAction, app: AppInfo) -> Optional[Command]:
+	if action == 'rollback' and not app.latest_version:
+		return None
 	return ['pnpm', 'add', '-g', _spec(app.name, app.latest_version)]
 
 
-def _bun(app: AppInfo) -> Optional[Command]:
+def _bun(action: CommandAction, app: AppInfo) -> Optional[Command]:
+	if action == 'rollback' and not app.latest_version:
+		return None
 	return ['bun', 'add', '-g', _spec(app.name, app.latest_version)]
 
 
-def _yarn(app: AppInfo) -> Optional[Command]:
+def _yarn(action: CommandAction, app: AppInfo) -> Optional[Command]:
+	if action == 'rollback' and not app.latest_version:
+		return None
 	return ['yarn', 'global', 'add', _spec(app.name, app.latest_version)]
 
 
@@ -67,7 +91,15 @@ def _pip_interpreter(app: AppInfo) -> str:
 	return sys.executable
 
 
-def _pip(app: AppInfo) -> Optional[Command]:
+def _pip(action: CommandAction, app: AppInfo) -> Optional[Command]:
+	if action == 'rollback':
+		if not app.latest_version:
+			return None
+		return [
+			_pip_interpreter(app), '-m', 'pip', 'install',
+			_spec(app.name, app.latest_version, separator='=='),
+			'--force-reinstall', '--no-deps',
+		]
 	cmd: Command = [
 		_pip_interpreter(app), '-m', 'pip', 'install',
 		_spec(app.name, app.latest_version, separator='=='),
@@ -76,15 +108,21 @@ def _pip(app: AppInfo) -> Optional[Command]:
 	return cmd
 
 
-def _rust(app: AppInfo) -> Optional[Command]:
+def _rust(action: CommandAction, app: AppInfo) -> Optional[Command]:
+	if action == 'rollback':
+		return None
 	return ['cargo', 'install-update', app.name]
 
 
-def _dotnet(app: AppInfo) -> Optional[Command]:
+def _dotnet(action: CommandAction, app: AppInfo) -> Optional[Command]:
+	if action == 'rollback':
+		return None
 	return ['dotnet', 'tool', 'update', '-g', app.name]
 
 
-def _appx(app: AppInfo) -> Optional[Command]:
+def _appx(action: CommandAction, app: AppInfo) -> Optional[Command]:
+	if action == 'rollback':
+		return None
 	if not app.app_id:
 		return None
 	return [
@@ -97,14 +135,18 @@ def _ps_single_quote(value: str) -> str:
 	return "'" + value.replace("'", "''") + "'"
 
 
-def _psmodules(app: AppInfo) -> Optional[Command]:
+def _psmodules(action: CommandAction, app: AppInfo) -> Optional[Command]:
+	if action == 'rollback':
+		return None
 	return [
 		'powershell', '-NoProfile', '-Command',
 		f'Update-Module -Name {_ps_single_quote(app.name)} -Force',
 	]
 
 
-def _vsextensions(app: AppInfo) -> Optional[Command]:
+def _vsextensions(action: CommandAction, app: AppInfo) -> Optional[Command]:
+	if action == 'rollback':
+		return None
 	return ['code', '--install-extension', app.app_id or app.name, '--force']
 
 
@@ -124,12 +166,14 @@ _PATH_UPDATERS: Dict[str, Callable[[AppInfo], Optional[Command]]] = {
 }
 
 
-def _path(app: AppInfo) -> Optional[Command]:
+def _path(action: CommandAction, app: AppInfo) -> Optional[Command]:
+	if action == 'rollback':
+		return None
 	builder = _PATH_UPDATERS.get(app.name)
 	return builder(app) if builder else None
 
 
-_BUILDERS: Dict[str, Callable[[AppInfo], Optional[Command]]] = {
+_BUILDERS: Dict[str, Callable[[CommandAction, AppInfo], Optional[Command]]] = {
 	'winget': _winget,
 	'chocolatey': _chocolatey,
 	'npm': _npm,
@@ -144,83 +188,21 @@ _BUILDERS: Dict[str, Callable[[AppInfo], Optional[Command]]] = {
 	'vsextensions': _vsextensions,
 	'path': _path,
 }
+_ROLLBACK_SOURCES = frozenset({
+	'winget',
+	'chocolatey',
+	'npm',
+	'pnpm',
+	'bun',
+	'yarn',
+	'pip',
+})
 
 
 def build_update_command(app: AppInfo) -> Optional[Command]:
 	"""Return the argv for updating ``app``, or ``None`` if unsupported."""
 	builder = _BUILDERS.get((app.source or '').lower())
-	return builder(app) if builder else None
-
-
-# ─── 6.2.2 — Rollback builders ─────────────────────────────────────────────
-#
-# A rollback is "install version X" where X is the captured pre-update
-# version. Most package managers we target accept a version argument on
-# install/upgrade; the heavy lifting is per-source argv shape.
-
-
-def _winget_rb(app: AppInfo) -> Optional[Command]:
-	if not app.app_id or not app.latest_version:
-		return None
-	return [
-		'winget', 'install', '--id', app.app_id, '-v', app.latest_version,
-		'--accept-source-agreements', '--accept-package-agreements',
-		'--force',
-	]
-
-
-def _chocolatey_rb(app: AppInfo) -> Optional[Command]:
-	if not app.latest_version:
-		return None
-	return [
-		'choco', 'install', app.name, '--version', app.latest_version,
-		'--allow-downgrade', '-y', '-f',
-	]
-
-
-def _npm_rb(app: AppInfo) -> Optional[Command]:
-	if not app.latest_version:
-		return None
-	return ['npm', 'install', '-g', f'{app.name}@{app.latest_version}']
-
-
-def _pnpm_rb(app: AppInfo) -> Optional[Command]:
-	if not app.latest_version:
-		return None
-	return ['pnpm', 'add', '-g', f'{app.name}@{app.latest_version}']
-
-
-def _bun_rb(app: AppInfo) -> Optional[Command]:
-	if not app.latest_version:
-		return None
-	return ['bun', 'add', '-g', f'{app.name}@{app.latest_version}']
-
-
-def _yarn_rb(app: AppInfo) -> Optional[Command]:
-	if not app.latest_version:
-		return None
-	return ['yarn', 'global', 'add', f'{app.name}@{app.latest_version}']
-
-
-def _pip_rb(app: AppInfo) -> Optional[Command]:
-	if not app.latest_version:
-		return None
-	return [
-		_pip_interpreter(app), '-m', 'pip', 'install',
-		f'{app.name}=={app.latest_version}',
-		'--force-reinstall', '--no-deps',
-	]
-
-
-_ROLLBACK_BUILDERS: Dict[str, Callable[[AppInfo], Optional[Command]]] = {
-	'winget': _winget_rb,
-	'chocolatey': _chocolatey_rb,
-	'npm': _npm_rb,
-	'pnpm': _pnpm_rb,
-	'bun': _bun_rb,
-	'yarn': _yarn_rb,
-	'pip': _pip_rb,
-}
+	return builder('upgrade', app) if builder else None
 
 
 def build_rollback_command(app: AppInfo) -> Optional[Command]:
@@ -231,9 +213,9 @@ def build_rollback_command(app: AppInfo) -> Optional[Command]:
 	supported for this source (e.g. PATH/registry/scoop tools without
 	version pinning).
 	"""
-	builder = _ROLLBACK_BUILDERS.get((app.source or '').lower())
-	return builder(app) if builder else None
+	builder = _BUILDERS.get((app.source or '').lower())
+	return builder('rollback', app) if builder else None
 
 
 def supports_rollback(source: str) -> bool:
-	return (source or '').lower() in _ROLLBACK_BUILDERS
+	return (source or '').lower() in _ROLLBACK_SOURCES

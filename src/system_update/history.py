@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from system_update.config import data_dir
 from system_update.models import AppInfo
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ class HistoryDatabase:
 	"""
 
 	def __init__(self, db_path: Optional[Path] = None, connect: bool = True) -> None:
-		self.db_path = db_path or (Path.home() / '.system_update' / 'history.db')
+		self.db_path = db_path or (data_dir() / 'history.db')
 		self.conn: Optional[sqlite3.Connection] = None
 		if connect:
 			self._connect()
@@ -235,9 +236,7 @@ class VulnerabilityHistory:
 	"""JSON-file log of discovered vulnerabilities with open/resolved status."""
 
 	def __init__(self, history_file: Optional[Path] = None) -> None:
-		self.history_file = history_file or (
-			Path.home() / '.system_update' / 'vulnerability_history.json'
-		)
+		self.history_file = history_file or (data_dir() / 'vulnerability_history.json')
 		self.history: List[Dict] = []
 		self._load()
 

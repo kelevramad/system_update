@@ -11,6 +11,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
+from system_update.config import data_dir
 from system_update.models import AppInfo, UpdateStatus
 
 logger = logging.getLogger(__name__)
@@ -260,7 +261,7 @@ def dispatch_notifiers(
 def _plugin_paths(config: Any) -> List[Path]:
 	settings = getattr(config, 'settings', {})
 	plugin_settings = settings.get('plugins', {})
-	config_dir = Path(getattr(config, 'config_dir', Path.home() / '.system_update'))
+	config_dir = Path(getattr(config, 'config_dir', data_dir()))
 	paths = [config_dir / 'plugins']
 	for raw in plugin_settings.get('paths', []) or []:
 		path = Path(str(raw)).expanduser()
@@ -306,7 +307,7 @@ def _register_module(
 			context = PluginContext(
 				config=config,
 				settings=getattr(config, 'settings', {}),
-				data_dir=Path(getattr(config, 'config_dir', Path.home() / '.system_update')),
+				data_dir=Path(getattr(config, 'config_dir', data_dir())),
 			)
 			if len(inspect.signature(register).parameters) >= 2:
 				register(registry, context)

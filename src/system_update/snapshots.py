@@ -25,6 +25,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from system_update.config import data_dir
 from system_update.models import AppInfo
 
 logger = logging.getLogger(__name__)
@@ -75,7 +76,7 @@ class SnapshotStore:
 	"""SQLite-backed snapshot store reusing the project's ``history.db``."""
 
 	def __init__(self, db_path: Optional[Path] = None) -> None:
-		self.db_path = db_path or (Path.home() / '.system_update' / 'history.db')
+		self.db_path = db_path or (data_dir() / 'history.db')
 		self._conn: Optional[sqlite3.Connection] = None
 
 	def _connect(self) -> sqlite3.Connection:

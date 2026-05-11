@@ -17,7 +17,7 @@ from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from rich.prompt import Prompt
 
@@ -36,7 +36,7 @@ from system_update.plugins import (
     scanner_map,
     updater_map,
 )
-from system_update.scanners import PackageScanner
+from system_update.scanners import PackageScanner, get_scanner_map
 from system_update.security import SecurityChecker
 from system_update.ui import DisplayFormatter, UISystem
 from system_update.utils import console, dedupe_apps, display_source, source_chip
@@ -85,29 +85,6 @@ def _confirm_default_no(message: str) -> bool:
 def _phase_time_label(label: str, start_time: float) -> str:
     """Return a consistent elapsed-time message for a completed CLI phase."""
     return f'[dim]⏱  {label} completed in {time.time() - start_time:.2f}s[/dim]\n'
-
-
-def _build_scanner_map() -> Dict[str, Callable[[], List[AppInfo]]]:
-    return {
-        'winget': PackageScanner.scan_winget,
-        'chocolatey': PackageScanner.scan_chocolatey,
-        'npm': PackageScanner.scan_npm,
-        'pnpm': PackageScanner.scan_pnpm,
-        'bun': PackageScanner.scan_bun,
-        'yarn': PackageScanner.scan_yarn,
-        'pip': PackageScanner.scan_pip,
-        'path': PackageScanner.scan_path,
-        'registry': PackageScanner.scan_registry,
-        'rust': PackageScanner.scan_rust,
-        'scoop': PackageScanner.scan_scoop,
-        'dotnet': PackageScanner.scan_dotnet,
-        'appx': PackageScanner.scan_appx,
-        'msix': PackageScanner.scan_msix,
-        'drivers': PackageScanner.scan_drivers,
-        'services': PackageScanner.scan_services,
-        'psmodules': PackageScanner.scan_psmodules,
-        'vsextensions': PackageScanner.scan_vsextensions,
-    }
 
 
 def _parse_source_filter(raw: Optional[str]) -> Set[str]:
@@ -288,7 +265,7 @@ class SystemUpdateApp:
 
     def scan_system(self, source_filter: Optional[str] = None) -> List[AppInfo]:
         """Run every enabled source scanner in parallel with a per-source progress bar."""
-        scanners = _build_scanner_map()
+        scanners = get_scanner_map()
         scanners.update(scanner_map(self.plugins))
 
         include = set(self._include_sources)

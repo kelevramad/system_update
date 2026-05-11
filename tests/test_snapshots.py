@@ -12,6 +12,7 @@ from system_update.app import SystemUpdateApp
 from system_update import app as app_module
 from system_update.executors.commands import (
 	build_rollback_command,
+	build_update_command,
 	supports_rollback,
 )
 from system_update.models import AppInfo, UpdateStatus
@@ -220,9 +221,28 @@ def test_rollback_pip_uses_force_reinstall():
 	assert '--force-reinstall' in cmd
 
 
-def test_update_command_accepts_lowercase_cached_source():
-	from system_update.executors.commands import build_update_command
+@pytest.mark.parametrize(
+	'source,name,app_id,latest,expected',
+	[
+		('NPM', 'pkg', 'pkg', '2.0.0', ['npm', 'install', '-g', 'pkg@2.0.0']),
+		('PNPM', 'pkg', 'pkg', '2.0.0', ['pnpm', 'add', '-g', 'pkg@2.0.0']),
+		('Bun', 'pkg', 'pkg', '2.0.0', ['bun', 'add', '-g', 'pkg@2.0.0']),
+		('Yarn', 'pkg', 'pkg', '2.0.0', ['yarn', 'global', 'add', 'pkg@2.0.0']),
+	],
+)
+def test_node_builders_share_update_and_rollback_shape(source, name, app_id, latest, expected):
+	app = AppInfo(name=name, source=source, version='1.0.0',
+	              latest_version=latest, app_id=app_id)
+	assert build_update_command(app) == expected
+	assert build_rollback_command(app) == expected
 
+
+def test_executor_commands_have_no_rollback_suffix_builders():
+	source = Path(__file__).parents[1] / 'src' / 'system_update' / 'executors' / 'commands.py'
+	assert '_rb(' not in source.read_text(encoding='utf-8')
+
+
+def test_update_command_accepts_lowercase_cached_source():
 	app = AppInfo(
 		name='Pygments',
 		source='pip',

@@ -40,6 +40,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from system_update.config import data_dir
+
 logger = logging.getLogger(__name__)
 
 
@@ -123,7 +125,7 @@ class Inventory:
 	"""JSON-file inventory at ``~/.system_update/inventory.json``."""
 
 	def __init__(self, path: Optional[Path] = None) -> None:
-		self.path = path or (Path.home() / '.system_update' / 'inventory.json')
+		self.path = path or (data_dir() / 'inventory.json')
 		self.hosts: List[RemoteHost] = []
 		self._load()
 
