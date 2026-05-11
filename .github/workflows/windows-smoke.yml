@@ -1,0 +1,73 @@
+name: Windows smoke
+
+# Hardening 5.4 — end-to-end smoke test on a real Windows runner so a
+# scan → export → snapshot → html pipeline regression is caught before
+# release. Lint / typecheck / unit tests run elsewhere; this job is
+# focused on the install-and-execute path.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: latest
+
+      - name: Sync dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Scan (winget only, no cache)
+        shell: pwsh
+        run: |
+          uv run python -m system_update --no-cache --source winget --export json -o scan.json
+          if (-not (Test-Path scan.json)) { throw "scan.json was not produced" }
+
+      - name: Validate scan.json shape
+        shell: pwsh
+        run: |
+          $payload = Get-Content scan.json -Raw | ConvertFrom-Json
+          if ($null -eq $payload) { throw "scan.json is not valid JSON" }
+          $apps = $payload.apps
+          if ($null -eq $apps) { $apps = $payload.packages }
+          if ($null -eq $apps) { throw "scan.json missing apps/packages array" }
+          Write-Host "scan.json contains $($apps.Count) packages"
+
+      - name: Snapshot list (fresh state must not error)
+        shell: pwsh
+        run: |
+          uv run python -m system_update --snapshot list
+
+      - name: Export HTML report
+        shell: pwsh
+        run: |
+          uv run python -m system_update --no-cache --source winget --export html -o report.html
+          if (-not (Test-Path report.html)) { throw "report.html was not produced" }
+          $size = (Get-Item report.html).Length
+          if ($size -lt 256) { throw "report.html is too small: $size bytes" }
+          Write-Host "report.html is $size bytes"
+
+      - name: Upload artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-smoke-artifacts
+          path: |
+            scan.json
+            report.html
+            ~/.system_update/system.log
+            ~/.system_update/errors.log
+          if-no-files-found: ignore
+          retention-days: 7

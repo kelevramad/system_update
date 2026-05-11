@@ -15,6 +15,17 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.13.0 (May 2026)
+
+- **Quality & Observability Hardening (Hardening 5)**: Four P3 items land together. No behavior changes for end users; all infrastructure.
+- **Log redaction (5.1)**: `_RedactionFilter` is wired into every handler in `setup_logging`; `password=`, `token=`, `secret=`, `api_key=`, `Authorization:`, `Bearer …`, and `winrs -p:…` are scrubbed before output reaches `system.log`, `errors.log`, or stderr. Defense-in-depth on top of hardening 1.1.1 / 1.1.2.
+- **Structured logger adapter (5.1)**: New `get_logger(name, **context)` returns a `LoggerAdapter` that prepends `[k=v ...]` to every record when bound to context; returns the plain `logging.Logger` when called without context.
+- **Coverage gaps closed (5.2)**: New tests for `cache.is_source_valid` (fresh / expired / absent / missing-file paths), `_apply_smart_sources_filtering` (whitelist, `choco`→`chocolatey` alias, no-explicit-true is no-op, unknown source ignored), and `aggregate_scans` (mixed valid+malformed, all-malformed, non-dict entries skipped).
+- **Parser fuzzing (5.3)**: Added `hypothesis` as a dev dependency. New `tests/test_scanner_fuzz.py` runs property-based fuzz over winget table/JSON parsers and bun/rust/yarn/scoop/choco scanner pipelines. Marked `slow` and deselected from the default suite via `-m 'not slow'`; run with `uv run pytest -m slow`.
+- **Windows CI smoke (5.4)**: New `.github/workflows/windows-smoke.yml` runs on PRs and pushes to `main`. Installs uv, runs `scan → JSON shape validation → snapshot list → HTML export`, fails fast on missing/undersized artifacts, and uploads scan/log artifacts on failure. Timeout 10 min.
+- **Tests**: 671 passing, 4 skipped, 9 deselected (slow). All pyright/ruff clean.
+- **Verification**: `uv run pytest`, `uv run ruff check .`, and `uv run task typecheck` are clean.
+
 ### v8.12.0 (May 2026)
 
 - **Performance Hardening (Hardening 4)**: Six concrete bottlenecks fixed; no new features, all local optimizations.

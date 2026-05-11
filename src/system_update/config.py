@@ -10,10 +10,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, MutableMapping, Optional, Tuple
 
 from system_update.utils import data_dir
 
@@ -596,6 +597,97 @@ class _SuppressExecFailureFilter(logging.Filter):
 		)
 
 
+# ─── Hardening 5.1 — secret redaction in log output ──────────────────────
+
+
+# Patterns whose value half should never appear in log output. The capture
+# group preserves the key so the redacted line still makes sense to a
+# human reader. Defense-in-depth on top of hardening 1.1.1 / 1.1.2 —
+# argv-level secrets shouldn't reach the logging layer in the first
+# place, but a third-party module dragged into the dependency graph
+# could still emit one.
+_REDACTION_PATTERNS: Tuple[Tuple[re.Pattern[str], str], ...] = (
+	(re.compile(r'(?i)(password\s*[:=]\s*)\S+'), r'\1***'),
+	(re.compile(r'(?i)(token\s*[:=]\s*)\S+'), r'\1***'),
+	(re.compile(r'(?i)(secret\s*[:=]\s*)\S+'), r'\1***'),
+	(re.compile(r'(?i)(api[_-]?key\s*[:=]\s*)\S+'), r'\1***'),
+	# Authorization headers may carry a scheme + token ("Bearer abc.def")
+	# or a raw token; nuke everything after the colon up to end-of-line.
+	(re.compile(r'(?i)(authorization\s*:\s*).+'), r'\1***'),
+	(re.compile(r'(?i)(bearer\s+)[A-Za-z0-9._\-]+'), r'\1***'),
+	# winrs -p:'<secret>' is the exact shape hardening 1.1.1 already moves
+	# off argv; redact here as a last line of defense.
+	(re.compile(r"(-p:\s*['\"]?)([^'\"\s]+)"), r'\1***'),
+)
+
+
+def _redact(text: str) -> str:
+	"""Strip known secret patterns from a single log line."""
+	if not text or '=' not in text and ':' not in text:
+		return text
+	for pattern, replacement in _REDACTION_PATTERNS:
+		text = pattern.sub(replacement, text)
+	return text
+
+
+class _RedactionFilter(logging.Filter):
+	"""Logging filter that rewrites a record's message through :func:`_redact`.
+
+	Applied to every handler so the redaction can't be bypassed by routing
+	logs to a different sink. Operates on the *formatted* message (after
+	%-args substitution), then clears ``args`` so the formatter doesn't
+	try to substitute again.
+	"""
+
+	def filter(self, record: logging.LogRecord) -> bool:
+		try:
+			message = record.getMessage()
+		except Exception:
+			return True
+		redacted = _redact(message)
+		if redacted != message:
+			record.msg = redacted
+			record.args = None
+		return True
+
+
+class _ContextLoggerAdapter(logging.LoggerAdapter):
+	"""LoggerAdapter that prepends ``[k=v ...]`` from its bound context.
+
+	Returned by :func:`get_logger` when callers pass keyword context
+	fields. Keeps the message human-readable but turns context into
+	greppable key/value pairs.
+	"""
+
+	def process(
+		self, msg: Any, kwargs: MutableMapping[str, Any]
+	) -> Tuple[Any, MutableMapping[str, Any]]:
+		extra = self.extra or {}
+		if not extra:
+			return msg, kwargs
+		prefix = ' '.join(f'{k}={v}' for k, v in extra.items())
+		return f'[{prefix}] {msg}', kwargs
+
+
+def get_logger(name: str, **context: Any) -> logging.Logger | logging.LoggerAdapter:
+	"""Return a logger for ``name``, optionally bound to structured context.
+
+	When ``context`` is empty this returns the plain :class:`logging.Logger`
+	so callers pay nothing for the adapter wrapper. When fields are
+	provided, the returned adapter renders them as ``[k=v ...]`` prefix
+	on every emitted record.
+
+	Example:
+		log = get_logger(__name__, host='alpha', source='winget')
+		log.info('scan complete')
+		# -> "[host=alpha source=winget] scan complete"
+	"""
+	logger = logging.getLogger(name)
+	if not context:
+		return logger
+	return _ContextLoggerAdapter(logger, context)
+
+
 class SystemLogFileHandler(logging.FileHandler):
 	"""Primary log handler that separates executions before the first record."""
 
@@ -642,15 +734,20 @@ def setup_logging(
 	for handler in root_logger.handlers[:]:
 		root_logger.removeHandler(handler)
 
+	# Hardening 5.1 — single redaction filter shared across every handler.
+	redaction = _RedactionFilter()
+
 	file_handler = SystemLogFileHandler(config.log_file, encoding='utf-8')
 	file_handler.setFormatter(_DebugFormatter(datefmt='%Y-%m-%d %H:%M:%S'))
 	file_handler.setLevel(logging.DEBUG)
+	file_handler.addFilter(redaction)
 	root_logger.addHandler(file_handler)
 
 	console_handler = logging.StreamHandler(sys.stderr)
 	console_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
 	console_handler.setLevel(logging.DEBUG if debug else logging.WARNING)
 	console_handler.addFilter(_SuppressExecFailureFilter())
+	console_handler.addFilter(redaction)
 	stream = console_handler.stream
 	if hasattr(stream, 'reconfigure'):
 		# Pyright sees TextIO; the runtime check above guards the call.
@@ -659,6 +756,7 @@ def setup_logging(
 
 	error_handler = WarningFileHandler(config.config_dir / 'errors.log')
 	error_handler.addFilter(_SuppressExecFailureFilter())
+	error_handler.addFilter(redaction)
 	root_logger.addHandler(error_handler)
 
 	root_logger.setLevel(logging.DEBUG)
