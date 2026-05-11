@@ -15,6 +15,14 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.11.0 (May 2026)
+
+- **Duplication Hardening (Hardening 3.3)**: Built-in scanners now register once through the `@scanner('<source>')` decorator and `get_scanner_map()`, removing the duplicated app-level scanner registry while preserving the legacy `PackageScanner.scan_*` compatibility surface.
+- **Executor Builder Cleanup**: Update and rollback command generation now share one action-aware backend builder per source, eliminating `_xxx_rb` rollback duplicates while keeping argv-token validation protections from earlier hardening work.
+- **Data Directory Consistency**: Remaining `.system_update` path call sites now reuse the shared `data_dir()` helper introduced in Hardening 1.4.
+- **Tests**: 634 passing, 4 skipped. New coverage verifies scanner registration, registry defensive copies, shared node-package builder shapes, rollback-builder cleanup, and `SYSTEM_UPDATE_HOME` data-dir behavior.
+- **Verification**: `uv run pytest`, `uv run ruff check .`, `uv run task typecheck`, and duplication acceptance greps are clean.
+
 ### v8.10.0 (May 2026)
 
 - **Typing Contracts (Hardening 3.2)**: Added a frozen `CLIOptions` dataclass as the typed boundary between Typer and the app layer. The app/action surface now normalizes options once and reads explicit fields instead of scattered defensive `getattr(args, ...)` calls.
