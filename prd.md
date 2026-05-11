@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 8.11.0
+**Document Version:** 8.12.0
 **Last Updated:** May 11, 2026
 **Author:** Kelevra Mad
-**Based On:** `src/system_update/` package (v8.11.0)
+**Based On:** `src/system_update/` package (v8.12.0)
 
 ---
 
@@ -952,6 +952,7 @@ Configuration files, scheduled tasks, rollback, interactive selection, remote ma
 | 8.1.5 | May 2026 | Windows parsing patch: service executable paths without quotes preserve spaces and arguments correctly; PowerShell JSON scanners tolerate warning text and `null` output |
 | 8.1.6 | May 2026 | Winget optimization patch: Winget, Registry, AppX, and MSIX update checkers share one parsed `winget upgrade` table per update-check run |
 | 8.2.0 | May 2026 | Hardening 1.1 — credentials kept off process argv: new optional `pywinrm` HTTPS transport (avoids `winrs -p:` argv leak) and webhook bearer token now sent via `urllib.request` headers instead of `curl` argv. CLI gains a unified `System Update` panel rendered both at runtime and on `--help`, showing version, runtime, profile, data-dir inventory, cache TTL, sources, security feeds, and repo URL |
+| 8.12.0 | May 2026 | Hardening 4 — performance: parallelized GitHub Advisory queries via `ThreadPoolExecutor` (workers from `security.github_workers`, default 4); compiled scanner regexes at module level (`bun`, `rust`, `yarn`, `path`); memoized `cache.json` reads by mtime so `is_valid` + `is_source_valid` + `load` share one parse; honored the real `tick_interval` in `remote.execute_many` (no more hardcoded 1s spin); indexed pip apps by lower-cased name to remove the O(N·M) `next(...)` lookup; added retry/backoff on transient HTTP errors (429/5xx, connection errors) in `network.fetch_json` honoring `Retry-After` with exponential-backoff + jitter, configurable via `network.retry_max_attempts` / `retry_base_seconds` / `retry_max_seconds`. New tests cover memoization (incl. mtime + write invalidation), retry/backoff, pip indexed lookup, GitHub parallel pool, and large-`tick_interval` fast completion; full verification is 645 passed, 4 skipped plus clean Ruff and Pyright |
 | 8.11.0 | May 2026 | Hardening 3.3 — duplication: built-in scanners now register once through the `@scanner('<source>')` decorator and `get_scanner_map()`, removing the duplicated app-level scanner registry while preserving the legacy `PackageScanner.scan_*` compatibility surface. Update and rollback command generation now share one action-aware backend builder per source, eliminating `_xxx_rb` duplicates while retaining argv-token validation. Remaining `.system_update` path lookups reuse the shared `data_dir()` helper. New tests cover scanner registration/defensive copies, shared node-package command shapes, rollback-builder cleanup, and `SYSTEM_UPDATE_HOME`; full verification is 634 passed, 4 skipped plus clean Ruff and Pyright |
 | 8.10.0 | May 2026 | Hardening 3.2 — typing and contracts: added a frozen `CLIOptions` dataclass as the typed boundary between Typer and the app layer; removed all `getattr(args, ...)` usage under `src/`; replaced legacy in-place option mutation with frozen-safe `dataclasses.replace(...)`; added `RemoteScanPayload` / `RemoteParsedPayload` and `validate_remote_scan_payload()` for remote JSON with path-specific schema errors; converted `aggregate_scans()` to return an `AggregateReport` dataclass with `HostSummary` rows and `to_dict()` compatibility. New tests cover CLI option conversion/validation and remote payload validation; full verification is 624 passed, 4 skipped plus clean Ruff and Pyright |
 | 8.9.0 | May 2026 | Hardening 3.1 — break up `app.py`: the monolithic app orchestration file is down to 913 lines, with the large command/action surface extracted to `app_actions.AppActionsMixin` and a new `system_update.commands` package for remote, snapshot, schedule, run, scan, and update command surfaces. History HTML rendering moved to `report_templates.render_history_html()`. New direct-command tests cover command execution without constructing `SystemUpdateApp`; full verification is 620 passed, 4 skipped plus clean Ruff and Pyright |

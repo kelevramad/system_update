@@ -65,19 +65,37 @@ class CacheManager:
 		self.prune_after_days = 14
 		self.storage_fields: Sequence[str] = _DEFAULT_STORAGE_FIELDS
 		self.omit_empty_fields = True
+		# Hardening 4.3 — memoize parsed cache.json by file mtime so an
+		# interactive flow (``is_valid`` → ``is_source_valid`` → ``load``)
+		# only hits the disk once. Invalidated on every write.
+		self._raw_cache: Optional[Dict] = None
+		self._raw_cache_mtime: Optional[float] = None
 
 	def _read_raw(self, *, require_valid: bool = False) -> Optional[Dict]:
 		"""Read raw cache JSON, optionally requiring at least one fresh source."""
-		if not self.cache_file.exists():
-			return None
 		try:
-			data = json.loads(self.cache_file.read_text(encoding='utf-8'))
-			if require_valid and not self.is_valid(data):
-				return None
-			return data
-		except Exception as e:
-			logger.warning(f'Failed to read cache: {e}')
+			mtime = self.cache_file.stat().st_mtime
+		except OSError:
+			self._raw_cache = None
+			self._raw_cache_mtime = None
 			return None
+
+		if self._raw_cache is not None and self._raw_cache_mtime == mtime:
+			data = self._raw_cache
+		else:
+			try:
+				data = json.loads(self.cache_file.read_text(encoding='utf-8'))
+			except Exception as e:
+				logger.warning(f'Failed to read cache: {e}')
+				self._raw_cache = None
+				self._raw_cache_mtime = None
+				return None
+			self._raw_cache = data
+			self._raw_cache_mtime = mtime
+
+		if require_valid and not self.is_valid(data):
+			return None
+		return data
 
 	def is_valid(self, data: Optional[Dict] = None) -> bool:
 		"""Return True if the cache file exists and is younger than ``duration``."""
@@ -294,6 +312,8 @@ class CacheManager:
 		if self.cache_file.exists():
 			self.cache_file.unlink()
 		self._hot_packages.clear()
+		self._raw_cache = None
+		self._raw_cache_mtime = None
 
 	def _write_raw(self, data: Dict) -> None:
 		# Hardening 1.4.1 — atomic write with 0o600 / icacls so package
@@ -303,6 +323,10 @@ class CacheManager:
 			self.cache_file,
 			json.dumps(data, indent=2, ensure_ascii=False) + '\n',
 		)
+		# Hardening 4.3 — drop memoized parse; next reader will refresh
+		# from the new mtime.
+		self._raw_cache = None
+		self._raw_cache_mtime = None
 
 	def _app_to_cache_dict(self, app: AppInfo) -> Dict:
 		full = app.to_dict()

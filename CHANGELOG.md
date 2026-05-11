@@ -15,6 +15,18 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.12.0 (May 2026)
+
+- **Performance Hardening (Hardening 4)**: Six concrete bottlenecks fixed; no new features, all local optimizations.
+- **Parallel GitHub Advisory queries (4.1)**: `security/github.py` now fans out queries across a `ThreadPoolExecutor`; worker count is read from `security.github_workers` (default 4, clamped to 1–16). Retries on transient HTTP errors are handled by the shared retry layer (4.6).
+- **Module-level scanner regexes (4.2)**: Compiled-once patterns in `scanners/bun.py`, `scanners/rust.py`, `scanners/yarn.py`, and `scanners/path.py` replace per-row `re.match` / `re.search` of literals.
+- **Memoized cache reads (4.3)**: `CacheManager._read_raw` caches the parsed `cache.json` payload by file `st_mtime`; an interactive flow (`is_valid` → `is_source_valid` → `load`) now only re-parses once. The memo is dropped on every `_write_raw` / `clear`.
+- **Real `tick_interval` in remote fan-out (4.4)**: `remote.execute_many` no longer caps the `wait()` timeout at 1s; `FIRST_COMPLETED` still wakes the loop instantly when a host finishes, so idle CPU and log noise drop sharply with the default `tick_interval=30s`.
+- **Indexed pip vulnerability lookup (4.5)**: `security/pip.py` builds a `dict[name.lower(), AppInfo]` once instead of scanning the full app list with `next(...)` per advisory.
+- **HTTP retry/backoff (4.6)**: `network.fetch_json` now retries on `429`, `5xx`, and connection errors with exponential backoff + jitter, capped at `network.retry_max_seconds`. `Retry-After` integer-seconds form is honored. `network.retry_max_attempts` (default 3) and `network.retry_base_seconds` (default 0.5) are configurable. 4xx other than 429 fail immediately.
+- **Tests**: 645 passing, 4 skipped. New coverage: cache memoization (incl. mtime + write invalidation), retry-then-succeed (429), retry exhaustion (503), 404 no-retry, `Retry-After` honored, pip case-insensitive indexed lookup, GitHub parallel pool query, and `tick_interval=10` instant-future completion under 2s.
+- **Verification**: `uv run pytest`, `uv run ruff check .`, and `uv run task typecheck` are clean.
+
 ### v8.11.0 (May 2026)
 
 - **Duplication Hardening (Hardening 3.3)**: Built-in scanners now register once through the `@scanner('<source>')` decorator and `get_scanner_map()`, removing the duplicated app-level scanner registry while preserving the legacy `PackageScanner.scan_*` compatibility surface.

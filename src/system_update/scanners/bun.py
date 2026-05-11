@@ -8,6 +8,8 @@ from typing import List
 from system_update.models import AppInfo
 from system_update.utils import run_command
 
+_BUN_ROW_RE = re.compile(r'^\s*([^\s@]+)@([^\s]+)')
+
 
 def scan() -> List[AppInfo]:
 	"""Parse ``name@version`` lines from Bun's global package listing."""
@@ -17,7 +19,7 @@ def scan() -> List[AppInfo]:
 		return apps
 
 	for line in output.splitlines():
-		match = re.match(r'^\s*([^\s@]+)@([^\s]+)', line)
+		match = _BUN_ROW_RE.match(line)
 		if match:
 			apps.append(
 				AppInfo(

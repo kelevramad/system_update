@@ -218,3 +218,67 @@ def test_partial_cache_message_shows_hits_and_missing(monkeypatch, tmp_path):
 	assert 'Cache updated' in output
 	assert 'expires' in output
 	assert 'in ' in output
+
+
+# ─── Hardening 4.3 — memoized cache reads ─────────────────────────────────
+
+
+def test_cache_memoizes_raw_reads_by_mtime(tmp_path):
+	"""Sequential is_valid + is_source_valid + load must only re-parse once."""
+	import system_update.cache as cache_module
+
+	cache = CacheManager(tmp_path / 'cache.json')
+	cache.save([AppInfo(name='Git', source='winget', version='1.0')])
+
+	calls = {'n': 0}
+	original_loads = cache_module.json.loads
+
+	def counting_loads(*args, **kwargs):
+		calls['n'] += 1
+		return original_loads(*args, **kwargs)
+
+	with patch.object(cache_module.json, 'loads', side_effect=counting_loads):
+		assert cache.is_valid() is True
+		assert cache.is_source_valid('winget') is True
+		loaded = cache.load()
+
+	assert loaded is not None
+	assert calls['n'] == 1, 'is_valid + is_source_valid + load must share a single parse'
+
+
+def test_cache_memoization_invalidates_on_external_mtime_change(tmp_path):
+	"""External file modification (mtime bump) re-reads from disk."""
+	import os
+	import system_update.cache as cache_module
+
+	cache_file = tmp_path / 'cache.json'
+	cache = CacheManager(cache_file)
+	cache.save([AppInfo(name='Git', source='winget', version='1.0')])
+	cache.is_valid()  # prime the memo
+
+	stat = cache_file.stat()
+	os.utime(cache_file, (stat.st_atime, stat.st_mtime + 1))
+
+	calls = {'n': 0}
+	original_loads = cache_module.json.loads
+
+	def counting_loads(*args, **kwargs):
+		calls['n'] += 1
+		return original_loads(*args, **kwargs)
+
+	with patch.object(cache_module.json, 'loads', side_effect=counting_loads):
+		cache.is_valid()
+
+	assert calls['n'] == 1, 'mtime change must invalidate the memo'
+
+
+def test_cache_memoization_invalidates_after_write(tmp_path):
+	"""Writing through the cache must drop the memo so readers see fresh data."""
+	cache = CacheManager(tmp_path / 'cache.json')
+	cache.save([AppInfo(name='Git', source='winget', version='1.0')])
+	cache.load()  # prime
+
+	cache.save([AppInfo(name='Other', source='npm', version='2.0')])
+	loaded = cache.load()
+	assert loaded is not None
+	assert any(app.name == 'Other' for app in loaded)

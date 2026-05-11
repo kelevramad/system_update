@@ -412,6 +412,30 @@ def test_execute_many_invokes_start_and_tick_callbacks(monkeypatch):
 	assert ticks[0][0] == 'slow'
 
 
+def test_execute_many_completes_immediately_with_large_tick_interval(monkeypatch):
+	"""Hardening 4.4 — instant futures must not be capped by tick_interval.
+
+	A pool of fast hosts should finish in well under tick_interval seconds;
+	the previous implementation capped the ``wait()`` timeout at 1s but
+	the new code passes ``tick_interval`` directly and relies on
+	``FIRST_COMPLETED`` to wake on each finish.
+	"""
+	monkeypatch.setattr(
+		remote_mod, 'execute_remote',
+		lambda host, cmd, timeout=600, password='': RemoteResult(
+			host=host.name, ok=True, exit_code=0,
+		),
+	)
+	hosts = [RemoteHost(name=f'h{i}') for i in range(5)]
+	t0 = time.monotonic()
+	results = execute_many(hosts, 'cmd', tick_interval=10.0)
+	elapsed = time.monotonic() - t0
+
+	assert len(results) == 5
+	# Even with tick_interval=10, instant futures finish well under 1s.
+	assert elapsed < 2.0
+
+
 def test_execute_many_swallows_callback_exceptions(monkeypatch):
 	"""A buggy callback shouldn't break the fan-out."""
 	monkeypatch.setattr(

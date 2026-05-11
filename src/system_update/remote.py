@@ -632,9 +632,14 @@ def execute_many(
 		last_tick = dict(started)
 		pending = set(futures)
 		while pending:
+			# Hardening 4.4 — wait the full ``tick_interval`` instead of
+			# spinning every second. ``FIRST_COMPLETED`` already wakes us
+			# as soon as a host finishes, so a longer timeout only affects
+			# the idle path; CPU and log noise drop sharply for large
+			# ``tick_interval`` values (default 30s).
 			done, pending = wait(
 				pending,
-				timeout=max(0.01, min(float(tick_interval), 1.0)),
+				timeout=max(0.01, float(tick_interval)),
 				return_when=FIRST_COMPLETED,
 			)
 			now = time.monotonic()

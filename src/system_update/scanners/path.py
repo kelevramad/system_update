@@ -9,6 +9,8 @@ from typing import List
 from system_update.models import AppInfo
 from system_update.utils import run_command
 
+_VERSION_RE = re.compile(r'(\d+\.\d+(\.\d+)*([-.].*)?)')
+
 _EXECUTABLES = [
 	'node',
 	'npm',
@@ -39,7 +41,7 @@ def scan() -> List[AppInfo]:
 		version_output = run_command([exe, '--version'], allow_failure=True)
 		if not version_output:
 			continue
-		match = re.search(r'(\d+\.\d+(\.\d+)*([-.].*)?)', version_output)
+		match = _VERSION_RE.search(version_output)
 		if match:
 			apps.append(
 				AppInfo(
