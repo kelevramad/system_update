@@ -1,4 +1,5 @@
 import json
+from argparse import Namespace
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
@@ -188,6 +189,150 @@ def test_app_prefetch_starts_background_refresh(tmp_path):
 
 	thread_cls.assert_called_once()
 	thread_cls.return_value.start.assert_called_once()
+
+
+def test_batch_update_result_refreshes_scoped_cache_without_dropping_other_sources(tmp_path):
+	app = SystemUpdateApp()
+	app.history_db.close()
+	app.config.config_dir = tmp_path
+	app.cache_mgr = CacheManager(tmp_path / 'cache.json')
+	app._configure_cache_manager()
+
+	app.cache_mgr.save(
+		[
+			AppInfo(
+				name='Git',
+				source='winget',
+				version='1.0',
+				latest_version='2.0',
+				app_id='Git.Git',
+				update_status=UpdateStatus.UPDATE_AVAILABLE,
+			),
+			AppInfo(name='Requests', source='pip', version='2.31.0'),
+		],
+		refreshed_sources={'winget', 'pip'},
+	)
+
+	apps = [
+		AppInfo(
+			name='Git',
+			source='winget',
+			version='1.0',
+			latest_version='2.0',
+			app_id='Git.Git',
+			update_status=UpdateStatus.UPDATE_AVAILABLE,
+		)
+	]
+	before = app._update_cache_state(apps)
+	apps[0].version = '2.0'
+	apps[0].latest_version = ''
+	apps[0].update_status = UpdateStatus.UP_TO_DATE
+
+	app._save_cache_after_updates(
+		apps,
+		Namespace(source='winget', dry_run=False),
+		before,
+	)
+
+	loaded = app.cache_mgr.load()
+	assert loaded is not None
+	by_source = {item.source: item for item in loaded}
+	assert by_source['winget'].version == '2.0'
+	assert by_source['winget'].latest_version == ''
+	assert by_source['winget'].update_status == UpdateStatus.UP_TO_DATE
+	assert by_source['pip'].name == 'Requests'
+
+
+def test_batch_update_result_refreshes_full_cache(tmp_path):
+	app = SystemUpdateApp()
+	app.history_db.close()
+	app.config.config_dir = tmp_path
+	app.cache_mgr = CacheManager(tmp_path / 'cache.json')
+	app._configure_cache_manager()
+
+	apps = [
+		AppInfo(
+			name='Git',
+			source='winget',
+			version='1.0',
+			latest_version='2.0',
+			app_id='Git.Git',
+			update_status=UpdateStatus.UPDATE_AVAILABLE,
+		),
+		AppInfo(
+			name='Requests',
+			source='pip',
+			version='2.31.0',
+			latest_version='2.32.0',
+			update_status=UpdateStatus.UPDATE_AVAILABLE,
+		),
+	]
+	before = app._update_cache_state(apps)
+	for item in apps:
+		item.version = item.latest_version
+		item.latest_version = ''
+		item.update_status = UpdateStatus.UP_TO_DATE
+
+	app._save_cache_after_updates(
+		apps,
+		Namespace(source=None, dry_run=False),
+		before,
+	)
+
+	loaded = app.cache_mgr.load()
+	assert loaded is not None
+	assert {item.name: item.version for item in loaded} == {
+		'Git': '2.0',
+		'Requests': '2.32.0',
+	}
+	assert all(item.latest_version == '' for item in loaded)
+	assert all(item.update_status == UpdateStatus.UP_TO_DATE for item in loaded)
+
+
+def test_batch_update_result_dry_run_does_not_refresh_cache(tmp_path):
+	app = SystemUpdateApp()
+	app.history_db.close()
+	app.config.config_dir = tmp_path
+	app.cache_mgr = CacheManager(tmp_path / 'cache.json')
+	app._configure_cache_manager()
+
+	app.cache_mgr.save(
+		[
+			AppInfo(
+				name='Git',
+				source='winget',
+				version='1.0',
+				latest_version='2.0',
+				update_status=UpdateStatus.UPDATE_AVAILABLE,
+			)
+		],
+		refreshed_sources={'winget'},
+	)
+	apps = [
+		AppInfo(
+			name='Git',
+			source='winget',
+			version='1.0',
+			latest_version='2.0',
+			update_status=UpdateStatus.UPDATE_AVAILABLE,
+		)
+	]
+	before = app._update_cache_state(apps)
+	apps[0].version = '2.0'
+	apps[0].latest_version = ''
+	apps[0].update_status = UpdateStatus.UP_TO_DATE
+
+	app._save_cache_after_updates(
+		apps,
+		Namespace(source=None, dry_run=True),
+		before,
+	)
+
+	loaded = app.cache_mgr.load()
+	assert loaded is not None
+	assert loaded[0].version == '1.0'
+	assert loaded[0].latest_version == '2.0'
+	assert loaded[0].update_status == UpdateStatus.UPDATE_AVAILABLE
 
 
 def test_partial_cache_message_shows_hits_and_missing(monkeypatch, tmp_path):

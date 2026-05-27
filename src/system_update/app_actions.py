@@ -1025,6 +1025,55 @@ class AppActionsMixin:
             refreshed_sources=refreshed_sources,
         )
 
+    def _update_cache_state(self, apps: List[AppInfo]) -> Tuple[Tuple[str, ...], ...]:
+        """Return the fields that change when an update result should be cached."""
+        return tuple(
+            (
+                (app.source or '').lower(),
+                (app.app_id or '').lower(),
+                (app.name or '').lower(),
+                app.version or '',
+                app.latest_version or '',
+                str(
+                    app.update_status.value
+                    if hasattr(app.update_status, 'value')
+                    else app.update_status
+                ),
+            )
+            for app in apps
+        )
+
+    def _save_cache_after_updates(
+            self,
+            apps: List[AppInfo],
+            args: Any,
+            before_state: Tuple[Tuple[str, ...], ...],
+    ) -> None:
+        """Persist successful update mutations while preserving unrelated cached sources."""
+        args = CLIOptions.from_namespace(args)
+        if args.dry_run or not self.settings.get('cache', {}).get('enabled', True):
+            return
+        if self._update_cache_state(apps) == before_state:
+            return
+
+        refreshed_sources = self._fresh_scan_sources(args, apps)
+        apps_to_save = list(apps)
+        if args.source:
+            cached = self.cache_mgr.load() or []
+            apps_to_save = [
+                app for app in cached if app.source.lower() not in refreshed_sources
+            ] + apps_to_save
+            apps_to_save = sorted(
+                apps_to_save,
+                key=lambda app: f'{app.source.lower()}{app.name.lower()}',
+            )
+
+        self._save_cache_with_context(apps_to_save, refreshed_sources)
+        console.print(
+            '[bold green]✓[/bold green] '
+            f'[dim]Cache updated with update result {self._cache_expiry_hint()}[/dim]'
+        )
+
     def _cache_missing_sources(self, sources: Set[str]) -> Set[str]:
         """Return sources that are missing or stale under smart caching."""
         if not self.settings.get('cache', {}).get('incremental_enabled', True):

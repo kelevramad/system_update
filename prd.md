@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 8.13.0
+**Document Version:** 8.13.1
 **Last Updated:** May 11, 2026
 **Author:** Kelevra Mad
-**Based On:** `src/system_update/` package (v8.13.0)
+**Based On:** `src/system_update/` package (v8.13.1)
 
 ---
 
@@ -909,6 +909,7 @@ Configuration files, scheduled tasks, rollback, interactive selection, remote ma
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 8.13.1 | May 2026 | Patch fix for upgrade cache freshness: `--update-all`, `--update-source`, and interactive batch upgrades now persist successful post-update package state back into `cache.json`; scoped source updates preserve unrelated cached sources; dry-run upgrades still leave cache untouched. Added regression coverage for full-batch, scoped-source, dry-run, and single-package refresh behavior |
 | 1.0.0 | - | Initial release |
 | 1.0.1 | March 2026 | Added Rust source support, --log and --debug flags, enhanced PATH version detection, Registry updates via winget, updated source badge colors, **--show-all flag** (show all packages including up-to-date), improved output format with "💾 Showing" line after table and "🎯 Found" message |
 | 2.1.0 | April 2026 | Added .NET Global Tools support (dotnet tool list -g), dotnet update checking (dotnet tool list -g --outdated), 12 sources now supported |

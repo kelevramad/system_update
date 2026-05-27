@@ -15,6 +15,14 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.13.1 (May 2026)
+
+- **Bug Fix — Upgrade Cache Refresh**: Batch upgrade flows now persist successful post-update package state back into `cache.json`, preventing follow-up runs from showing stale/deprecated versions after packages were updated.
+- **Scoped Source Safety**: `--update-source <source>` merges refreshed source entries back into the existing cache without dropping unrelated cached sources.
+- **Dry-run Safety**: `--dry-run` upgrade flows continue to leave cache data untouched.
+- **Tests**: Added regression coverage for full-batch cache refresh, scoped-source cache preservation, dry-run cache preservation, and the existing single-package refresh path.
+- **Verification**: `uv run pytest` and `uv run ruff check .` are clean.
+
 ### v8.13.0 (May 2026)
 
 - **Quality & Observability Hardening (Hardening 5)**: Four P3 items land together. No behavior changes for end users; all infrastructure.

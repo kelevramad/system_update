@@ -838,6 +838,7 @@ class SystemUpdateApp(AppActionsMixin):
             security_updates = [a for a in vulnerable if a.has_update]
             total_count = self._print_available_updates_summary(
                 updates, security_updates)
+            before_update_state = self._update_cache_state(apps)
 
             if args.notify:
                 self.notifier.notify_updates_available(
@@ -846,8 +847,10 @@ class SystemUpdateApp(AppActionsMixin):
 
             if args.interactive:
                 self._interactive_update(updates, vulnerable, args)
+                self._save_cache_after_updates(apps, args, before_update_state)
             elif args.update_all:
                 self._update_all_workflow(updates, vulnerable, args)
+                self._save_cache_after_updates(apps, args, before_update_state)
         else:
             console.print('\n[green]✨ System is up to date![/green]')
 

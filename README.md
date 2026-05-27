@@ -4,7 +4,7 @@
 
 A comprehensive Python-based system package management tool that scans, checks, and updates software from multiple sources.
 
-**Version:** 8.13.0
+**Version:** 8.13.1
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
 **Layout:** Modular package at `src/system_update/` (typer CLI)
@@ -15,7 +15,7 @@ A comprehensive Python-based system package management tool that scans, checks, 
 
 - **Multi-source Package Discovery**: Scan applications installed via Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Scoop, system PATH executables, Windows Registry, AppX/MSIX, drivers, services, PowerShell modules, and VS Code extensions.
 - **Security Scanning**: Vulnerability checking through npm audit, pip/pip-audit, OSV, PyPI, GitHub Advisory, and local advisory data.
-- **Smart Caching**: 2-hour readable JSON cache with per-source freshness, incremental rescans, delta records, pruning, selective storage, a bounded hot-package LRU cache, and optional prefetch.
+- **Smart Caching**: 2-hour readable JSON cache with per-source freshness, incremental rescans, delta records, pruning, selective storage, a bounded hot-package LRU cache, optional prefetch, and post-upgrade refresh so updated packages do not reappear as stale updates.
 - **Network Optimization**: Batched OSV security lookups, rate-limited/cached JSON API responses, and one shared `winget upgrade` table per update-check run.
 - **Deduplicated Internals**: Built-in scanners share one decorator-backed registry, update/rollback command builders share one backend dispatch table, and data-directory lookups use the shared secure helper.
 - **Dry-run & Output Options**: Safely preview updates before applying them and export reports to JSON, CSV, HTML, XML, Markdown, or diff formats.
