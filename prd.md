@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 8.13.1
-**Last Updated:** May 11, 2026
+**Document Version:** 8.13.2
+**Last Updated:** June 21, 2026
 **Author:** Kelevra Mad
-**Based On:** `src/system_update/` package (v8.13.1)
+**Based On:** `src/system_update/` package (v8.13.2)
 
 ---
 
@@ -909,6 +909,7 @@ Configuration files, scheduled tasks, rollback, interactive selection, remote ma
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 8.13.2 | June 2026 | Patch fix for PowerShell module update checks: `psmodules` now uses one bounded bulk `Find-Module` lookup, serializes versions with `.Version.ToString()`, and avoids treating `Major Minor Build Revision` table output as a latest version. Added regression coverage for batching, noisy output, missing repository modules, and malformed version output |
 | 8.13.1 | May 2026 | Patch fix for upgrade cache freshness: `--update-all`, `--update-source`, and interactive batch upgrades now persist successful post-update package state back into `cache.json`; scoped source updates preserve unrelated cached sources; dry-run upgrades still leave cache untouched. Added regression coverage for full-batch, scoped-source, dry-run, and single-package refresh behavior |
 | 1.0.0 | - | Initial release |
 | 1.0.1 | March 2026 | Added Rust source support, --log and --debug flags, enhanced PATH version detection, Registry updates via winget, updated source badge colors, **--show-all flag** (show all packages including up-to-date), improved output format with "💾 Showing" line after table and "🎯 Found" message |

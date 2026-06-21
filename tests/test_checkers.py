@@ -203,11 +203,53 @@ def test_check_services_marks_up_to_date():
 
 @patch('system_update.run_command')
 def test_check_psmodules_updates(mock_run):
-	apps = [AppInfo(name='Pester', source='psmodules', version='5.0.0')]
-	mock_run.return_value = '5.1.0'
+	apps = [
+		AppInfo(name='Pester', source='psmodules', version='5.0.0'),
+		AppInfo(name='ThreadJob', source='psmodules', version='2.0.3'),
+	]
+	mock_run.return_value = json.dumps(
+		[
+			{'Name': 'Pester', 'Version': '5.1.0'},
+			{'Name': 'ThreadJob', 'Version': '2.0.3'},
+		]
+	)
 	count = UpdateChecker._check_psmodules_updates(apps)
 	assert count == 1
 	assert apps[0].latest_version == '5.1.0'
+	assert apps[1].update_status == UpdateStatus.UP_TO_DATE
+	mock_run.assert_called_once()
+	command = mock_run.call_args.args[0]
+	assert "Find-Module -Name $names" in command[-1]
+	assert 'Version = $_.Version.ToString()' in command[-1]
+	assert mock_run.call_args.kwargs['timeout'] == 45
+
+
+@patch('system_update.run_command')
+def test_check_psmodules_parses_noisy_json_and_ignores_missing_modules(mock_run):
+	apps = [
+		AppInfo(name='Pester', source='psmodules', version='5.0.0'),
+		AppInfo(name='BuiltInModule', source='psmodules', version='1.0.0'),
+	]
+	mock_run.return_value = 'WARNING: repository warning\n{"Name":"Pester","Version":"5.1.0"}'
+
+	count = UpdateChecker._check_psmodules_updates(apps)
+
+	assert count == 1
+	assert apps[0].latest_version == '5.1.0'
+	assert apps[1].latest_version == ''
+	assert apps[1].update_status == UpdateStatus.UP_TO_DATE
+
+
+@patch('system_update.run_command')
+def test_check_psmodules_does_not_treat_version_table_as_latest(mock_run):
+	apps = [AppInfo(name='Pester', source='psmodules', version='5.0.0')]
+	mock_run.return_value = 'Major  Minor  Build  Revision\n-----  -----  -----  --------\n5  1  0  -1'
+
+	count = UpdateChecker._check_psmodules_updates(apps)
+
+	assert count == 0
+	assert apps[0].latest_version == ''
+	assert apps[0].update_status == UpdateStatus.UP_TO_DATE
 
 
 def test_check_vsextensions_updates(monkeypatch):

@@ -15,6 +15,13 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.13.2 (June 2026)
+
+- **Bug Fix — PowerShell Module Update Checks**: `psmodules` now checks PowerShell Gallery versions with one bounded bulk `Find-Module` call instead of one network lookup per installed module, preventing the update phase from stalling on this source.
+- **Version Parsing**: PowerShell module versions are serialized with `.Version.ToString()` and parsed from JSON, avoiding the `Major Minor Build Revision` table output in the Latest column.
+- **Tests**: Added regression coverage for bulk lookup behavior, noisy PowerShell output, missing repository modules, and malformed version table output.
+- **Verification**: `uv run pytest`, `uv run ruff check .`, and `uv run task typecheck` are clean.
+
 ### v8.13.1 (May 2026)
 
 - **Bug Fix — Upgrade Cache Refresh**: Batch upgrade flows now persist successful post-update package state back into `cache.json`, preventing follow-up runs from showing stale/deprecated versions after packages were updated.
