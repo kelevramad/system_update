@@ -735,3 +735,165 @@ def test_app_export_results_markdown(tmp_path):
 	output_file = tmp_path / 'test.md'
 	app.export_results(apps, 'markdown', str(output_file))
 	assert output_file.exists()
+
+
+# ─── PIP checker — direct module tests ───────────────────────────────────
+
+
+@patch('system_update.checkers.pip.run_command')
+def test_pip_checker_outdated_marks_update_available(mock_run):
+	from system_update.checkers.pip import check
+
+	apps = [AppInfo(name='requests', source='pip', version='2.25.0')]
+	mock_run.return_value = json.dumps([
+		{'name': 'requests', 'latest_version': '2.28.0'}
+	])
+	with patch('system_update.scanners.pip._is_in_venv', return_value=True):
+		updates = check(apps)
+
+	assert updates >= 1
+	assert apps[0].update_status == UpdateStatus.UPDATE_AVAILABLE
+	assert apps[0].latest_version == '2.28.0'
+
+
+@patch('system_update.checkers.pip.run_command')
+def test_pip_checker_skips_already_current(mock_run):
+	from system_update.checkers.pip import check
+
+	apps = [AppInfo(name='requests', source='pip', version='2.28.0')]
+	mock_run.return_value = json.dumps([
+		{'name': 'requests', 'latest_version': '2.28.0'}
+	])
+	with patch('system_update.scanners.pip._is_in_venv', return_value=True):
+		updates = check(apps)
+
+	assert updates == 0
+
+
+@patch('system_update.checkers.pip.run_command')
+def test_pip_checker_preserves_vulnerable_status(mock_run):
+	from system_update.checkers.pip import check
+
+	apps = [
+		AppInfo(
+			name='pip',
+			source='pip',
+			version='26.0.1',
+			update_status=UpdateStatus.VULNERABLE,
+		)
+	]
+	mock_run.return_value = json.dumps([
+		{'name': 'pip', 'latest_version': '26.1'}
+	])
+	with patch('system_update.scanners.pip._is_in_venv', return_value=True):
+		updates = check(apps)
+
+	assert updates >= 1
+	assert apps[0].update_status == UpdateStatus.VULNERABLE
+
+
+@patch('system_update.checkers.pip.run_command')
+def test_pip_checker_fills_latest_version_for_vulnerable_without_update(mock_run):
+	from system_update.checkers.pip import check
+
+	apps = [
+		AppInfo(
+			name='pip',
+			source='pip',
+			version='26.0.1',
+			update_status=UpdateStatus.VULNERABLE,
+		)
+	]
+	mock_run.return_value = json.dumps([
+		{'name': 'pip', 'latest_version': '26.1'}
+	])
+	with (
+		patch('system_update.scanners.pip._is_in_venv', return_value=True),
+		patch('system_update.checkers.pip._pypi_latest', return_value='26.1'),
+	):
+		check(apps)
+
+	assert apps[0].latest_version == '26.1'
+
+
+def test_pip_checker_empty_apps():
+	from system_update.checkers.pip import check
+
+	updates = check([])
+	assert updates == 0
+
+
+# ─── .NET checker — direct module tests ──────────────────────────────────
+
+
+@patch('system_update.checkers.dotnet.run_command')
+def test_dotnet_checker_marks_update_available(mock_run):
+	from system_update.checkers.dotnet import check
+
+	apps = [AppInfo(name='dotnet-script', source='dotnet', version='1.0.0')]
+	mock_run.return_value = (
+		'Package Id      Latest      Source\n'
+		'------------------------------------\n'
+		'dotnet-script   2.0.0       nuget.org\n'
+	)
+	updates = check(apps)
+
+	assert updates == 1
+	assert apps[0].update_status == UpdateStatus.UPDATE_AVAILABLE
+	assert apps[0].latest_version == '2.0.0'
+
+
+@patch('system_update.checkers.dotnet.run_command')
+def test_dotnet_checker_case_insensitive_match(mock_run):
+	from system_update.checkers.dotnet import check
+
+	apps = [AppInfo(name='Dotnet-Script', source='dotnet', version='1.0.0')]
+	mock_run.return_value = (
+		'Package Id      Latest      Source\n'
+		'dotnet-script   2.0.0       nuget.org\n'
+	)
+	updates = check(apps)
+
+	assert updates == 1
+	assert apps[0].latest_version == '2.0.0'
+
+
+@patch('system_update.checkers.dotnet.run_command')
+def test_dotnet_checker_no_output(mock_run):
+	from system_update.checkers.dotnet import check
+
+	apps = [AppInfo(name='tool', source='dotnet', version='1.0.0')]
+	mock_run.return_value = ''
+	updates = check(apps)
+
+	assert updates == 0
+
+
+@patch('system_update.checkers.dotnet.run_command')
+def test_dotnet_checker_skips_separator_lines(mock_run):
+	from system_update.checkers.dotnet import check
+
+	apps = [AppInfo(name='tool', source='dotnet', version='1.0.0')]
+	mock_run.return_value = (
+		'Package Id      Latest      Source\n'
+		'---\n'
+		'tool            3.0.0       nuget.org\n'
+	)
+	updates = check(apps)
+
+	assert updates == 1
+	assert apps[0].latest_version == '3.0.0'
+
+
+@patch('system_update.checkers.dotnet.run_command')
+def test_dotnet_checker_skips_unknown_packages(mock_run):
+	from system_update.checkers.dotnet import check
+
+	apps = [AppInfo(name='my-tool', source='dotnet', version='1.0.0')]
+	mock_run.return_value = (
+		'Package Id      Latest      Source\n'
+		'other-tool      2.0.0       nuget.org\n'
+	)
+	updates = check(apps)
+
+	assert updates == 0

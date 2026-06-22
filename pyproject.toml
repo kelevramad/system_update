@@ -1,6 +1,6 @@
 [project]
 name = "system-update-cli"
-version = "8.14.0"
+version = "8.14.1"
 description = "Cross-platform package manager scanner/updater"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -25,7 +25,7 @@ system-update = "system_update.cli:_main_entry"
 [dependency-groups]
 dev = [
     "isort>=6.1.0",
-    "pyright>=1.1.380",
+    "pyright>=1.1.410",
     "pytest>=8.3.0",
     "pytest-cov>=6.0.0",
     "ruff>=0.7.0",

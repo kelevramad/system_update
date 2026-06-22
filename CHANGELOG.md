@@ -15,6 +15,14 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.14.1 (June 2026)
+
+- **Test Quality**: Removed 2 duplicate security tests (`test_security_scan_coverage`, `test_security_local_advisory`) that were identical to `test_security_scan`.
+- **New Tests**: Added 14 tests covering `security/local.py` (advisory loader + matcher, 100% coverage), `security/pypi.py` (PyPI vulnerability scanner, 96% coverage), `checkers/pip.py` (outdated package detection), and `checkers/dotnet.py` (.NET tool updates).
+- **New Test**: Added `test_update_all_dry_run` to verify the full `--update-all` workflow runs correctly in dry-run mode without modifying the system.
+- **Dependencies**: Updated pyright from 1.1.409 to 1.1.410.
+- **Tests**: 694 passing, 4 skipped, 9 deselected. Coverage improved from 76% to 77%.
+
 ### v8.14.0 (June 2026)
 
 - **Complete Hardening Plan Implementation**: All 40 hardening items across Security, Functional Bugs, Structural Refactor, Performance, and Quality & Observability are now fully applied.

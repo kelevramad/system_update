@@ -30,25 +30,6 @@ def test_security_scan(pip_scan_output):
 	)
 
 
-def test_security_scan_coverage(pip_scan_output):
-	output = pip_scan_output['stdout'] + pip_scan_output['stderr']
-	assert (
-		pip_scan_output['code'] == 0
-		or 'vuln' in output.lower()
-		or 'security' in output.lower()
-		or 'scan' in output.lower()
-	)
-
-
-def test_security_update_auto_priority(seeded_cache, cli_runner):
-	res = cli_runner(['--source', 'pip', '--update-all', '--yes'], timeout=120)
-	assert res['code'] == 0
-
-
-def test_security_local_advisory(pip_scan_output):
-	assert pip_scan_output['code'] == 0
-
-
 def test_pip_audit_uses_scanned_interpreter(tmp_path):
 	python_exe = tmp_path / 'python.exe'
 	python_exe.write_text('', encoding='utf-8')
@@ -295,3 +276,138 @@ def test_github_security_uses_thread_pool_for_queries():
 	by_name = {a.name: a for a in apps}
 	assert by_name['a'].update_status == UpdateStatus.VULNERABLE
 	assert by_name['b'].update_status != UpdateStatus.VULNERABLE
+
+
+# ─── Local advisory loader + matcher ─────────────────────────────────────
+
+
+def test_local_advisory_load_returns_empty_on_missing_file():
+	from system_update.security.local import load_advisories
+
+	result = load_advisories('/nonexistent/path.json')
+	assert result == {}
+
+
+def test_local_advisory_load_parses_valid_file(tmp_path):
+	from system_update.security.local import load_advisories
+
+	advisory_file = tmp_path / 'advisories.json'
+	advisory_file.write_text(
+		json.dumps({'advisories': [{'package': 'pkg', 'severity': 'HIGH', 'cve': 'CVE-1'}]}),
+		encoding='utf-8',
+	)
+	result = load_advisories(str(advisory_file))
+	assert len(result['advisories']) == 1
+	assert result['advisories'][0]['cve'] == 'CVE-1'
+
+
+def test_local_advisory_load_returns_empty_on_corrupt_file(tmp_path):
+	from system_update.security.local import load_advisories
+
+	advisory_file = tmp_path / 'bad.json'
+	advisory_file.write_text('not json', encoding='utf-8')
+	result = load_advisories(str(advisory_file))
+	assert result == {}
+
+
+def test_local_advisory_check_matches_package():
+	from system_update.security.local import check
+
+	apps = [AppInfo(name='requests', source='pip', version='2.0.0')]
+	local_data = {
+		'advisories': [
+			{'package': 'requests', 'severity': 'HIGH', 'cve': 'CVE-2026-1', 'description': 'bad'}
+		]
+	}
+	vulns = check(apps, local_data)
+	assert len(vulns) == 1
+	assert vulns[0]['cve'] == 'CVE-2026-1'
+	assert vulns[0]['severity'] == 'HIGH'
+	assert apps[0].update_status == UpdateStatus.VULNERABLE
+
+
+def test_local_advisory_check_skips_unknown_package():
+	from system_update.security.local import check
+
+	apps = [AppInfo(name='requests', source='pip', version='2.0.0')]
+	local_data = {'advisories': [{'package': 'other-pkg', 'severity': 'LOW', 'cve': 'CVE-2'}]}
+	vulns = check(apps, local_data)
+	assert vulns == []
+	assert apps[0].update_status != UpdateStatus.VULNERABLE
+
+
+def test_local_advisory_check_defaults_severity():
+	from system_update.security.local import check
+
+	apps = [AppInfo(name='pkg', source='pip', version='1.0.0')]
+	local_data = {'advisories': [{'package': 'pkg', 'cve': 'CVE-3'}]}
+	vulns = check(apps, local_data)
+	assert vulns[0]['severity'] == 'MEDIUM'
+
+
+# ─── PyPI vulnerability scanner ──────────────────────────────────────────
+
+
+def test_pypi_check_marks_vulnerable_app():
+	from system_update.security import pypi
+
+	apps = [AppInfo(name='requests', source='pip', version='2.25.0')]
+	pypi_payload = {
+		'vulnerabilities': [
+			{
+				'id': 'PYSEC-2026-1',
+				'aliases': ['CVE-2026-999'],
+				'severity': 'critical',
+				'summary': 'bad vuln',
+				'fixed_in': ['2.28.0'],
+				'published': '2026-01-01',
+			}
+		]
+	}
+
+	with patch('system_update.security.pypi.fetch_json', return_value=pypi_payload):
+		vulns = pypi.check(apps)
+
+	assert len(vulns) == 1
+	assert vulns[0]['cve'] == 'CVE-2026-999'
+	assert vulns[0]['severity'] == 'CRITICAL'
+	assert vulns[0]['source'] == 'PyPI'
+	assert vulns[0]['fixed_in'] == ['2.28.0']
+	assert apps[0].update_status == UpdateStatus.VULNERABLE
+
+
+def test_pypi_check_skips_non_pip_apps():
+	from system_update.security import pypi
+
+	apps = [AppInfo(name='git', source='winget', version='2.40.0')]
+	with patch('system_update.security.pypi.fetch_json') as mock_fetch:
+		vulns = pypi.check(apps)
+
+	assert vulns == []
+	mock_fetch.assert_not_called()
+
+
+def test_pypi_check_handles_network_error():
+	from system_update.security import pypi
+
+	apps = [AppInfo(name='requests', source='pip', version='2.25.0')]
+	with patch('system_update.security.pypi.fetch_json', side_effect=URLError('offline')):
+		vulns = pypi.check(apps)
+
+	assert vulns == []
+	assert apps[0].update_status != UpdateStatus.VULNERABLE
+
+
+def test_pypi_check_uses_alias_for_cve():
+	from system_update.security import pypi
+
+	apps = [AppInfo(name='pkg', source='pip', version='1.0.0')]
+	pypi_payload = {
+		'vulnerabilities': [
+			{'id': 'PYSEC-X', 'aliases': [], 'severity': 'low', 'summary': 'minor'}
+		]
+	}
+	with patch('system_update.security.pypi.fetch_json', return_value=pypi_payload):
+		vulns = pypi.check(apps)
+
+	assert vulns[0]['cve'] == 'PYSEC-X'

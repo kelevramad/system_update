@@ -89,6 +89,13 @@ def test_dry_run_flag():
 	assert res['code'] == 0
 
 
+def test_update_all_dry_run():
+	res = run_cli(['--update-all', '--dry-run', '--yes', '--source', 'pip'], timeout=120)
+	output = res['stdout'] + res['stderr']
+	assert res['code'] == 0
+	assert 'dry' in output.lower() or 'would' in output.lower() or 'update' in output.lower()
+
+
 def test_show_all_flag():
 	res = run_cli(['--show-all', '--source', 'chocolatey', '--yes'], timeout=120)
 	assert res['code'] == 0
