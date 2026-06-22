@@ -59,6 +59,11 @@ jobs:
           if ($size -lt 256) { throw "report.html is too small: $size bytes" }
           Write-Host "report.html is $size bytes"
 
+      - name: Rollback smoke (dry-run)
+        shell: pwsh
+        run: |
+          uv run python -m system_update --rollback last --dry-run
+
       - name: Upload artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4

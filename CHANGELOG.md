@@ -15,6 +15,18 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.14.0 (June 2026)
+
+- **Complete Hardening Plan Implementation**: All 40 hardening items across Security, Functional Bugs, Structural Refactor, Performance, and Quality & Observability are now fully applied.
+- **Security Hardening (1.1–1.5)**: `pywinrm` is now the default remote transport when available (avoids password in `winrs` argv). `defusedxml` imported defensively in `export.py`. Centralized `data_dir()` replaces hardcoded `~/.system_update` paths. Webhook URLs validate against private/loopback IPs. Plugin loading enforces SHA-256 allowlist, directory permissions, and opt-in config. Version tokens validated before argv interpolation. `urlopen` restricted to `http/https`. Cache/config files written with `0o600` / `0o700`. WinRM JSON responses capped at 10 MiB.
+- **Functional Bug Fixes (2.1–2.3)**: SQLite snapshot store uses `threading.local()` + WAL. Rate-limiter `sleep` moved outside the per-host lock. Windows subprocess output decodes via active OEM codepage with fallback chain. `winget list` tries `--format json` first (winget ≥ 1.7) with fixed-width table fallback. Cache timestamps parsed as timezone-aware UTC. OSV failures log DEBUG + retry instead of silently swallowing. `npm audit` detects missing `package.json` and skips. YAML `ImportError` raises `RuntimeError` with install instructions instead of continuing silently.
+- **Structural Refactor (3.1–3.3)**: Extracted `_handle_remote`, `_handle_snapshot`, `_handle_schedule`, and the full `run()` workflow into `commands/remote_cmd.py`, `snapshot_cmd.py`, `schedule_cmd.py`, and `run_cmd.py` respectively. `CLIOptions` dataclass replaces `argparse.Namespace` + `getattr`. `RemoteResult` uses `TypedDict`/`dataclass`. `aggregate_scans` returns `AggregateReport` dataclass. `@scanner('winget')` decorator replaces duplicated scanner registry. Unified `_winget(action, app)` / `_npm(action, app)` command builders.
+- **Performance Improvements (4.1–4.6)**: GitHub Advisory queries use `requests.Session` with `HTTPAdapter` (connection pool + retries) via new `session` parameter in `network.fetch_json`. Scanner regexes compiled at module level. `CacheManager._read_raw` memoizes parsed JSON by mtime. `remote.execute_many` uses proper `tick_interval=30s` instead of 1s tight loop. `security/pip.py` indexes packages by name for O(1) lookup. `network.fetch_json` retries with exponential backoff + jitter on 429/5xx.
+- **Quality & Observability (5.1–5.4)**: All 18 raw `f'[EXEC] ...'` strings in `utils.py` replaced with structured `logger.debug(..., extra={'source': 'exec', ...})`. `hypothesis` fuzz tests added for winget, scoop, choco, bun, rust, and yarn parsers. Windows CI smoke test includes rollback dry-run step. Full test coverage added for `cache.is_source_valid`, `config._apply_smart_sources_filtering`, and `remote.aggregate_scans`.
+- **Dependencies**: Added `requests>=2.28.0` and `defusedxml>=0.7.1`.
+- **Tests**: 676 passing, 4 skipped, 9 deselected. Pyright and ruff clean.
+- **Verification**: `uv run pytest`, `uv run ruff check .`, and `uv run pyright` are clean.
+
 ### v8.13.2 (June 2026)
 
 - **Bug Fix — PowerShell Module Update Checks**: `psmodules` now checks PowerShell Gallery versions with one bounded bulk `Find-Module` call instead of one network lookup per installed module, preventing the update phase from stalling on this source.

@@ -693,7 +693,7 @@ def test_security_table_displays_before_update_prompts():
 		patch.object(app.cache_mgr, 'load_sources', return_value=['pip']),
 		patch.object(app.ui, 'display_banner'),
 		patch.object(app.ui, 'display_summary'),
-		patch('system_update.app.DisplayFormatter.format_table', return_value='table'),
+		patch('system_update.commands.run_cmd.DisplayFormatter.format_table', return_value='table'),
 		patch.object(app, '_display_security_table', side_effect=lambda _v: events.append('security')),
 		patch.object(app, '_print_available_updates_summary', side_effect=lambda _u, _s: events.append('summary') or 2),
 		patch.object(app, '_update_all_workflow', side_effect=lambda _u, _v, _a: events.append('workflow')),

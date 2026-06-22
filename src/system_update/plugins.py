@@ -570,7 +570,7 @@ def _load_plugin_file(path: Path, registry: PluginRegistry, config: Any) -> None
         if spec is None or spec.loader is None:
             raise ImportError(f'cannot import plugin from {path}')
         module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        spec.loader.exec_module(module)  # type: ignore[attr-defined]
         _register_module(module, path, registry, config)
     except Exception as exc:
         registry.error(path, exc)

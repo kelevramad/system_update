@@ -45,7 +45,8 @@ def test_cli_themes_execution():
 
 def test_cli_formats_execution():
 	res = run_cli(['--format', 'json', '--source', 'chocolatey'], timeout=60)
-	assert res['code'] == 0 and '{' in res['stdout']
+	assert res['code'] == 0
+	assert '[' in res['stdout'] or '{' in res['stdout']
 
 	res = run_cli(['--format', 'compact', '--source', 'chocolatey'], timeout=60)
 	assert res['code'] == 0

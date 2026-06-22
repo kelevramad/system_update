@@ -17,6 +17,11 @@ from typing import Dict, Iterable, List, Optional
 from system_update.models import AppInfo, UpdateStatus
 from system_update.utils import display_source
 
+try:
+	from defusedxml import ElementTree as _DefusedET  # noqa: F401
+except ImportError:
+	_DefusedET = None  # type: ignore[misc]
+
 _SEVERITIES = ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW')
 
 

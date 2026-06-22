@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 8.13.2
-**Last Updated:** June 21, 2026
+**Document Version:** 8.14.0
+**Last Updated:** June 22, 2026
 **Author:** Kelevra Mad
-**Based On:** `src/system_update/` package (v8.13.2)
+**Based On:** `src/system_update/` package (v8.14.0)
 
 ---
 

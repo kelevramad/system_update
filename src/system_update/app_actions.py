@@ -4,7 +4,6 @@ from __future__ import annotations
 
 # pyright: reportAttributeAccessIssue=false, reportArgumentType=false, reportCallIssue=false
 
-import json
 import logging
 import threading
 from datetime import datetime, timezone
@@ -583,120 +582,18 @@ class AppActionsMixin:
 
     # ── Remote management (6.4) ───────────────────────────────────────────
 
+    def _default_transport(self) -> str:
+        """Return ``pywinrm`` if available, otherwise ``winrs``."""
+        try:
+            import winrm  # type: ignore[import-not-found]  # noqa: F401
+            return 'pywinrm'
+        except ImportError:
+            return 'winrs'
+
     def _handle_remote(self, args: Any) -> None:
         """Dispatch ``--remote list|add|remove|scan|update|report|help``."""
-        args = CLIOptions.from_namespace(args)
-        from system_update import remote as remote_mod
-        from system_update import subhelp
-
-        action = (args.remote or '').lower()
-        if action == 'help':
-            subhelp.show('remote')
-            return
-
-        inv = remote_mod.Inventory()
-
-        if action == 'list':
-            if not inv.hosts:
-                console.print(
-                    '[yellow]No remote hosts in inventory.[/yellow] '
-                    '[dim]Add one with [cyan]--remote add --remote-host NAME[/cyan].[/dim]'
-                )
-                return
-            from rich.table import Table
-
-            t = Table(title='🌐 Remote inventory', expand=True)
-            t.add_column('Name', style='bold')
-            t.add_column('Address', style='cyan')
-            t.add_column('User', style='magenta')
-            t.add_column('Transport')
-            t.add_column('Groups', style='dim')
-            t.add_column('Description', style='dim')
-            for h in inv.hosts:
-                t.add_row(
-                    h.name, h.address, h.user or '-',
-                    h.transport, ', '.join(h.groups) or '-',
-                    h.description or '-',
-                )
-            console.print(t)
-            return
-
-        if action == 'add':
-            name = args.remote_host
-            if not isinstance(name, str) or not name:
-                console.print(
-                    '[red]✗ --remote add requires --remote-host NAME[/red]'
-                )
-                return
-            groups = []
-            raw_groups = args.remote_groups
-            if isinstance(raw_groups, str) and raw_groups:
-                groups = [g.strip()
-                          for g in raw_groups.split(',') if g.strip()]
-            host = remote_mod.RemoteHost(
-                name=name,
-                address=args.remote_address or name,
-                user=args.remote_user or '',
-                transport='winrs',
-                groups=groups,
-            )
-            inv.add(host)
-            console.print(
-                f'[green]✓ Added[/green] [bold]{host.name}[/bold] → '
-                f'[cyan]{host.address}[/cyan] '
-                f'(groups: {", ".join(host.groups) or "none"})'
-            )
-            return
-
-        if action == 'remove':
-            name = args.remote_host
-            if not isinstance(name, str) or not name:
-                console.print(
-                    '[red]✗ --remote remove requires --remote-host NAME[/red]'
-                )
-                return
-            ok = inv.remove(name)
-            if ok:
-                console.print(f'[green]✓ Removed[/green] [bold]{name}[/bold]')
-            else:
-                console.print(
-                    f'[yellow]No host named[/yellow] [bold]{name}[/bold]')
-            return
-
-        # scan / update / report all need a target list.
-        hosts = inv.resolve(
-            host=args.remote_host,
-            group=args.remote_group,
-        )
-        if not hosts:
-            console.print(
-                '[yellow]No matching hosts.[/yellow] '
-                '[dim]Pass --remote-host NAME or --remote-group GROUP, '
-                'or use --remote list to see what is available.[/dim]'
-            )
-            return
-
-        extra = args.remote_args or ''
-        timeout = int(args.remote_timeout or 600)
-
-        if action in ('scan', 'report'):
-            cmd = remote_mod.build_remote_scan_command(extra)
-        elif action == 'update':
-            cmd = remote_mod.build_remote_update_command(extra)
-        else:
-            console.print(f'[red]Unknown remote action: {action}[/red]')
-            return
-
-        console.print(
-            f'[bold cyan]🌐 Running on {len(hosts)} host(s):[/bold cyan] '
-            f'[dim]{cmd}[/dim]'
-        )
-
-        debug = bool(args.remote_debug)
-        verbose = bool(args.remote_verbose) or debug
-        results = self._run_remote_with_progress(
-            hosts, cmd, timeout, verbose, debug)
-        self._render_remote_results(results, action, args)
+        from system_update.commands.remote_cmd import RemoteCommand
+        RemoteCommand().execute(args, self)
 
     def _run_remote_with_progress(
             self,
@@ -706,155 +603,18 @@ class AppActionsMixin:
             verbose: bool,
             debug: bool = False,
     ) -> List:
-        """Fan-out to ``hosts`` with a per-host progress bar and optional streaming.
-
-        Without progress, the user sees nothing while ``winrs`` connects (which
-        can take 30+ seconds per host). The progress bar shows ``⏳`` for each
-        running host and locks in the actual duration on completion. With
-        ``verbose=True`` we also dump the remote stdout / stderr tail to the
-        console as each host finishes — invaluable for diagnosing auth or
-        WinRM-config failures. ``debug=True`` additionally prints the exact
-        redacted ``winrs`` argv before each host starts so a long-running host
-        doesn't look like a silent freeze.
-        """
-        from system_update import remote as remote_mod
-        from system_update.ui.progress import make_progress
-
-        verbose = verbose or debug
-        if debug:
-            console.print('[bold cyan]🐛 Remote debug enabled[/bold cyan]')
-            console.print(f'[dim]remote command:[/dim] {cmd}')
-            console.print(f'[dim]timeout:[/dim] {timeout}s')
-            for h in hosts:
-                debug_argv = remote_mod.build_debug_argv(h, cmd)
-                console.print(
-                    f'[dim]host:[/dim] [bold]{h.name}[/bold] '
-                    f'[dim]address:[/dim] {h.address or h.name} '
-                    f'[dim]transport:[/dim] {h.transport} '
-                    f'[dim]user:[/dim] {h.user or "-"}'
-                )
-                console.print(
-                    f'[dim]local command:[/dim] {remote_mod.argv_to_display(debug_argv)}'
-                )
-
-        with make_progress() as progress:
-            tasks = {
-                h.name: progress.add_task(f'🌐 {h.name}', total=1) for h in hosts
-            }
-
-            def _on_start(host) -> None:
-                if debug:
-                    progress.console.print(
-                        f'[dim]▶ started {host.name}; waiting for winrs response...[/dim]'
-                    )
-
-            def _on_tick(host, elapsed: float) -> None:
-                if debug:
-                    progress.console.print(
-                        f'[dim]⏳ {host.name} still running '
-                        f'({elapsed:.0f}s elapsed / timeout {timeout}s)[/dim]'
-                    )
-
-            def _on_done(host, result) -> None:
-                progress.update(tasks[host.name], completed=1)
-                icon = '✅' if result.ok else '❌'
-                progress.update(
-                    tasks[host.name],
-                    description=f'{icon} {host.name}',
-                )
-                if verbose:
-                    # Print outside the progress bar so it stays readable.
-                    progress.console.print(
-                        f'\n[bold]── {icon} {host.name} '
-                        f'(exit {result.exit_code}, '
-                        f'{result.duration:.1f}s) ──[/bold]'
-                    )
-                    if result.stdout:
-                        tail = result.stdout.strip().splitlines()[-20:]
-                        progress.console.print(
-                            '[dim]stdout:[/dim] '
-                            + ('\n  ' + '\n  '.join(tail)
-                               if tail else '(empty)')
-                        )
-                    if result.stderr:
-                        err_tail = result.stderr.strip().splitlines()[-10:]
-                        progress.console.print(
-                            '[red]stderr:[/red] '
-                            + ('\n  ' + '\n  '.join(err_tail)
-                               if err_tail else '(empty)')
-                        )
-
-            results = remote_mod.execute_many(
-                hosts,
-                cmd,
-                timeout=timeout,
-                tick_interval=30.0,
-                on_start=_on_start if debug else None,
-                on_tick=_on_tick if debug else None,
-                on_complete=_on_done,
-            )
-        return results
+        """Deprecated — logic moved to :class:`RemoteCommand`."""
+        from system_update.commands.remote_cmd import RemoteCommand
+        return RemoteCommand()._run_remote_with_progress(
+            hosts, cmd, timeout, verbose, debug, self,
+        )
 
     def _render_remote_results(
             self, results: List, action: str, args: Any
     ) -> None:
-        """Print a summary table + optional consolidated JSON report."""
-        args = CLIOptions.from_namespace(args)
-        from rich.table import Table
-
-        t = Table(title=f'🌐 Remote {action} results', expand=True)
-        t.add_column('Host', style='bold')
-        t.add_column('Status', no_wrap=True)
-        t.add_column('Exit', justify='right')
-        t.add_column('Duration', justify='right', style='cyan')
-        t.add_column('Notes', style='dim', overflow='fold')
-        for r in results:
-            status = '[green]✓[/green]' if r.ok else '[red]✗[/red]'
-            notes = ''
-            if r.parsed is not None:
-                pkgs = (
-                    r.parsed if isinstance(r.parsed, list)
-                    else r.parsed.get('packages') or []
-                )
-                updates = sum(1 for p in pkgs if p.get(
-                    'status') == 'update_available')
-                vulns = sum(1 for p in pkgs if p.get('status') == 'vulnerable')
-                notes = (
-                    f'{len(pkgs)} pkgs · {updates} updates · {vulns} vulns'
-                )
-            elif r.stderr:
-                notes = r.stderr.strip().splitlines()[-1][:120]
-            t.add_row(
-                r.host, status, str(r.exit_code),
-                f'{r.duration:.1f}s', notes,
-            )
-        console.print(t)
-
-        if action == 'report':
-            from system_update import remote as remote_mod
-
-            report = remote_mod.aggregate_scans(results)
-            out_path = args.remote_output
-            payload = json.dumps(report.to_dict(), indent=2, default=str)
-            if isinstance(out_path, str) and out_path:
-                from pathlib import Path as _Path
-
-                _Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-                _Path(out_path).write_text(payload, encoding='utf-8')
-                console.print(
-                    f'[green]✓ Wrote consolidated report[/green] '
-                    f'→ [cyan]{out_path}[/cyan] '
-                    f'({report.host_count} hosts, '
-                    f'{len(report.package_index)} unique packages)'
-                )
-            else:
-                console.print()
-                console.print(
-                    f'[bold]🧾 Consolidated:[/bold] {report.host_count} hosts, '
-                    f'{len(report.package_index)} unique packages, '
-                    f'{report.error_count} errors. '
-                    f'Pass [cyan]--remote-output PATH[/cyan] to save full JSON.'
-                )
+        """Deprecated — logic moved to :class:`RemoteCommand`."""
+        from system_update.commands.remote_cmd import RemoteCommand
+        RemoteCommand()._render_remote_results(results, action, args)
 
     # ── Snapshots & rollback (6.2) ─────────────────────────────────────────
 
@@ -866,82 +626,8 @@ class AppActionsMixin:
 
     def _handle_snapshot(self, args: Any) -> None:
         """Dispatch ``--snapshot list|show|delete|help``."""
-        args = CLIOptions.from_namespace(args)
-        from system_update import subhelp
-
-        action = (args.snapshot or '').lower()
-        if action == 'help':
-            subhelp.show('snapshot')
-            return
-
-        with self._snapshot_store() as store:
-            if action == 'list':
-                rows = store.list_snapshots()
-                if not rows:
-                    console.print(
-                        '[yellow]No snapshots recorded yet.[/yellow]')
-                    return
-                from rich.table import Table
-
-                t = Table(title='📸 Snapshots', expand=True)
-                t.add_column('ID', style='cyan')
-                t.add_column('Timestamp', style='magenta')
-                t.add_column('Pkgs', justify='right')
-                t.add_column('OK', justify='right', style='green')
-                t.add_column('Label')
-                for s in rows:
-                    t.add_row(
-                        s.id,
-                        s.timestamp,
-                        str(s.package_count),
-                        str(s.success_count),
-                        s.label or '-',
-                    )
-                console.print(t)
-                return
-
-            target_id = args.snapshot_id or 'last'
-
-            if action == 'show':
-                snap = store.get(target_id)
-                if not snap:
-                    console.print(
-                        f'[yellow]No snapshot found:[/yellow] {target_id}')
-                    return
-                from rich.table import Table
-
-                console.print(
-                    f'[bold]📸 Snapshot[/bold] [cyan]{snap.id}[/cyan]  '
-                    f'· {snap.timestamp}  · {snap.label or "(no label)"}'
-                )
-                if snap.command:
-                    console.print(f'[dim]command:[/dim] {snap.command}')
-                t = Table(expand=True)
-                t.add_column('Package', style='bold')
-                t.add_column('Source', style='magenta')
-                t.add_column('Before', style='yellow')
-                t.add_column('After', style='green')
-                t.add_column('OK', justify='center')
-                for p in snap.packages:
-                    t.add_row(
-                        p.name,
-                        display_source(p.source),
-                        p.version_before or '-',
-                        p.version_after or '-',
-                        '[green]✓[/green]' if p.success else '[red]✗[/red]',
-                    )
-                console.print(t)
-                return
-
-            if action == 'delete':
-                ok = store.delete(target_id)
-                if ok:
-                    console.print(
-                        f'[green]✓ Deleted[/green] snapshot [bold]{target_id}[/bold]')
-                else:
-                    console.print(
-                        f'[yellow]No snapshot found:[/yellow] {target_id}')
-                return
+        from system_update.commands.snapshot_cmd import SnapshotCommand
+        SnapshotCommand().execute(args, self)
 
     def _handle_rollback(self, args: Any) -> None:
         """Restore packages captured in a snapshot to their previous versions."""
@@ -1269,106 +955,8 @@ class AppActionsMixin:
 
     def _handle_schedule(self, args: Any) -> None:
         """Dispatch ``--schedule create|delete|list|status|run|eval|help``."""
-        args = CLIOptions.from_namespace(args)
-        from system_update import scheduler, subhelp
-
-        action = (args.schedule or '').lower()
-        name = args.schedule_name or 'SystemUpdate_Scan'
-
-        if action == 'help':
-            subhelp.show('schedule')
-            return
-
-        if action == 'eval':
-            self._evaluate_conditional_actions(args)
-            return
-
-        try:
-            if action == 'create':
-                spec = scheduler.ScheduleSpec(
-                    name=name,
-                    frequency=args.schedule_when or 'daily',
-                    time=args.schedule_time or '09:00',
-                    days=args.schedule_days or '',
-                    command_args=args.schedule_args or '',
-                )
-                result = scheduler.create_task(spec)
-                console.print(
-                    f'[green]✓ Scheduled[/green] task [bold]{result["name"]}[/bold] '
-                    f'({result["frequency"]} @ {result["time"] or "n/a"})'
-                )
-                console.print(f'  [dim]command:[/dim] {result["command"]}')
-
-            elif action == 'delete':
-                scheduler.delete_task(name)
-                console.print(
-                    f'[green]✓ Removed[/green] scheduled task [bold]{name}[/bold]')
-
-            elif action == 'list':
-                tasks = scheduler.list_tasks()
-                if not tasks:
-                    console.print(
-                        '[yellow]No SystemUpdate scheduled tasks found.[/yellow]')
-                    return
-                from rich.table import Table
-
-                t = Table(title='🗓️  Scheduled tasks', expand=True)
-                t.add_column('Name', style='bold')
-                t.add_column('Next run', style='cyan')
-                t.add_column('Last run', style='yellow')
-                t.add_column('Last result', style='green', justify='right')
-                t.add_column('Status', style='magenta')
-                for entry in tasks:
-                    last_run = entry.get('last_run', '') or ''
-                    # schtasks emits "30/11/1999 ..." as a "never run" sentinel.
-                    if not last_run or last_run.startswith('30/11/1999'):
-                        last_run_display = '[dim]Never[/dim]'
-                    else:
-                        last_run_display = last_run
-
-                    last_result = entry.get('last_result', '') or ''
-                    if not last_result:
-                        last_result_display = '[dim]—[/dim]'
-                    elif last_result.strip() in ('0', '0x0'):
-                        last_result_display = last_result
-                    else:
-                        last_result_display = f'[red]{last_result}[/red]'
-
-                    t.add_row(
-                        entry['name'],
-                        entry.get('next_run', ''),
-                        last_run_display,
-                        last_result_display,
-                        entry.get('status', ''),
-                    )
-                console.print(t)
-
-            elif action == 'status':
-                info = scheduler.task_status(name)
-                if not info:
-                    console.print(f'[yellow]Task not found: {name}[/yellow]')
-                    return
-                console.print(f'[bold]🗓️  Task: {info["name"]}[/bold]')
-                for key in (
-                        'status',
-                        'schedule_type',
-                        'next_run_time',
-                        'last_run_time',
-                        'last_result',
-                        'task_to_run',
-                        'run_as_user',
-                ):
-                    console.print(f'  [cyan]{key}[/cyan]: {info.get(key, "")}')
-
-            elif action == 'run':
-                scheduler.run_task_now(name)
-                console.print(
-                    f'[green]✓ Triggered[/green] task [bold]{name}[/bold]')
-
-        except RuntimeError as e:
-            console.print(f'[red]✗ Schedule error:[/red] {e}')
-        except ValueError as e:
-            console.print(f'[red]✗ Invalid schedule spec:[/red] {e}')
+        from system_update.commands.schedule_cmd import ScheduleCommand
+        ScheduleCommand().execute(args, self)
 
     def _evaluate_conditional_actions(self, args: Any) -> None:
         """Run a scan, evaluate ``conditional_actions`` rules, fire matched actions.

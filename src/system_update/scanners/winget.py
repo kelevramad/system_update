@@ -22,14 +22,22 @@ from system_update.utils import run_command
 def scan() -> List[AppInfo]:
 	"""Parse ``winget list`` output into :class:`AppInfo` records."""
 	apps: List[AppInfo] = []
-	output = run_command(['winget', 'list', '--accept-source-agreements'], allow_failure=True)
-	if not output:
-		return apps
-
-	# Try the JSON path first (winget ≥ 1.7); fall back to the
-	# whitespace-separator parser for older versions and anything
-	# that happens to emit table output.
-	rows = parse_winget_json(output) or parse_winget_table(output)
+	# Hardening 2.2.2 — prefer --format json (winget ≥ 1.7); fall back to
+	# the locale-agnostic table parser for older versions.
+	output = run_command(
+		['winget', 'list', '--accept-source-agreements', '--format', 'json'],
+		allow_failure=True,
+	)
+	rows = parse_winget_json(output) if output else None
+	if not rows:
+		output = run_command(
+			['winget', 'list', '--accept-source-agreements'],
+			allow_failure=True,
+		)
+		if output:
+			rows = parse_winget_json(output) or parse_winget_table(output)
+	if not rows:
+		rows = []
 	for row in rows:
 		name = row.get('name', '').strip()
 		app_id = row.get('id', '').strip()

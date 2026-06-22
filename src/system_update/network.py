@@ -163,8 +163,15 @@ def fetch_json(
 	timeout: Optional[float] = None,
 	cache_ttl: Optional[float] = None,
 	use_cache: bool = True,
+	session: Optional[Any] = None,
 ) -> Any:
-	"""Fetch JSON over HTTP with host rate limiting and persistent response caching."""
+	"""Fetch JSON over HTTP with host rate limiting and persistent response caching.
+
+	If ``session`` is provided (e.g. a :class:`requests.Session`), the request
+	is issued through that object instead of the default ``urllib.request``
+	path, enabling HTTP keep-alive / connection pooling. URL validation and
+	rate limiting still apply.
+	"""
 	method = method.upper()
 	if not _SETTINGS.get('enabled', True):
 		raise RuntimeError('Network access is disabled by configuration')
@@ -189,8 +196,23 @@ def fetch_json(
 	if headers:
 		request_headers.update(headers)
 
-	req = urllib.request.Request(url, data=body, method=method, headers=request_headers)
 	request_timeout = _positive_number(timeout, _SETTINGS['timeout_seconds'])
+
+	if session is not None:
+		request_kwargs: Dict[str, Any] = {'headers': request_headers, 'timeout': request_timeout}
+		if body is not None:
+			request_kwargs['data'] = body
+		if method == 'GET':
+			resp = session.get(url, **request_kwargs)
+		else:
+			resp = session.request(method, url, **request_kwargs)
+		resp.raise_for_status()
+		data = resp.json()
+		if use_cache and _SETTINGS['cache_enabled']:
+			_cache_set(key, data)
+		return data
+
+	req = urllib.request.Request(url, data=body, method=method, headers=request_headers)
 	data = _open_with_retry(req, request_timeout)
 
 	if use_cache and _SETTINGS['cache_enabled']:

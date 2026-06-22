@@ -297,16 +297,16 @@ def run_command(
             Stripped stdout (or combined stdout+stderr) on success, else ``None``.
     """
     cmd_str = ' '.join(cmd)
-    logger.debug(f'[EXEC] Starting: {cmd_str}')
+    logger.debug('Starting: %s', cmd_str, extra={'source': 'exec', 'phase': 'start'})
 
     try:
         if platform.system() == 'Windows':
             executable = shutil.which(cmd[0])
             if executable:
-                logger.debug(f'[EXEC] Resolved {cmd[0]} to: {executable}')
+                logger.debug('Resolved %s to: %s', cmd[0], executable, extra={'source': 'exec', 'phase': 'resolve'})
                 cmd[0] = executable
             else:
-                logger.debug(f'[EXEC] Command not found in PATH: {cmd[0]}')
+                logger.debug('Command not found in PATH: %s', cmd[0], extra={'source': 'exec', 'phase': 'resolve'})
 
         env = None
         if scrub_venv or env_overrides:
@@ -352,7 +352,7 @@ def run_command(
 
         result = _Decoded(result.returncode, decoded_stdout, decoded_stderr)  # type: ignore[assignment]
 
-        logger.debug(f'[EXEC] Exit code: {result.returncode}')
+        logger.debug('Exit code: %s', result.returncode, extra={'source': 'exec', 'phase': 'complete'})
 
         stdout_len = len(result.stdout) if result.stdout else 0
         stderr_len = len(result.stderr) if result.stderr else 0
@@ -362,16 +362,16 @@ def run_command(
                 result.stdout[:300] +
                 '...[truncated]' if stdout_len > 300 else result.stdout
             )
-            logger.debug(f'[EXEC] stdout ({stdout_len} chars): {stdout_trunc}')
+            logger.debug('stdout (%s chars): %s', stdout_len, stdout_trunc, extra={'source': 'exec', 'phase': 'io'})
         else:
-            logger.debug('[EXEC] stdout (empty)')
+            logger.debug('stdout (empty)', extra={'source': 'exec', 'phase': 'io'})
 
         if stderr_len > 0:
             stderr_trunc = (
                 result.stderr[:300] +
                 '...[truncated]' if stderr_len > 300 else result.stderr
             )
-            logger.debug(f'[EXEC] stderr ({stderr_len} chars): {stderr_trunc}')
+            logger.debug('stderr (%s chars): %s', stderr_len, stderr_trunc, extra={'source': 'exec', 'phase': 'io'})
 
         if result.returncode != 0 and not allow_failure:
             details = []
@@ -384,7 +384,8 @@ def run_command(
             joined_details = '\n'.join(details)
             output = f'\n{joined_details}' if joined_details else ''
             logger.warning(
-                f'[EXEC] Command failed (exit {result.returncode}): {cmd_str}{output}'
+                'Command failed (exit %s): %s%s', result.returncode, cmd_str, output,
+                extra={'source': 'exec', 'phase': 'complete', 'level': 'warning'},
             )
             return None
 
@@ -392,38 +393,38 @@ def run_command(
             combined = f'{result.stdout}\n{result.stderr}'.strip()
             return combined or None
 
-        logger.debug(f'[EXEC] Success: {cmd_str} ({stdout_len} output chars)')
+        logger.debug('Success: %s (%s output chars)', cmd_str, stdout_len, extra={'source': 'exec', 'phase': 'complete'})
         return result.stdout.strip() or None
 
     except subprocess.TimeoutExpired as exc:
         error = CommandError.classify(exc, cmd_str)
-        logger.warning(f'[EXEC] Timeout: {cmd_str} - {error.suggestion}')
-        logger.debug(f'[EXEC] Timeout details: {exc}')
+        logger.warning('Timeout: %s - %s', cmd_str, error.suggestion, extra={'source': 'exec', 'phase': 'error'})
+        logger.debug('Timeout details: %s', exc, extra={'source': 'exec', 'phase': 'error'})
         return None
 
     except FileNotFoundError as exc:
         error = CommandError.classify(exc, cmd_str)
-        logger.debug(f'[EXEC] Not found: {cmd_str} - {error.suggestion}')
-        logger.debug(f'[EXEC] FileNotFoundError: {exc}')
+        logger.debug('Not found: %s - %s', cmd_str, error.suggestion, extra={'source': 'exec', 'phase': 'error'})
+        logger.debug('FileNotFoundError: %s', exc, extra={'source': 'exec', 'phase': 'error'})
         return None
     except PermissionError as exc:
         error = CommandError.classify(exc, cmd_str)
         logger.warning(
-            f'[EXEC] Permission denied: {cmd_str} - {error.suggestion}')
-        logger.debug(f'[EXEC] PermissionError: {exc}')
+            'Permission denied: %s - %s', cmd_str, error.suggestion, extra={'source': 'exec', 'phase': 'error'})
+        logger.debug('PermissionError: %s', exc, extra={'source': 'exec', 'phase': 'error'})
         return None
     except (json.JSONDecodeError, ValueError) as exc:
         error = CommandError.classify(exc, cmd_str)
-        logger.warning(f'[EXEC] Parse error: {cmd_str} - {error.suggestion}')
-        logger.debug(f'[EXEC] Parse error details: {exc}')
+        logger.warning('Parse error: %s - %s', cmd_str, error.suggestion, extra={'source': 'exec', 'phase': 'error'})
+        logger.debug('Parse error details: %s', exc, extra={'source': 'exec', 'phase': 'error'})
         return None
     except Exception as exc:  # noqa: BLE001 — intentional catch-all with classification
         error = CommandError.classify(exc, cmd_str)
         logger.warning(
-            f'[EXEC] Error: {error.category.value}: {error.message} - {error.suggestion}'
+            'Error: %s: %s - %s', error.category.value, error.message, error.suggestion,
+            extra={'source': 'exec', 'phase': 'error'},
         )
-        logger.debug(f'[EXEC] Exception details: {exc}')
-        return None
+        logger.debug('Exception details: %s', exc, extra={'source': 'exec', 'phase': 'error'})
 
 
 def dedupe_apps(apps: Iterable[AppInfo]) -> List[AppInfo]:

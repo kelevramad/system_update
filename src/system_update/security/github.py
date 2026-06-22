@@ -15,7 +15,26 @@ from typing import Dict, List, Optional
 from system_update.models import AppInfo, UpdateStatus
 from system_update.network import fetch_json
 
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
 logger = logging.getLogger(__name__)
+
+_GITHUB_SESSION = requests.Session()
+_retry_strategy = Retry(
+	total=3,
+	backoff_factor=0.5,
+	status_forcelist=[429, 500, 502, 503, 504],
+	allowed_methods=['GET'],
+)
+_adapter = HTTPAdapter(
+	max_retries=_retry_strategy,
+	pool_connections=4,
+	pool_maxsize=16,
+)
+_GITHUB_SESSION.mount('https://', _adapter)
+_GITHUB_SESSION.mount('http://', _adapter)
 
 
 _ECOSYSTEM_MAP = {
@@ -41,7 +60,12 @@ def _github_workers() -> int:
 
 
 def _query_advisories(app: AppInfo) -> List[Dict]:
-	"""Return the advisory list for ``app`` (or an empty list on failure)."""
+	"""Return the advisory list for ``app`` (or an empty list on failure).
+
+	Hardening 4.1 — uses a persistent :class:`requests.Session` so that
+	parallel workers share a connection pool instead of opening a new TCP
+	connection (+ TLS handshake) for every package.
+	"""
 	ecosystem = _ECOSYSTEM_MAP.get(app.source.lower())
 	if not ecosystem or not app.version:
 		return []
@@ -53,6 +77,7 @@ def _query_advisories(app: AppInfo) -> List[Dict]:
 				'Accept': 'application/vnd.github+json',
 				'X-GitHub-Api-Version': '2022-11-28',
 			},
+			session=_GITHUB_SESSION,
 		)
 	except Exception as exc:
 		logger.debug('GitHub Advisory query failed for %s: %s', app.name, exc)

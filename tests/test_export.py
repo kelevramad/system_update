@@ -108,7 +108,10 @@ def test_exports_render_sources_lowercase(tmp_path):
 
 
 def test_xml_export_module_is_generation_only():
-	"""Hardening 1.5.1: no untrusted XML input is parsed by export.py."""
+	"""Hardening 1.5.1: no untrusted XML input is parsed by export.py.
+
+	defusedxml.ElementTree is allowed because it is a hardened, safe parser.
+	"""
 	source = Path(export.__file__).read_text(encoding='utf-8')
 	for forbidden in (
 		'xml.etree',
@@ -116,7 +119,8 @@ def test_xml_export_module_is_generation_only():
 		'xml.sax',
 		'minidom',
 		'fromstring',
-		'ElementTree',
 	):
 		assert forbidden not in source
+	# ElementTree is allowed only when imported from defusedxml
+	assert 'defusedxml import ElementTree' in source
 	assert 'XML is generation-only' in source
