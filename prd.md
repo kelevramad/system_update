@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 8.14.1
-**Last Updated:** June 22, 2026
+**Document Version:** 8.14.2
+**Last Updated:** July 2, 2026
 **Author:** Kelevra Mad
-**Based On:** `src/system_update/` package (v8.14.1)
+**Based On:** `src/system_update/` package (v8.14.2)
 
 ---
 
@@ -909,6 +909,7 @@ Configuration files, scheduled tasks, rollback, interactive selection, remote ma
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 8.14.2 | July 2026 | Patch fix for global Python console-script installs: Python 3.10+ now declares `click>=8.2.0`, keeping Typer's generic `click.Choice` usage compatible outside `uv run`; refreshed lockfile metadata and verified CLI help plus focused CLI tests |
 | 8.14.1 | June 2026 | Test quality patch: removed 2 duplicate security tests, added 14 tests for local advisory loader, PyPI vulnerability scanner, pip checker, and dotnet checker; added `test_update_all_dry-run` for full update workflow verification; updated pyright to 1.1.410; coverage improved from 76% to 77% |
 | 8.13.2 | June 2026 | Patch fix for PowerShell module update checks: `psmodules` now uses one bounded bulk `Find-Module` lookup, serializes versions with `.Version.ToString()`, and avoids treating `Major Minor Build Revision` table output as a latest version. Added regression coverage for batching, noisy output, missing repository modules, and malformed version output |
 | 8.13.1 | May 2026 | Patch fix for upgrade cache freshness: `--update-all`, `--update-source`, and interactive batch upgrades now persist successful post-update package state back into `cache.json`; scoped source updates preserve unrelated cached sources; dry-run upgrades still leave cache untouched. Added regression coverage for full-batch, scoped-source, dry-run, and single-package refresh behavior |

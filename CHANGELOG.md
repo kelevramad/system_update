@@ -15,6 +15,12 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.14.2 (July 2026)
+
+- **Bug Fix - Global Python Entry Point**: Added an explicit `click>=8.2.0` dependency for Python 3.10+ so the installed `system-update` console script uses a Click version compatible with Typer's generic `click.Choice` support.
+- **Packaging**: Refreshed the lockfile metadata so editable and global installs resolve the same Typer/Click pair used by `uv run`.
+- **Verification**: `system-update --help`, `uv run python -m system_update --help`, and `uv run pytest tests/test_cli_basic.py` are clean.
+
 ### v8.14.1 (June 2026)
 
 - **Test Quality**: Removed 2 duplicate security tests (`test_security_scan_coverage`, `test_security_local_advisory`) that were identical to `test_security_scan`.
