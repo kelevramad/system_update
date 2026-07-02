@@ -115,10 +115,3 @@ def test_winget_rollback_drops_unsafe_tokens():
 	)
 	assert build_rollback_command(app) is None
 
-
-def test_appx_builder_validates_app_id():
-	app = AppInfo(
-		name='Some Store App', source='appx', version='1.0',
-		app_id='Microsoft.WindowsCalculator_8wekyb3d8bbwe; rogue',
-	)
-	assert build_update_command(app) is None

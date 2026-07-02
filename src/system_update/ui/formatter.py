@@ -95,9 +95,8 @@ def _verbose_table(apps: List[AppInfo], theme: str, use_icons: bool) -> Table:
 		pad_edge=False,
 	)
 	table.add_column('Package', style='bold white', width=25)
-	# 16 fits "🍫 chocolatey" (icon takes 2 cells) and "🖥️ registry"
-	# without wrapping or truncating. ``no_wrap`` keeps it on one line if a
-	# longer source ever appears.
+	# 16 fits "🍫 chocolatey" (icon takes 2 cells). ``no_wrap`` keeps it on
+	# one line if a longer source ever appears.
 	table.add_column('Source', min_width=16, no_wrap=True)
 	table.add_column('Version', width=15)
 	table.add_column('Latest', width=15)

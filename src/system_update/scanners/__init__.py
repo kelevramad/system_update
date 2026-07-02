@@ -35,22 +35,17 @@ def get_scanner_map() -> Dict[str, ScannerFunc]:
 
 
 from system_update.scanners import (  # noqa: E402
-	appx,
 	bun,
 	chocolatey,
 	dotnet,
 	drivers,
-	msix,
 	npm,
 	path,
 	pip,
 	pnpm,
-	registry,
 	rust,
 	scoop,
 	services,
-	psmodules,
-	vsextensions,
 	winget,
 	yarn,
 )
@@ -70,13 +65,8 @@ class PackageScanner:
 	scan_rust = staticmethod(rust.scan)
 	scan_dotnet = staticmethod(dotnet.scan)
 	scan_scoop = staticmethod(scoop.scan)
-	scan_registry = staticmethod(registry.scan)
-	scan_appx = staticmethod(appx.scan)
-	scan_msix = staticmethod(msix.scan)
 	scan_drivers = staticmethod(drivers.scan)
 	scan_services = staticmethod(services.scan)
-	scan_psmodules = staticmethod(psmodules.scan)
-	scan_vsextensions = staticmethod(vsextensions.scan)
 
 	_parse_pip_list = staticmethod(pip._parse_pip_list)
 
@@ -121,11 +111,6 @@ def _scan_path() -> List[AppInfo]:
 	return PackageScanner.scan_path()
 
 
-@scanner('registry')
-def _scan_registry() -> List[AppInfo]:
-	return PackageScanner.scan_registry()
-
-
 @scanner('rust')
 def _scan_rust() -> List[AppInfo]:
 	return PackageScanner.scan_rust()
@@ -141,16 +126,6 @@ def _scan_dotnet() -> List[AppInfo]:
 	return PackageScanner.scan_dotnet()
 
 
-@scanner('appx')
-def _scan_appx() -> List[AppInfo]:
-	return PackageScanner.scan_appx()
-
-
-@scanner('msix')
-def _scan_msix() -> List[AppInfo]:
-	return PackageScanner.scan_msix()
-
-
 @scanner('drivers')
 def _scan_drivers() -> List[AppInfo]:
 	return PackageScanner.scan_drivers()
@@ -159,16 +134,6 @@ def _scan_drivers() -> List[AppInfo]:
 @scanner('services')
 def _scan_services() -> List[AppInfo]:
 	return PackageScanner.scan_services()
-
-
-@scanner('psmodules')
-def _scan_psmodules() -> List[AppInfo]:
-	return PackageScanner.scan_psmodules()
-
-
-@scanner('vsextensions')
-def _scan_vsextensions() -> List[AppInfo]:
-	return PackageScanner.scan_vsextensions()
 
 
 __all__ = ['PackageScanner', 'get_scanner_map', 'scanner']

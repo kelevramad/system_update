@@ -78,10 +78,7 @@ def test_summary_wraps_source_chips_inside_panel(monkeypatch):
 		scan_time=0,
 		sources_count={
 			'winget': 243,
-			'registry': 105,
 			'pip': 85,
-			'appx': 78,
-			'msix': 57,
 			'chocolatey': 21,
 			'npm': 20,
 			'path': 12,

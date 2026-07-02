@@ -452,13 +452,10 @@ _SOURCE_BADGE_STYLES = {
     'yarn': 'bright_white',
     'rust': 'color(129)',
     'path': 'green',
-    'registry': 'grey37',
     'scoop': 'bright_yellow',
     'dotnet': 'gold',
     'drivers': 'bright_blue',
     'services': 'bright_green',
-    'psmodules': 'bright_magenta',
-    'vsextensions': 'bright_cyan',
 }
 
 
@@ -492,13 +489,10 @@ THEMES = {
             'yarn': 'bright_white',
             'rust': 'color(129)',
             'path': 'green',
-            'registry': 'grey37',
                         'scoop': 'yellow',
                         'dotnet': 'gold',
                         'drivers': 'bright_blue',
                         'services': 'bright_green',
-                        'psmodules': 'bright_magenta',
-                        'vsextensions': 'bright_cyan',
         },
         'status_colors': {
             'up_to_date': 'green',
@@ -525,13 +519,10 @@ THEMES = {
             'yarn': 'bright_white',
             'rust': 'color(171)',
             'path': 'bright_green',
-            'registry': 'grey37',
                         'scoop': 'bright_yellow',
                         'dotnet': 'bright_gold',
                         'drivers': 'bright_blue',
                         'services': 'bright_green',
-                        'psmodules': 'bright_magenta',
-                        'vsextensions': 'bright_cyan',
         },
         'status_colors': {
             'up_to_date': 'bold green',
@@ -558,13 +549,10 @@ THEMES = {
             'yarn': 'dim white',
             'rust': 'dim color(207)',
             'path': 'dim green',
-            'registry': 'dim grey',
                         'scoop': 'dim yellow',
                         'dotnet': 'dim gold',
                         'drivers': 'dim blue',
                         'services': 'dim green',
-                        'psmodules': 'dim magenta',
-                        'vsextensions': 'dim cyan',
         },
         'status_colors': {
             'up_to_date': 'green',
@@ -591,13 +579,10 @@ THEMES = {
             'yarn': 'white',
             'rust': 'color(207)',
             'path': 'green',
-            'registry': 'grey',
                         'scoop': 'yellow',
                         'dotnet': 'gold',
                         'drivers': 'blue',
                         'services': 'green',
-                        'psmodules': 'magenta',
-                        'vsextensions': 'cyan',
         },
         'status_colors': {
             'up_to_date': 'green',
@@ -624,13 +609,10 @@ THEMES = {
             'yarn': 'color(255)',
             'rust': 'color(171)',
             'path': 'color(82)',
-            'registry': 'color(242)',
                         'scoop': 'color(226)',
                         'dotnet': 'color(220)',
                         'drivers': 'color(45)',
                         'services': 'color(82)',
-                        'psmodules': 'color(201)',
-                        'vsextensions': 'color(51)',
         },
         'status_colors': {
             'up_to_date': 'bold color(82)',
@@ -648,10 +630,6 @@ THEMES = {
 }
 
 
-# Bare emojis (no U+FE0F variation selector). Rich miscounts cell-width
-# for VS-augmented emoji vs. how the terminal renders them, which would
-# desynchronise panel borders from their content. ``registry`` previously
-# used ``🖥️`` with a VS — replaced with the unqualified ``🖥``.
 SOURCE_ICONS = {
     'winget': '📦',
     'chocolatey': '🍫',
@@ -662,15 +640,10 @@ SOURCE_ICONS = {
     'yarn': '🧶',
     'rust': '🦀',
     'path': '📁',
-    'registry': '🖥 ',
     'scoop': '🥄',
     'dotnet': '🔷',
-    'appx': '🪟',
-    'msix': '📱',
     'drivers': '🧰',
     'services': '⚙ ',
-    'psmodules': '💠',
-    'vsextensions': '🔌',
 }
 
 

@@ -15,6 +15,12 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v9.0.0 (July 2026)
+
+- **Breaking Change - Source Cleanup**: Removed built-in `registry`, `appx`, `msix`, `psmodules`, and `vsextensions` sources because they duplicated Winget output or represented niche inventories better handled outside the default scanner.
+- **Code Cleanup**: Deleted the removed source scanner/checker modules, update builders, UI source styles/icons, config defaults, CLI help entries, and tests.
+- **Verification**: `uv run pytest`, `uv run ruff check .`, and `uv run python -m system_update --explain source` are clean.
+
 ### v8.14.3 (July 2026)
 
 - **Rust Updates**: Switched Rust package updates to `cargo install <package> --force`, added a longer Rust execution timeout, and stopped reporting same-version crates as available updates.

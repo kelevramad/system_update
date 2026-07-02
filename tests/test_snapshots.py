@@ -180,7 +180,7 @@ def test_rollback_supported_sources(source, expected_token):
 	assert any('1.0' in str(token) for token in cmd)
 
 
-@pytest.mark.parametrize('source', ['PATH', 'registry', 'Scoop', 'dotnet', 'Rust'])
+@pytest.mark.parametrize('source', ['PATH', 'Scoop', 'dotnet', 'Rust'])
 def test_rollback_unsupported_sources(source):
 	assert supports_rollback(source) is False
 	app = AppInfo(name='pkg', source=source, version='2.0', latest_version='1.0')

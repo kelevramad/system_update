@@ -84,6 +84,13 @@ def test_source_unknown_source():
 	assert res['code'] != 0 or 'error' in (res['stdout'] + res['stderr']).lower()
 
 
+def test_removed_sources_are_unknown():
+	res = run_cli(['--source', 'registry,appx,msix,psmodules,vsextensions'], timeout=60)
+	output = res['stdout'] + res['stderr']
+	assert 'Unknown source(s)' in output
+	assert 'No valid sources' in output
+
+
 def test_dry_run_flag():
 	res = run_cli(['--dry-run', '--source', 'chocolatey', '--yes'], timeout=120)
 	assert res['code'] == 0

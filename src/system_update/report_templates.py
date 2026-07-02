@@ -36,15 +36,10 @@ _SOURCE_HEX = {
 	'yarn': '#2c8ebb',
 	'rust': '#dea584',
 	'path': '#2e7d32',
-	'registry': '#5c5c5c',
 	'scoop': '#fbbd08',
 	'dotnet': '#512bd4',
-	'appx': '#0078d4',
-	'msix': '#0078d4',
 	'drivers': '#0288d1',
 	'services': '#2e7d32',
-	'psmodules': '#7b1fa2',
-	'vsextensions': '#007acc',
 }
 
 

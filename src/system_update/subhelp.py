@@ -227,13 +227,8 @@ def _page_source(console: Console) -> None:
 		('rust', 'Cargo / Rust toolchain'),
 		('dotnet', 'dotnet global tools'),
 		('path', 'Executables on PATH'),
-		('registry', 'Windows Uninstall registry'),
-		('appx', 'Appx packages (Windows Store)'),
-		('msix', 'MSIX packages'),
 		('drivers', 'Windows driver packages via pnputil'),
 		('services', 'Windows services and executable versions'),
-		('psmodules', 'Installed PowerShell modules'),
-		('vsextensions', 'Visual Studio Code extensions'),
 	]:
 		t.add_row(src, desc)
 	console.print(t)
@@ -591,8 +586,7 @@ def _page_rollback(console: Console) -> None:
 	console.print('[bold]Supported sources[/bold]')
 	console.print(
 		'  [green]✓[/green] winget, chocolatey, npm, pnpm, bun, yarn, pip\n'
-		'  [yellow]✗[/yellow] PATH, registry, scoop, dotnet, rust, appx, msix, '
-		'drivers, services, psmodules, vsextensions '
+		'  [yellow]✗[/yellow] PATH, scoop, dotnet, rust, drivers, services '
 		'[dim](no version-pinning install command)[/dim]\n'
 	)
 	console.print('[bold]Flags it honours[/bold]')
@@ -654,7 +648,7 @@ def _page_dependency_graph(console: Console) -> None:
 	])
 
 
-# ─── Registry ──────────────────────────────────────────────────────────────
+# ─── Help Page Registry ────────────────────────────────────────────────────
 
 
 _REGISTRY: Dict[str, Callable[[Console], None]] = {

@@ -155,37 +155,6 @@ def _dotnet(action: CommandAction, app: AppInfo) -> Optional[Command]:
 	return ['dotnet', 'tool', 'update', '-g', app.name]
 
 
-def _appx(action: CommandAction, app: AppInfo) -> Optional[Command]:
-	if action == 'rollback':
-		return None
-	app_id = _safe_argv_token(app.app_id, field='app_id')
-	if not app_id:
-		return None
-	return [
-		'winget', 'upgrade', '--id', app_id, '--source', 'msstore',
-		'--accept-source-agreements', '--accept-package-agreements',
-	]
-
-
-def _ps_single_quote(value: str) -> str:
-	return "'" + value.replace("'", "''") + "'"
-
-
-def _psmodules(action: CommandAction, app: AppInfo) -> Optional[Command]:
-	if action == 'rollback':
-		return None
-	return [
-		'powershell', '-NoProfile', '-Command',
-		f'Update-Module -Name {_ps_single_quote(app.name)} -Force',
-	]
-
-
-def _vsextensions(action: CommandAction, app: AppInfo) -> Optional[Command]:
-	if action == 'rollback':
-		return None
-	return ['code', '--install-extension', app.app_id or app.name, '--force']
-
-
 def _deno_updater(app: AppInfo) -> Command:
 	version = _safe_argv_token(app.latest_version, field='latest_version')
 	if version:
@@ -200,8 +169,8 @@ def _pwsh_updater(app: AppInfo) -> Command:
 	``iex "& { $(irm https://aka.ms/install-powershell.ps1) }"``, fetching
 	and executing a remote script with no integrity check. winget verifies
 	the installer's SHA-256 against its source manifest, so the install is
-	tied to a known-good binary. Source pinned to ``winget`` to avoid the
-	``msstore`` package which has different upgrade semantics.
+	tied to a known-good binary. Source pinned to ``winget`` to avoid Store
+	packages with different upgrade semantics.
 	"""
 	return [
 		'winget', 'install', '--id', 'Microsoft.PowerShell',
@@ -237,9 +206,6 @@ _BUILDERS: Dict[str, Callable[[CommandAction, AppInfo], Optional[Command]]] = {
 	'pip': _pip,
 	'rust': _rust,
 	'dotnet': _dotnet,
-	'appx': _appx,
-	'psmodules': _psmodules,
-	'vsextensions': _vsextensions,
 	'path': _path,
 }
 _ROLLBACK_SOURCES = frozenset({
@@ -264,7 +230,7 @@ def build_rollback_command(app: AppInfo) -> Optional[Command]:
 
 	The caller stages an :class:`AppInfo` whose ``latest_version`` holds the
 	*old* version they want to restore. ``None`` means rollback isn't
-	supported for this source (e.g. PATH/registry/scoop tools without
+	supported for this source (e.g. PATH/scoop tools without
 	version pinning).
 	"""
 	builder = _BUILDERS.get((app.source or '').lower())

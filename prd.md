@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 8.14.3
+**Document Version:** 9.0.0
 **Last Updated:** July 2, 2026
 **Author:** Kelevra Mad
-**Based On:** `src/system_update/` package (v8.14.3)
+**Based On:** `src/system_update/` package (v9.0.0)
 
 ---
 
@@ -31,7 +31,7 @@
 
 ## 1. Executive Summary
 
-**System Update Python CLI** is a comprehensive command-line tool designed to scan, discover, and update software packages across multiple package managers and system sources on Windows. It provides a unified interface for managing updates from Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Rust, Scoop, dotnet global tools, system PATH tools, Windows Registry installations, AppX/MSIX packages, drivers, services, PowerShell modules, VS Code extensions, and plugin-defined sources.
+**System Update Python CLI** is a comprehensive command-line tool designed to scan, discover, and update software packages across multiple package managers and system sources on Windows. It provides a unified interface for managing updates from Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Rust, Scoop, dotnet global tools, system PATH tools, drivers, services, and plugin-defined sources.
 
 The tool features parallel scanning, security vulnerability detection, intelligent caching, flexible export options, detailed logging, debug mode, and a polished terminal UI with real-time progress indicators.
 
@@ -42,11 +42,11 @@ The tool features parallel scanning, security vulnerability detection, intellige
 ### 2.1 Problem Statement
 
 Developers and system administrators often need to manage software updates across multiple package managers:
-- Windows: Winget, Chocolatey, Scoop, Registry, AppX/MSIX, drivers, services, PowerShell modules, VS Code extensions
+- Windows: Winget, Chocolatey, Scoop, drivers, services
 - JavaScript: NPM, PNPM, Bun, Yarn
 - Python: PIP
 - System tools: PATH-based installations
-- Windows applications: Registry-installed software
+- Windows applications: Winget-managed software
 
 Manually checking each source is time-consuming and error-prone. There is no unified solution that provides:
 - Cross-platform package discovery
@@ -139,17 +139,12 @@ All features and CLI options are implemented in the Python version. The legacy m
 | F-06 | Scan Yarn global packages | P1 | Implemented |
 | F-07 | Scan PIP packages | P0 | Implemented |
 | F-08 | Scan PATH tools (node, python, git, etc.) | P1 | Implemented |
-| F-09 | Scan Windows Registry applications | P1 | Implemented |
 | F-10 | Deduplicate results across sources | P0 | Implemented |
 | F-11 | Scan Rust packages (cargo install) | P1 | Implemented |
 | F-11a | Scan .NET Global Tools (dotnet tool list -g) | P1 | Implemented |
 | F-11b | Scan Scoop packages | P1 | Implemented |
-| F-11c | Scan AppX/Windows Store apps | P1 | Implemented |
-| F-11d | Scan MSIX packages | P1 | Implemented |
 | F-11e | Scan Windows drivers | P2 | Implemented |
 | F-11f | Scan Windows services and executable versions | P2 | Implemented |
-| F-11g | Scan PowerShell modules | P2 | Implemented |
-| F-11h | Scan VS Code extensions | P2 | Implemented |
 | F-11i | Scan plugin-defined package sources | P3 | Implemented |
 
 ### 5.2 Update Detection
@@ -164,13 +159,9 @@ All features and CLI options are implemented in the Python version. The legacy m
 | F-17 | Check Yarn for latest versions | P1 | Implemented |
 | F-18 | Check PIP for outdated packages | P0 | Implemented |
 | F-19 | Check PATH tools via GitHub API / commands | P1 | Implemented |
-| F-20 | Cross-reference Registry with Winget | P1 | Implemented |
 | F-21 | Check Rust for updates (cargo install-update) | P1 | Implemented |
 | F-21a | Check .NET Global Tools for updates (dotnet tool list -g --outdated) | P1 | Implemented |
-| F-21b | Check AppX/MSIX updates through Winget Store/upgrade data | P1 | Implemented |
 | F-21c | Reconcile driver and service inventory status | P2 | Implemented |
-| F-21d | Check PowerShell module updates | P2 | Implemented |
-| F-21e | Check VS Code extension updates through the shared network client | P2 | Implemented |
 | F-21f | Check plugin-defined package sources | P3 | Implemented |
 | F-21g | Reuse one parsed `winget upgrade` table per update-check run | P3 | Implemented |
 
@@ -199,8 +190,6 @@ All features and CLI options are implemented in the Python version. The legacy m
 | F-33 | Skip prompts with --yes flag | P1 | Implemented |
 | F-34 | Update Rust packages (cargo install-update) | P1 | Implemented |
 | F-34a | Update .NET Global Tools (dotnet tool update -g) | P1 | Implemented |
-| F-34b | Update PowerShell modules | P2 | Implemented |
-| F-34c | Update VS Code extensions | P2 | Implemented |
 | F-34d | Execute plugin-defined package updaters | P3 | Implemented |
 
 ### 5.5 Caching System
@@ -261,11 +250,9 @@ All features and CLI options are implemented in the Python version. The legacy m
 │  ┌─────────┬─────────┬─────────┬─────────┬─────────────┐   │
 │  │ Winget  │ Choco   │  NPM    │  PNPM   │  Bun/Yarn   │   │
 │  ├─────────┼─────────┼─────────┼─────────┼─────────────┤   │
-│  │  PIP    │  PATH   │Registry │  Rust   │   Scoop     │   │
+│  │  PIP    │  PATH   │  Rust   │  Scoop  │   dotnet    │   │
 │  ├─────────┼─────────┼─────────┼─────────┼─────────────┤   │
-│  │ dotnet  │ AppX    │ MSIX    │Drivers  │ Services    │   │
-│  ├─────────┼─────────┼─────────┼─────────┼─────────────┤   │
-│  │ PSMods  │ VS Ext  │ Plugins │  OSV    │  Security   │   │
+│  │Drivers  │Services │ Plugins │  OSV    │  Security   │   │
 │  └─────────┴─────────┴─────────┴─────────┴─────────────┘   │
 ├─────────────────────────────────────────────────────────────┤
 │ Update Checkers │ Executors │ Remote │ Snapshots/Rollback  │
@@ -474,16 +461,11 @@ Each source is displayed with a unique color badge:
     yarn: boolean,
     pip: boolean,
     path: boolean,
-    registry: boolean,
     rust: boolean,
     scoop: boolean,
     dotnet: boolean,
-    appx: boolean,
-    msix: boolean,
     drivers: boolean,
-    services: boolean,
-    psmodules: boolean,
-    vsextensions: boolean
+    services: boolean
   },
   security: {
     enabled: boolean,
@@ -602,7 +584,6 @@ const DEFAULT_CONFIG = {
     yarn: true,
     pip: true,
     path: true,
-    registry: true,
     rust: true,
     scoop: true,
     dotnet: true,
@@ -675,16 +656,11 @@ python -m system_update [options]
 - `yarn`
 - `pip`
 - `path`
-- `registry`
 - `rust`
 - `scoop`
 - `dotnet`
-- `appx`
-- `msix`
 - `drivers`
 - `services`
-- `psmodules`
-- `vsextensions`
 
 ### 12.4 Example Commands
 
@@ -892,7 +868,7 @@ Configuration files, scheduled tasks, rollback, interactive selection, remote ma
 
 ### 16.2 Known Limitations
 
-1. **Windows-centric**: Registry, AppX/MSIX, driver, service, PowerShell module, VS Code extension, and WinRS remote features are Windows-focused.
+1. **Windows-centric**: Winget, driver, service, and WinRS remote features are Windows-focused.
 2. **Global packages only**: Does not scan project-local dependency trees as package sources.
 3. **No dependency resolver**: Updates are orchestrated per package/source; dependency graph output is advisory.
 4. **Authentication is source-specific**: Private registries/remotes depend on the underlying package manager, WinRS, or user-provided environment/config.
@@ -909,6 +885,7 @@ Configuration files, scheduled tasks, rollback, interactive selection, remote ma
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 9.0.0 | July 2026 | Breaking source cleanup: removed built-in `registry`, `appx`, `msix`, `psmodules`, and `vsextensions` scanners/checkers because they duplicated Winget output or represented niche inventories better handled outside the default scanner. Removed related update builders, config defaults, UI source styles/icons, CLI help entries, and tests |
 | 8.14.3 | July 2026 | Patch release for Rust update execution and cached summary metadata: Rust updates use `cargo install --force` with a longer timeout and no longer count same-version crates as updates; cache entries include scan time, per-source update counts, and deduplicated security summary data; source summary chips can show update counts |
 | 8.14.2 | July 2026 | Patch fix for global Python console-script installs: Python 3.10+ now declares `click>=8.2.0`, keeping Typer's generic `click.Choice` usage compatible outside `uv run`; refreshed lockfile metadata and verified CLI help plus focused CLI tests |
 | 8.14.1 | June 2026 | Test quality patch: removed 2 duplicate security tests, added 14 tests for local advisory loader, PyPI vulnerability scanner, pip checker, and dotnet checker; added `test_update_all_dry-run` for full update workflow verification; updated pyright to 1.1.410; coverage improved from 76% to 77% |

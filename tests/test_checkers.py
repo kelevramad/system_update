@@ -98,14 +98,6 @@ def test_check_dotnet_updates(mock_run):
 
 
 @patch('system_update.run_command')
-def test_check_registry_updates(mock_run):
-	apps = [AppInfo(name='test', source='registry', version='1.0')]
-	mock_run.return_value = 'TestApp v2.0'
-	count = UpdateChecker._check_registry_updates(apps)
-	assert count >= 0
-
-
-@patch('system_update.run_command')
 def test_check_winget_updates(mock_run):
 	apps = [AppInfo(name='Git', source='Winget', version='2.40.0', app_id='Git.Git')]
 	header = 'Name                           Id                                         Version          Available        Source'
@@ -116,74 +108,22 @@ def test_check_winget_updates(mock_run):
 
 
 @patch('system_update.run_command')
-def test_check_appx_updates_from_msstore(mock_run):
-	apps = [AppInfo(name='Windows Terminal', source='appx', version='1.0', app_id='Terminal.Package')]
-	header = 'Name                           Id                                         Version          Available        Source'
-	line1 = 'Windows Terminal               Microsoft.WindowsTerminal                  1.0              1.1              msstore'
-	mock_run.return_value = f'{header}\n---\n{line1}'
-	count = UpdateChecker._check_appx_updates(apps)
-	assert count == 1
-	assert apps[0].latest_version == '1.1'
-	assert apps[0].app_id == 'Microsoft.WindowsTerminal'
-
-
-@patch('system_update.run_command')
-def test_check_msix_updates_from_winget_upgrade(mock_run):
-	apps = [AppInfo(name='Contoso App', source='msix', version='1.0', app_id='Contoso.App')]
-	header = 'Name                           Id                                         Version          Available        Source'
-	line1 = 'Contoso App                    Contoso.App                                1.0              1.2              winget'
-	mock_run.return_value = f'{header}\n---\n{line1}'
-	count = UpdateChecker._check_msix_updates(apps)
-	assert count == 1
-	assert apps[0].latest_version == '1.2'
-	assert apps[0].update_status == UpdateStatus.UPDATE_AVAILABLE
-
-
-def test_check_all_updates_runs_msix_checker(monkeypatch):
-	called = False
-	apps = [AppInfo(name='Contoso App', source='msix', version='1.0')]
-
-	def fake_msix(source_apps):
-		nonlocal called
-		called = True
-		source_apps[0].latest_version = '1.2'
-		source_apps[0].update_status = UpdateStatus.UPDATE_AVAILABLE
-
-	import system_update.checkers as checkers
-
-	monkeypatch.setitem(checkers._SOURCE_CHECKERS, 'msix', fake_msix)
-	count = checkers.check_all_updates(apps, max_workers=1)
-	assert called is True
-	assert count == 1
-	assert apps[0].latest_version == '1.2'
-
-
-@patch('system_update.run_command')
 def test_check_all_updates_reuses_winget_upgrade_output(mock_run):
 	header = 'Name                           Id                                         Version          Available        Source'
 	rows = [
 		'Git                            Git.Git                                    2.40.0           2.41.0           winget',
-		'test                           Test.App                                   1.0              2.0              winget',
-		'Windows Terminal               Microsoft.WindowsTerminal                  1.0              1.1              msstore',
-		'Contoso App                    Contoso.App                                1.0              1.2              winget',
 	]
 	mock_run.return_value = f'{header}\n---\n' + '\n'.join(rows)
 	apps = [
 		AppInfo(name='Git', source='winget', version='2.40.0', app_id='Git.Git'),
-		AppInfo(name='test', source='registry', version='1.0'),
-		AppInfo(name='Windows Terminal', source='appx', version='1.0'),
-		AppInfo(name='Contoso App', source='msix', version='1.0', app_id='Contoso.App'),
 	]
 
 	count = UpdateChecker.check_all_updates(apps, max_workers=4)
 
-	assert count == 4
+	assert count == 1
 	assert mock_run.call_count == 1
 	assert {app.name: app.latest_version for app in apps} == {
 		'Git': '2.41.0',
-		'test': '2.0',
-		'Windows Terminal': '1.1',
-		'Contoso App': '1.2',
 	}
 
 
@@ -199,107 +139,6 @@ def test_check_services_marks_up_to_date():
 	count = UpdateChecker._check_services_updates(apps)
 	assert count == 0
 	assert apps[0].update_status == UpdateStatus.UP_TO_DATE
-
-
-@patch('system_update.run_command')
-def test_check_psmodules_updates(mock_run):
-	apps = [
-		AppInfo(name='Pester', source='psmodules', version='5.0.0'),
-		AppInfo(name='ThreadJob', source='psmodules', version='2.0.3'),
-	]
-	mock_run.return_value = json.dumps(
-		[
-			{'Name': 'Pester', 'Version': '5.1.0'},
-			{'Name': 'ThreadJob', 'Version': '2.0.3'},
-		]
-	)
-	count = UpdateChecker._check_psmodules_updates(apps)
-	assert count == 1
-	assert apps[0].latest_version == '5.1.0'
-	assert apps[1].update_status == UpdateStatus.UP_TO_DATE
-	mock_run.assert_called_once()
-	command = mock_run.call_args.args[0]
-	assert "Find-Module -Name $names" in command[-1]
-	assert 'Version = $_.Version.ToString()' in command[-1]
-	assert mock_run.call_args.kwargs['timeout'] == 45
-
-
-@patch('system_update.run_command')
-def test_check_psmodules_parses_noisy_json_and_ignores_missing_modules(mock_run):
-	apps = [
-		AppInfo(name='Pester', source='psmodules', version='5.0.0'),
-		AppInfo(name='BuiltInModule', source='psmodules', version='1.0.0'),
-	]
-	mock_run.return_value = 'WARNING: repository warning\n{"Name":"Pester","Version":"5.1.0"}'
-
-	count = UpdateChecker._check_psmodules_updates(apps)
-
-	assert count == 1
-	assert apps[0].latest_version == '5.1.0'
-	assert apps[1].latest_version == ''
-	assert apps[1].update_status == UpdateStatus.UP_TO_DATE
-
-
-@patch('system_update.run_command')
-def test_check_psmodules_does_not_treat_version_table_as_latest(mock_run):
-	apps = [AppInfo(name='Pester', source='psmodules', version='5.0.0')]
-	mock_run.return_value = 'Major  Minor  Build  Revision\n-----  -----  -----  --------\n5  1  0  -1'
-
-	count = UpdateChecker._check_psmodules_updates(apps)
-
-	assert count == 0
-	assert apps[0].latest_version == ''
-	assert apps[0].update_status == UpdateStatus.UP_TO_DATE
-
-
-def test_check_vsextensions_updates(monkeypatch):
-	from system_update.checkers import vsextensions
-
-	apps = [AppInfo(name='ms-python.python', source='vsextensions', version='2026.1.0')]
-	monkeypatch.setattr(
-		vsextensions,
-		'_latest_marketplace_version',
-		lambda extension_id: '2026.2.0',
-	)
-	count = UpdateChecker._check_vsextensions_updates(apps)
-	assert count == 1
-	assert apps[0].latest_version == '2026.2.0'
-
-
-def test_vsextensions_uses_shared_network_client(monkeypatch):
-	from system_update.checkers import vsextensions
-
-	calls = []
-
-	def fake_fetch_json(url, **kwargs):
-		calls.append((url, kwargs))
-		return {'results': [{'extensions': [{'versions': [{'version': '2026.2.0'}]}]}]}
-
-	monkeypatch.setattr(vsextensions, 'fetch_json', fake_fetch_json)
-
-	latest = vsextensions._latest_marketplace_version('ms-python.python')
-
-	assert latest == '2026.2.0'
-	assert calls
-	url, kwargs = calls[0]
-	assert url.startswith('https://marketplace.visualstudio.com/')
-	assert kwargs['method'] == 'POST'
-	assert kwargs['payload']['filters'][0]['criteria'][0] == {
-		'filterType': 7,
-		'value': 'python',
-	}
-	assert kwargs['headers']['Accept'] == 'application/json;api-version=3.0-preview.1'
-
-
-def test_vsextensions_returns_empty_when_network_disabled(monkeypatch):
-	from system_update.checkers import vsextensions
-
-	def disabled_fetch_json(*_args, **_kwargs):
-		raise RuntimeError('Network access is disabled by configuration')
-
-	monkeypatch.setattr(vsextensions, 'fetch_json', disabled_fetch_json)
-
-	assert vsextensions._latest_marketplace_version('ms-python.python') == ''
 
 
 @patch('system_update.run_command')
@@ -330,7 +169,7 @@ def test_check_path_updates_empty(mock_run):
 	mock_run.assert_not_called()
 
 
-@pytest.mark.parametrize('source', ['Scoop', 'PATH', 'Appx', 'Msix', 'psmodules', 'vsextensions'])
+@pytest.mark.parametrize('source', ['Scoop', 'PATH'])
 @patch('system_update.run_command', return_value='OK')
 def test_executor_additional_sources(mock_run, source):
 	app = AppInfo(name='pkg', source=source, version='1.0', latest_version='1.1', app_id='ID')
@@ -352,13 +191,8 @@ def test_executor_additional_sources(mock_run, source):
 		'dotnet',
 		'scoop',
 		'path',
-		'registry',
-		'appx',
-		'msix',
 		'drivers',
 		'services',
-		'psmodules',
-		'vsextensions',
 	],
 )
 @patch('system_update.run_command', return_value='Updated successfully')

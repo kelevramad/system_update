@@ -4,7 +4,7 @@
 
 A comprehensive Python-based system package management tool that scans, checks, and updates software from multiple sources.
 
-**Version:** 8.14.3
+**Version:** 9.0.0
 **Runtime:** Python 3.8+
 **Platform:** Windows (primarily), cross-platform support
 **Layout:** Modular package at `src/system_update/` (typer CLI)
@@ -13,7 +13,7 @@ A comprehensive Python-based system package management tool that scans, checks, 
 
 ## 🌟 Features
 
-- **Multi-source Package Discovery**: Scan applications installed via Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Scoop, system PATH executables, Windows Registry, AppX/MSIX, drivers, services, PowerShell modules, and VS Code extensions.
+- **Multi-source Package Discovery**: Scan applications installed via Winget, Chocolatey, NPM, PNPM, Bun, Yarn, PIP, Scoop, system PATH executables, drivers, and services.
 - **Security Scanning**: Vulnerability checking through npm audit, pip/pip-audit, OSV, PyPI, GitHub Advisory, and local advisory data.
 - **Smart Caching**: 2-hour readable JSON cache with per-source freshness, incremental rescans, delta records, pruning, selective storage, a bounded hot-package LRU cache, optional prefetch, and post-upgrade refresh so updated packages do not reappear as stale updates.
 - **Network Optimization**: Batched OSV security lookups, rate-limited/cached JSON API responses, and one shared `winget upgrade` table per update-check run.
@@ -36,7 +36,7 @@ A comprehensive Python-based system package management tool that scans, checks, 
 
 ### System Requirements
 - **Python 3.8+** - Required for dataclasses and type hints
-- **Windows 10/11** - Primary platform (Winget, Registry support)
+- **Windows 10/11** - Primary platform (Winget support)
 - **Package Managers** - Optional, based on sources used:
   - **Winget** - Windows Package Manager
   - **Chocolatey** - Chocolatey package manager
@@ -44,7 +44,7 @@ A comprehensive Python-based system package management tool that scans, checks, 
   - **Python** - For PIP package support
   - **Rust** - For Cargo package support (`cargo-update` required for updates)
   - **Git** - For Git version detection
-  - **PowerShell** - For Registry, AppX/MSIX, services, drivers, and PowerShell module scanning
+  - **PowerShell** - For services and driver scanning
 
 ---
 
@@ -93,7 +93,7 @@ python -m system_update --export json --output report.json
 | `--update-source <source>` | Update all packages from a specific source |
 | `--update-package <name>` | Update a specific package by name |
 | `--version <ver>` | Target version (use with `--update-package`) |
-| `--source <source>` | Filter by source (winget\|chocolatey\|npm\|pnpm\|bun\|yarn\|pip\|path\|rust\|registry\|appx\|msix\|drivers\|services\|psmodules\|vsextensions) |
+| `--source <source>` | Filter by source (winget\|chocolatey\|npm\|pnpm\|bun\|yarn\|pip\|path\|rust\|drivers\|services) |
 | `--dry-run` | Show planned updates without executing |
 | `--no-cache` | Force fresh scan (ignore cache) |
 | `--clear-cache` | Remove cache file and exit |
@@ -325,16 +325,11 @@ file and running with defaults.
         "yarn": true,
         "pip": true,
         "path": true,
-        "registry": true,
         "rust": true,
         "scoop": true,
         "dotnet": true,
-        "appx": true,
-        "msix": true,
         "drivers": true,
-        "services": true,
-        "psmodules": true,
-        "vsextensions": true
+        "services": true
     },
     "security": {
         "enabled": true,
@@ -377,15 +372,10 @@ file and running with defaults.
 | PIP | ✅ | ✅ | ✅ |
 | Rust | ✅ | ✅ | ❌ |
 | PATH | ✅ | ✅ | ❌ |
-| Registry | ✅ | ✅ | ❌ |
 | Scoop | ✅ | ✅ | ❌ |
 | dotnet | ✅ | ✅ | ❌ |
-| AppX | ✅ | ✅ | ❌ |
-| MSIX | ✅ | ✅ | ❌ |
 | Drivers | ✅ | ✅ | ❌ |
 | Services | ✅ | ✅ | ❌ |
-| PowerShell modules | ✅ | ✅ | ❌ |
-| VS Code extensions | ✅ | ✅ | ❌ |
 | Plugin sources | ✅ | ✅ | Plugin-defined |
 
 ---

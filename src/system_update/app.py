@@ -60,16 +60,11 @@ _SCAN_ORDER = (
     'yarn',
     'pip',
     'path',
-    'registry',
     'rust',
     'scoop',
     'dotnet',
-    'appx',
-    'msix',
     'drivers',
     'services',
-    'psmodules',
-    'vsextensions',
 )
 
 _KNOWN_SOURCES: Set[str] = set(_SCAN_ORDER) | set(_SOURCE_ALIASES.keys())
