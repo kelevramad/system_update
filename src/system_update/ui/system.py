@@ -15,7 +15,7 @@ from system_update.security.common import is_security_issue
 from system_update.ui.theme import ThemeManager
 from system_update.utils import console, display_source, source_chip, source_icon
 
-_VERSION = '8.14.2'
+_VERSION = '8.14.3'
 _SEVERITY_PRIORITY = {'CRITICAL': 0, 'HIGH': 1,
                       'MEDIUM': 2, 'LOW': 3, 'UNKNOWN': 4}
 _SEVERITY_COLORS = {
@@ -271,6 +271,7 @@ def display_summary(
         updates: int,
         scan_time: float,
         sources_count: Dict[str, int],
+        sources_updates: Optional[Dict[str, int]] = None,
         show_all: bool = False,  # noqa: ARG001 — reserved for future "all apps" variant
         security_stats: Optional[Dict] = None,
 ) -> None:
@@ -306,11 +307,18 @@ def display_summary(
     # terminal's actual cell widths. Letting the Panel/Group own wrapping
     # keeps every line strictly inside the panel borders regardless of the
     # window size.
-    chip_parts = [
-        f'{source_chip(s)}[bold white]:{c}[/bold white]'
-        for s, c in sorted(sources_count.items(), key=lambda kv: -kv[1])
-        if c > 0
-    ]
+    chip_parts = []
+    for s, c in sorted(sources_count.items(), key=lambda kv: -kv[1]):
+        if c > 0:
+            upd = (sources_updates or {}).get(s, 0)
+            if upd:
+                chip_parts.append(
+                    f'{source_chip(s)}[bold white]:{c}/{upd}[/bold white]'
+                )
+            else:
+                chip_parts.append(
+                    f'{source_chip(s)}[bold white]:{c}[/bold white]'
+                )
     if chip_parts:
         sources_text = Text.from_markup(
             '✨ [dim]Sources:[/dim] ' + '   '.join(chip_parts)

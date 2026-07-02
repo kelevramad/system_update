@@ -14,7 +14,6 @@ pip-delete-this-directory.txt
 
 # Cache directories
 .ruff_cache/
-.crush/
 
 # Environment files
 .env
@@ -30,6 +29,15 @@ env/
 *.swp
 *.swo
 *~
+
+# CLI tools
+.antigravitycli/
+.claude/
+.crush/
+.hypothesis/
+.kilo/
+.mimocode/
+
 
 # OS
 .DS_Store
@@ -61,6 +69,8 @@ CLAUDE.md
 # Graphviz files
 .graphviz/
 *.dot
+
+# Other
 HARDENING_PLAN.md
 HARDENING_VERIFICATION_REPORT.md
 HARDENING_IMPLEMENTATION_PLAN.md

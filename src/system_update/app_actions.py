@@ -700,7 +700,8 @@ class AppActionsMixin:
         )
 
     def _save_cache_with_context(
-            self, apps: List[AppInfo], refreshed_sources: Optional[Set[str]] = None
+            self, apps: List[AppInfo], refreshed_sources: Optional[Set[str]] = None,
+            scan_time: float = 0.0,
     ) -> None:
         """Wrap ``cache_mgr.save`` so we always record the pip context."""
         interpreter, in_venv = self._current_pip_context()
@@ -709,6 +710,7 @@ class AppActionsMixin:
             pip_interpreter=interpreter,
             pip_in_venv=in_venv,
             refreshed_sources=refreshed_sources,
+            scan_time=scan_time,
         )
 
     def _update_cache_state(self, apps: List[AppInfo]) -> Tuple[Tuple[str, ...], ...]:

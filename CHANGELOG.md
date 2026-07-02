@@ -15,6 +15,13 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v8.14.3 (July 2026)
+
+- **Rust Updates**: Switched Rust package updates to `cargo install <package> --force`, added a longer Rust execution timeout, and stopped reporting same-version crates as available updates.
+- **Cache Metadata**: Cache writes now include scan time, per-source update counts, and a deduplicated security summary so cached scan output has richer context.
+- **UI Summary**: Source chips can now show both scanned package counts and update counts when updates are available.
+- **Housekeeping**: Expanded `.gitignore` for local agent/tool working directories.
+
 ### v8.14.2 (July 2026)
 
 - **Bug Fix - Global Python Entry Point**: Added an explicit `click>=8.2.0` dependency for Python 3.10+ so the installed `system-update` console script uses a Click version compatible with Typer's generic `click.Choice` support.

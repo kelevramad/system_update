@@ -243,12 +243,43 @@ class CacheManager:
 		except Exception:
 			return {}
 
+	def _build_security(self, apps: List[AppInfo]) -> Dict:
+		"""Compute security stats from the app list for cache storage."""
+		seen_keys: Set[str] = set()
+		vulns: List[Dict] = []
+		for app in apps:
+			for f in app.security_findings or []:
+				if (f.get('type') or '').lower() == 'security_issue':
+					continue
+				cve = f.get('cve') or f.get('cve_id') or 'N/A'
+				key = f'{(app.name or "").lower()}|{cve}'
+				if key in seen_keys:
+					continue
+				seen_keys.add(key)
+				vulns.append(f)
+
+		sev: Dict[str, int] = {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0}
+		affected: Set[str] = set()
+		for v in vulns:
+			severity = (v.get('severity') or 'MEDIUM').upper()
+			if severity in sev:
+				sev[severity] += 1
+			affected.add((v.get('package') or '').lower())
+
+		return {
+			'totalVulnerabilities': len(vulns),
+			'severityBreakdown': sev,
+			'packagesAffected': len(affected),
+			'persistentVulnerabilities': 0,
+		}
+
 	def save(
 		self,
 		apps: List[AppInfo],
 		pip_interpreter: str = '',
 		pip_in_venv: bool = False,
 		refreshed_sources: Optional[Set[str]] = None,
+		scan_time: float = 0.0,
 	) -> None:
 		"""Serialize ``apps`` to disk with timestamp + sources + pip context.
 
@@ -276,6 +307,11 @@ class CacheManager:
 				source_metadata[source] = {
 					'timestamp': now,
 					'package_count': sum(1 for app in apps if app.source.lower() == source),
+					'package_updates': sum(
+						1 for app in apps
+						if app.source.lower() == source
+						and app.update_status == UpdateStatus.UPDATE_AVAILABLE
+					),
 					'duration_hours': self.duration.total_seconds() / 3600,
 				}
 			for source in set(source_metadata) - seen:
@@ -285,8 +321,10 @@ class CacheManager:
 				'timestamp': now,
 				'version': CACHE_VERSION,
 				'totalApps': len(apps),
+				'scanTime': scan_time,
 				'sources': sorted(sources_seen),
 				'source_metadata': source_metadata,
+				'security': self._build_security(apps),
 				'apps': [self._app_to_cache_dict(app) for app in apps],
 			}
 			if self.delta_enabled:

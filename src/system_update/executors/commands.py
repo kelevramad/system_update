@@ -146,7 +146,7 @@ def _pip(action: CommandAction, app: AppInfo) -> Optional[Command]:
 def _rust(action: CommandAction, app: AppInfo) -> Optional[Command]:
 	if action == 'rollback':
 		return None
-	return ['cargo', 'install-update', app.name]
+	return ['cargo', 'install', app.name, '--force']
 
 
 def _dotnet(action: CommandAction, app: AppInfo) -> Optional[Command]:

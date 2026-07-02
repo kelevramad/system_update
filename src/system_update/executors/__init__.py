@@ -28,6 +28,10 @@ from system_update.executors.commands import (
 from system_update.models import AppInfo, UpdateStatus
 from system_update.utils import console, display_source, run_command
 
+_SOURCE_TIMEOUTS: Dict[str, int] = {
+	'rust': 300,
+}
+
 
 def _needs_venv_scrub(app: AppInfo) -> bool:
 	"""True if the update should run with ``VIRTUAL_ENV`` scrubbed.
@@ -62,7 +66,8 @@ def execute_single_update(
 	cmd = build_update_command(app)
 	if cmd is None:
 		return False
-	return bool(run_command(cmd, scrub_venv=_needs_venv_scrub(app)))
+	timeout = _SOURCE_TIMEOUTS.get((app.source or '').lower(), 45)
+	return bool(run_command(cmd, timeout=timeout, scrub_venv=_needs_venv_scrub(app)))
 
 
 def _progress() -> Progress:

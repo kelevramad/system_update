@@ -329,7 +329,9 @@ class RunCommand:
                 )
             else:
                 app_ctx._save_cache_with_context(
-                    apps, app_ctx._fresh_scan_sources(args, apps))
+                    apps, app_ctx._fresh_scan_sources(args, apps),
+                    scan_time=scan_time,
+                )
                 console.print(
                     f'[dim]💾 Cache updated ({len(apps)} items across '
                     f'{len({a.source.lower() for a in apps})} sources) '
@@ -360,9 +362,12 @@ class RunCommand:
 
         # ── shared rendering path (cache hit OR fresh scan) ────────────────
         sources_count: Dict[str, int] = {}
+        sources_updates: Dict[str, int] = {}
         for app in apps:
             source = display_source(app.source)
             sources_count[source] = sources_count.get(source, 0) + 1
+            if app.update_status == UpdateStatus.UPDATE_AVAILABLE:
+                sources_updates[source] = sources_updates.get(source, 0) + 1
 
         # Flatten security findings from AppInfo so cache-hit path also gets
         # a summary (security_vulns is only populated on fresh scan).
@@ -388,6 +393,7 @@ class RunCommand:
             total_updates,
             scan_time,
             sources_count,
+            sources_updates=sources_updates,
             show_all=args.show_all,
             security_stats=security_stats,
         )

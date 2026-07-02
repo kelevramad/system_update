@@ -28,8 +28,9 @@ def check(apps: List[AppInfo]) -> int:
 		latest = _fetch_crate_latest(app.name)
 		if latest:
 			app.latest_version = latest
-			app.update_status = UpdateStatus.UPDATE_AVAILABLE
-			updates += 1
+			if latest != app.version:
+				app.update_status = UpdateStatus.UPDATE_AVAILABLE
+				updates += 1
 		else:
 			errors += 1
 
