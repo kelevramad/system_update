@@ -27,11 +27,11 @@ from system_update.models import AppInfo, UpdateStatus
 from system_update.network import configure_network, fetch_json
 from system_update.notifications import NotificationManager
 from system_update.plugins import (
-    PluginRegistry,
-    checker_map,
-    load_plugins,
-    scanner_map,
-    security_checker_map,
+	PluginRegistry,
+	checker_map,
+	load_plugins,
+	scanner_map,
+	security_checker_map,
 )
 from system_update.scanners import PackageScanner, get_scanner_map
 from system_update.security import SecurityChecker
@@ -43,411 +43,401 @@ logger = logging.getLogger(__name__)
 
 
 def _split_security_results(results: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
-    """Return ``(vulnerabilities, scanner_issues)`` for security check output."""
-    issues = [item for item in results if is_security_issue(item)]
-    vulns = [item for item in results if not is_security_issue(item)]
-    return vulns, issues
+	"""Return ``(vulnerabilities, scanner_issues)`` for security check output."""
+	issues = [item for item in results if is_security_issue(item)]
+	vulns = [item for item in results if not is_security_issue(item)]
+	return vulns, issues
 
 
 _SOURCE_ALIASES = {'choco': 'chocolatey'}
 
 _SCAN_ORDER = (
-    'winget',
-    'chocolatey',
-    'npm',
-    'pnpm',
-    'bun',
-    'yarn',
-    'pip',
-    'path',
-    'rust',
-    'scoop',
-    'dotnet',
-    'drivers',
-    'services',
+	'winget',
+	'chocolatey',
+	'npm',
+	'pnpm',
+	'bun',
+	'yarn',
+	'pip',
+	'path',
+	'rust',
+	'scoop',
+	'dotnet',
+	'drivers',
+	'services',
 )
 
 _KNOWN_SOURCES: Set[str] = set(_SCAN_ORDER) | set(_SOURCE_ALIASES.keys())
 
 
 def _confirm_default_no(message: str) -> bool:
-    """Prompt for y/n with Enter defaulting to no."""
-    answer = Prompt.ask(
-        f'{message} [dim]\\[y/N][/dim]',
-        choices=['y', 'n', 'Y', 'N'],
-        default='n',
-        show_choices=False,
-        show_default=False,
-    )
-    return answer.lower() == 'y'
+	"""Prompt for y/n with Enter defaulting to no."""
+	answer = Prompt.ask(
+		f'{message} [dim]\\[y/N][/dim]',
+		choices=['y', 'n', 'Y', 'N'],
+		default='n',
+		show_choices=False,
+		show_default=False,
+	)
+	return answer.lower() == 'y'
 
 
 def _phase_time_label(label: str, start_time: float) -> str:
-    """Return a consistent elapsed-time message for a completed CLI phase."""
-    return f'[dim]⏱  {label} completed in {time.time() - start_time:.2f}s[/dim]\n'
+	"""Return a consistent elapsed-time message for a completed CLI phase."""
+	return f'[dim]⏱  {label} completed in {time.time() - start_time:.2f}s[/dim]\n'
 
 
 def _parse_source_filter(raw: Optional[str]) -> Set[str]:
-    """Turn a raw ``--source a,b,choco`` string into a set of canonical source names."""
-    if not raw:
-        return set()
-    return {
-        _SOURCE_ALIASES.get(item.strip().lower(), item.strip().lower())
-        for item in raw.split(',')
-        if item.strip()
-    }
+	"""Turn a raw ``--source a,b,choco`` string into a set of canonical source names."""
+	if not raw:
+		return set()
+	return {
+		_SOURCE_ALIASES.get(item.strip().lower(), item.strip().lower())
+		for item in raw.split(',')
+		if item.strip()
+	}
 
 
 def _partition_sources(
-        raw: Optional[str], extra_sources: Optional[Set[str]] = None
+	raw: Optional[str], extra_sources: Optional[Set[str]] = None
 ) -> Tuple[Set[str], Set[str]]:
-    """Split ``--source a,b,xpto`` into (valid_canonical, invalid_raw_tokens)."""
-    if not raw:
-        return set(), set()
-    known = _KNOWN_SOURCES | (extra_sources or set())
-    valid: Set[str] = set()
-    invalid: Set[str] = set()
-    for item in raw.split(','):
-        token = item.strip()
-        if not token:
-            continue
-        lowered = token.lower()
-        canonical = _SOURCE_ALIASES.get(lowered, lowered)
-        if canonical in known or lowered in known:
-            valid.add(canonical)
-        else:
-            invalid.add(token)
-    return valid, invalid
+	"""Split ``--source a,b,xpto`` into (valid_canonical, invalid_raw_tokens)."""
+	if not raw:
+		return set(), set()
+	known = _KNOWN_SOURCES | (extra_sources or set())
+	valid: Set[str] = set()
+	invalid: Set[str] = set()
+	for item in raw.split(','):
+		token = item.strip()
+		if not token:
+			continue
+		lowered = token.lower()
+		canonical = _SOURCE_ALIASES.get(lowered, lowered)
+		if canonical in known or lowered in known:
+			valid.add(canonical)
+		else:
+			invalid.add(token)
+	return valid, invalid
 
 
 def _pypi_fallback_latest(apps: List[AppInfo]) -> None:
-    """Fill in ``latest_version`` for vulnerable PIP packages that UpdateChecker missed."""
-    for app in apps:
-        if not (app.is_vulnerable and not app.latest_version):
-            continue
-        try:
-            url = f'https://pypi.org/pypi/{app.name}/json'
-            data = fetch_json(url)
-            if 'info' in data:
-                app.latest_version = data['info'].get('version', '')
-        except Exception:
-            pass
+	"""Fill in ``latest_version`` for vulnerable PIP packages that UpdateChecker missed."""
+	for app in apps:
+		if not (app.is_vulnerable and not app.latest_version):
+			continue
+		try:
+			url = f'https://pypi.org/pypi/{app.name}/json'
+			data = fetch_json(url)
+			if 'info' in data:
+				app.latest_version = data['info'].get('version', '')
+		except Exception:
+			pass
 
 
 def _parse_exclude_list(raw) -> List[str]:
-    """Normalize a comma-string or list into a clean list of exclude tokens."""
-    if not raw:
-        return []
-    if isinstance(raw, str):
-        items = raw.split(',')
-    else:
-        items = list(raw)
-    return [item.strip() for item in items if str(item).strip()]
+	"""Normalize a comma-string or list into a clean list of exclude tokens."""
+	if not raw:
+		return []
+	if isinstance(raw, str):
+		items = raw.split(',')
+	else:
+		items = list(raw)
+	return [item.strip() for item in items if str(item).strip()]
 
 
 def _exclude_matches(
-        app: AppInfo,
-        tokens: List[str],
-        extra_sources: Optional[Set[str]] = None,
+	app: AppInfo,
+	tokens: List[str],
+	extra_sources: Optional[Set[str]] = None,
 ) -> bool:
-    """Return True if ``app`` should be excluded based on any token.
+	"""Return True if ``app`` should be excluded based on any token.
 
-    Tokens accept three shapes (case-insensitive):
-    * ``source``             — every package from that known source
-      (e.g. ``--exclude pip`` drops all pip packages)
-    * ``source:name``        — match only when source AND name/app_id both match
-      (e.g. ``--exclude pip:requests``)
-    * ``source:*``           — same as bare ``source`` (explicit form)
-    * ``name``               — match any package whose name/app_id equals name
-      (only when ``name`` is not also a known source — sources win)
-    """
-    name = (app.name or '').lower()
-    source = (app.source or '').lower()
-    app_id = (app.app_id or '').lower()
-    known = _KNOWN_SOURCES | (extra_sources or set())
-    for token in tokens:
-        t = token.strip().lower()
-        if not t:
-            continue
-        if ':' in t:
-            t_src, t_name = t.split(':', 1)
-            if t_src == source and (t_name in ('*', '', name, app_id)):
-                return True
-        else:
-            # Bare token: prefer source match (most users expect ``--exclude pip``
-            # to drop all pip packages). Fall back to name/app_id otherwise.
-            if t in known:
-                if t == source:
-                    return True
-            elif t == name or t == app_id:
-                return True
-    return False
+	Tokens accept three shapes (case-insensitive):
+	* ``source``             — every package from that known source
+	  (e.g. ``--exclude pip`` drops all pip packages)
+	* ``source:name``        — match only when source AND name/app_id both match
+	  (e.g. ``--exclude pip:requests``)
+	* ``source:*``           — same as bare ``source`` (explicit form)
+	* ``name``               — match any package whose name/app_id equals name
+	  (only when ``name`` is not also a known source — sources win)
+	"""
+	name = (app.name or '').lower()
+	source = (app.source or '').lower()
+	app_id = (app.app_id or '').lower()
+	known = _KNOWN_SOURCES | (extra_sources or set())
+	for token in tokens:
+		t = token.strip().lower()
+		if not t:
+			continue
+		if ':' in t:
+			t_src, t_name = t.split(':', 1)
+			if t_src == source and (t_name in ('*', '', name, app_id)):
+				return True
+		else:
+			# Bare token: prefer source match (most users expect ``--exclude pip``
+			# to drop all pip packages). Fall back to name/app_id otherwise.
+			if t in known:
+				if t == source:
+					return True
+			elif t == name or t == app_id:
+				return True
+	return False
 
 
 def _apply_excludes(
-        apps: List[AppInfo],
-        tokens: List[str],
-        extra_sources: Optional[Set[str]] = None,
+	apps: List[AppInfo],
+	tokens: List[str],
+	extra_sources: Optional[Set[str]] = None,
 ) -> List[AppInfo]:
-    """Drop apps matching any exclude token. No-op if ``tokens`` is empty."""
-    if not tokens:
-        return apps
-    return [a for a in apps if not _exclude_matches(a, tokens, extra_sources)]
+	"""Drop apps matching any exclude token. No-op if ``tokens`` is empty."""
+	if not tokens:
+		return apps
+	return [a for a in apps if not _exclude_matches(a, tokens, extra_sources)]
 
 
 def _count_updates(apps: List[AppInfo]) -> int:
-    """Total = regular updates + vulnerable packages that also have a newer version available."""
-    regular = sum(1 for a in apps if a.update_status ==
-                  UpdateStatus.UPDATE_AVAILABLE)
-    security = sum(1 for a in apps if a.update_status ==
-                   UpdateStatus.VULNERABLE and a.has_update)
-    return regular + security
+	"""Total = regular updates + vulnerable packages that also have a newer version available."""
+	regular = sum(1 for a in apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE)
+	security = sum(1 for a in apps if a.update_status == UpdateStatus.VULNERABLE and a.has_update)
+	return regular + security
 
 
 from system_update.app_actions import AppActionsMixin  # noqa: E402
 
 
 class SystemUpdateApp(AppActionsMixin):
-    """Main orchestrator — compose subsystems in :meth:`__init__`, drive them in :meth:`run`."""
+	"""Main orchestrator — compose subsystems in :meth:`__init__`, drive them in :meth:`run`."""
 
-    def __init__(self) -> None:
-        self.config = SystemConfig()
-        self.settings = self.config.settings
-        configure_network(self.settings.get(
-            'network', {}), self.config.config_dir)
-        self.ui = UISystem()
-        self.scanner = PackageScanner()
-        self.checker = UpdateChecker()
-        self.executor = UpdateExecutor()
-        self.security = SecurityChecker()
-        self.cache_mgr = CacheManager(
-            self.config.cache_file,
-            self.settings.get('cache', {}).get('duration_hours', 2),
-        )
-        self._configure_cache_manager()
-        self.notifier = NotificationManager(self.config)
-        self.plugins: PluginRegistry = load_plugins(self.config)
-        self.notifier.plugin_registry = self.plugins
-        self.history_db = HistoryDatabase(
-            Path(self.config.config_dir) / 'history.db')
-        self.vuln_history = VulnerabilityHistory(
-            Path(self.config.config_dir) / 'vulnerability_history.json'
-        )
-        self._include_sources: Set[str] = set()
+	def __init__(self) -> None:
+		self.config = SystemConfig()
+		self.settings = self.config.settings
+		configure_network(self.settings.get('network', {}), self.config.config_dir)
+		self.ui = UISystem()
+		self.scanner = PackageScanner()
+		self.checker = UpdateChecker()
+		self.executor = UpdateExecutor()
+		self.security = SecurityChecker()
+		self.cache_mgr = CacheManager(
+			self.config.cache_file,
+			self.settings.get('cache', {}).get('duration_hours', 2),
+		)
+		self._configure_cache_manager()
+		self.notifier = NotificationManager(self.config)
+		self.plugins: PluginRegistry = load_plugins(self.config)
+		self.notifier.plugin_registry = self.plugins
+		from system_update.executors.commands import register_plugin_command_builders
+		from system_update.plugins import updater_command_builders
 
-    @property
-    def plugin_sources(self) -> Set[str]:
-        """Enabled custom source names registered by plugins."""
-        return {name for name, scanner in self.plugins.scanners.items() if scanner.enabled}
+		register_plugin_command_builders(updater_command_builders(self.plugins))
+		self.history_db = HistoryDatabase(Path(self.config.config_dir) / 'history.db')
+		self.vuln_history = VulnerabilityHistory(
+			Path(self.config.config_dir) / 'vulnerability_history.json'
+		)
+		self._include_sources: Set[str] = set()
 
-    def _scanner_order(self) -> Tuple[str, ...]:
-        """Built-in scanner order followed by plugin scanners sorted by source."""
-        return _SCAN_ORDER + tuple(sorted(self.plugin_sources))
+	@property
+	def plugin_sources(self) -> Set[str]:
+		"""Enabled custom source names registered by plugins."""
+		return {name for name, scanner in self.plugins.scanners.items() if scanner.enabled}
 
-    def __del__(self) -> None:
-        try:
-            if getattr(self, 'history_db', None):
-                self.history_db.close()
-        except Exception:
-            pass
+	def _scanner_order(self) -> Tuple[str, ...]:
+		"""Built-in scanner order followed by plugin scanners sorted by source."""
+		return _SCAN_ORDER + tuple(sorted(self.plugin_sources))
 
-    def _configure_cache_manager(self) -> None:
-        cache_settings = self.settings.get('cache', {})
-        self.cache_mgr.hot_cache_max_items = cache_settings.get(
-            'lru_max_items', 512)
-        self.cache_mgr.delta_enabled = cache_settings.get(
-            'delta_enabled', True)
-        self.cache_mgr.prune_after_days = cache_settings.get(
-            'prune_after_days', 14)
-        self.cache_mgr.storage_fields = cache_settings.get(
-            'storage_fields') or []
-        self.cache_mgr.omit_empty_fields = cache_settings.get(
-            'omit_empty_fields', True)
+	def __del__(self) -> None:
+		try:
+			if getattr(self, 'history_db', None):
+				self.history_db.close()
+		except Exception:
+			pass
 
-    # ── scanning ────────────────────────────────────────────────────────────
+	def _configure_cache_manager(self) -> None:
+		cache_settings = self.settings.get('cache', {})
+		self.cache_mgr.hot_cache_max_items = cache_settings.get('lru_max_items', 512)
+		self.cache_mgr.delta_enabled = cache_settings.get('delta_enabled', True)
+		self.cache_mgr.prune_after_days = cache_settings.get('prune_after_days', 14)
+		self.cache_mgr.storage_fields = cache_settings.get('storage_fields') or []
+		self.cache_mgr.omit_empty_fields = cache_settings.get('omit_empty_fields', True)
 
-    def scan_system(self, source_filter: Optional[str] = None) -> List[AppInfo]:
-        """Run every enabled source scanner in parallel with a per-source progress bar."""
-        scanners = get_scanner_map()
-        scanners.update(scanner_map(self.plugins))
+	# ── scanning ────────────────────────────────────────────────────────────
 
-        include = set(self._include_sources)
-        include.update(_parse_source_filter(source_filter))
-        if include:
-            scanners = {name: func for name,
-                        func in scanners.items() if name in include}
+	def scan_system(self, source_filter: Optional[str] = None) -> List[AppInfo]:
+		"""Run every enabled source scanner in parallel with a per-source progress bar."""
+		scanners = get_scanner_map()
+		scanners.update(scanner_map(self.plugins))
 
-        enabled = self.settings.get('sources', {})
-        # An explicit ``--source X`` request overrides ``sources.X: false`` in
-        # the active profile — the user asking for X by name wins. Surface a
-        # clear notice so it's obvious what happened.
-        overridden = sorted(
-            name for name in include if name in scanners and not enabled.get(name, True)
-        )
-        if overridden:
-            console.print(
-                f'[yellow]ℹ  Source(s) disabled in config but requested via '
-                f'--source:[/yellow] [bold]{", ".join(overridden)}[/bold] '
-                f'[dim](scanning anyway — pass [cyan]--save-config[/cyan] '
-                f'to make this permanent)[/dim]'
-            )
+		include = set(self._include_sources)
+		include.update(_parse_source_filter(source_filter))
+		if include:
+			scanners = {name: func for name, func in scanners.items() if name in include}
 
-        selected = [
-            (name, scanners[name])
-            for name in self._scanner_order()
-            if name in scanners and (enabled.get(name, True) or name in include)
-        ]
-        if not selected and include:
-            # Filter passed but nothing left to scan — explain why.
-            console.print(
-                '[red]✗ Nothing to scan:[/red] '
-                f'requested sources [bold]{", ".join(sorted(include))}[/bold] '
-                'are not available (no scanner registered).'
-            )
-        elif not selected:
-            # Bare run with everything disabled in config.
-            console.print(
-                '[red]✗ Nothing to scan:[/red] every source is disabled in '
-                f'[cyan]{self.config.config_file}[/cyan]. '
-                '[dim]Re-enable some via [cyan]sources.{name}: true[/cyan] '
-                'or pass [cyan]--source X[/cyan].[/dim]'
-            )
+		enabled = self.settings.get('sources', {})
+		# An explicit ``--source X`` request overrides ``sources.X: false`` in
+		# the active profile — the user asking for X by name wins. Surface a
+		# clear notice so it's obvious what happened.
+		overridden = sorted(
+			name for name in include if name in scanners and not enabled.get(name, True)
+		)
+		if overridden:
+			console.print(
+				f'[yellow]ℹ  Source(s) disabled in config but requested via '
+				f'--source:[/yellow] [bold]{", ".join(overridden)}[/bold] '
+				f'[dim](scanning anyway — pass [cyan]--save-config[/cyan] '
+				f'to make this permanent)[/dim]'
+			)
 
-        max_workers = self.settings.get(
-            'performance', {}).get('max_workers', 4)
-        all_apps: List[AppInfo] = []
-        from system_update.ui.progress import make_progress
+		selected = [
+			(name, scanners[name])
+			for name in self._scanner_order()
+			if name in scanners and (enabled.get(name, True) or name in include)
+		]
+		if not selected and include:
+			# Filter passed but nothing left to scan — explain why.
+			console.print(
+				'[red]✗ Nothing to scan:[/red] '
+				f'requested sources [bold]{", ".join(sorted(include))}[/bold] '
+				'are not available (no scanner registered).'
+			)
+		elif not selected:
+			# Bare run with everything disabled in config.
+			console.print(
+				'[red]✗ Nothing to scan:[/red] every source is disabled in '
+				f'[cyan]{self.config.config_file}[/cyan]. '
+				'[dim]Re-enable some via [cyan]sources.{name}: true[/cyan] '
+				'or pass [cyan]--source X[/cyan].[/dim]'
+			)
 
-        with make_progress() as progress:
-            tasks = {
-                name: progress.add_task(f'🔎 {source_chip(name)}', total=1) for name, _ in selected
-            }
+		max_workers = self.settings.get('performance', {}).get('max_workers', 4)
+		all_apps: List[AppInfo] = []
+		from system_update.ui.progress import make_progress
 
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_source = {executor.submit(
-                    func): name for name, func in selected}
-                for future in as_completed(future_to_source):
-                    name = future_to_source[future]
-                    try:
-                        apps = future.result()
-                        unique = dedupe_apps(apps)
-                        all_apps.extend(unique)
-                        icon = '✓' if len(unique) == 0 else '✅'
-                        progress.update(
-                            tasks[name],
-                            completed=1,
-                            description=f'{icon} {source_chip(name)} [{len(unique)}]',
-                        )
-                    except Exception as e:
-                        progress.update(
-                            tasks[name],
-                            completed=1,
-                            description=f'❌ {source_chip(name)} error',
-                        )
-                        console.print(f'  [red]✗[/red] {name}: {e}')
+		with make_progress() as progress:
+			tasks = {
+				name: progress.add_task(f'🔎 {source_chip(name)}', total=1) for name, _ in selected
+			}
 
-        return sorted(all_apps, key=lambda x: f'{x.source}{x.name}')
+			with ThreadPoolExecutor(max_workers=max_workers) as executor:
+				future_to_source = {executor.submit(func): name for name, func in selected}
+				for future in as_completed(future_to_source):
+					name = future_to_source[future]
+					try:
+						apps = future.result()
+						unique = dedupe_apps(apps)
+						all_apps.extend(unique)
+						icon = '✓' if len(unique) == 0 else '✅'
+						progress.update(
+							tasks[name],
+							completed=1,
+							description=f'{icon} {source_chip(name)} [{len(unique)}]',
+						)
+					except Exception as e:
+						progress.update(
+							tasks[name],
+							completed=1,
+							description=f'❌ {source_chip(name)} error',
+						)
+						console.print(f'  [red]✗[/red] {name}: {e}')
 
-    # ── partial scan + cache merge ─────────────────────────────────────────
+		return sorted(all_apps, key=lambda x: f'{x.source}{x.name}')
 
-    def _scan_missing_and_merge(self, cached: List[AppInfo], missing: Set[str]) -> List[AppInfo]:
-        """Scan only ``missing`` sources, merge into ``cached``, save, return filtered view."""
-        cached_sources = sorted(
-            {display_source(app.source) for app in cached if display_source(
-                app.source) not in missing}
-        )
-        hit_label = ', '.join(source_chip(s)
-                              for s in cached_sources) if cached_sources else 'none'
-        missing_label = ', '.join(source_chip(s) for s in sorted(missing))
-        console.print(
-            f'[bold cyan]⚡ Partial Cache Hit![/bold cyan] '
-            f'[dim]cached source(s):[/dim] [bold green]{hit_label}[/bold green]\n'
-            f'[bold cyan]🧐 Scanning missing[/bold cyan] [dim]source(s):[/dim] '
-            f'[bold]{missing_label}[/bold]\n'
-        )
-        prev_include = self._include_sources
-        self._include_sources = set(missing)
-        try:
-            console.print('[bold cyan]🔎 Scanning sources...[/bold cyan]')
-            phase_start = time.time()
-            new_apps = self.scan_system(','.join(sorted(missing)))
-            console.print(
-                f'\n📦 [bold]Discovered {len(new_apps)} unique apps.[/bold]')
-            console.print(_phase_time_label('Scanning sources', phase_start))
+	# ── partial scan + cache merge ─────────────────────────────────────────
 
-            console.print('[bold cyan]🔄 Checking for updates...[/bold cyan]')
-            phase_start = time.time()
-            self.checker.check_all_updates(
-                new_apps,
-                max_workers=self.settings.get(
-                    'performance', {}).get('max_workers', 4),
-                extra_checkers=checker_map(self.plugins),
-            )
+	def _scan_missing_and_merge(self, cached: List[AppInfo], missing: Set[str]) -> List[AppInfo]:
+		"""Scan only ``missing`` sources, merge into ``cached``, save, return filtered view."""
+		cached_sources = sorted(
+			{
+				display_source(app.source)
+				for app in cached
+				if display_source(app.source) not in missing
+			}
+		)
+		hit_label = ', '.join(source_chip(s) for s in cached_sources) if cached_sources else 'none'
+		missing_label = ', '.join(source_chip(s) for s in sorted(missing))
+		console.print(
+			f'[bold cyan]⚡ Partial Cache Hit![/bold cyan] '
+			f'[dim]cached source(s):[/dim] [bold green]{hit_label}[/bold green]\n'
+			f'[bold cyan]🧐 Scanning missing[/bold cyan] [dim]source(s):[/dim] '
+			f'[bold]{missing_label}[/bold]\n'
+		)
+		prev_include = self._include_sources
+		self._include_sources = set(missing)
+		try:
+			console.print('[bold cyan]🔎 Scanning sources...[/bold cyan]')
+			phase_start = time.time()
+			new_apps = self.scan_system(','.join(sorted(missing)))
+			console.print(f'\n📦 [bold]Discovered {len(new_apps)} unique apps.[/bold]')
+			console.print(_phase_time_label('Scanning sources', phase_start))
 
-            regular_updates = sum(
-                1 for a in new_apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE
-            )
-            security_updates = sum(
-                1 for a in new_apps if a.update_status == UpdateStatus.VULNERABLE and a.has_update
-            )
-            total_updates = regular_updates + security_updates
-            if security_updates > 0:
-                console.print(
-                    f'[bold magenta]📊 Detected {security_updates} '
-                    f'security updates (urgent).[/bold magenta]'
-                )
-            else:
-                console.print(
-                    f'[bold magenta]📊 Detected {total_updates} update candidates.[/bold magenta]\n'
-                )
-            console.print(_phase_time_label(
-                'Checking for updates', phase_start))
+			console.print('[bold cyan]🔄 Checking for updates...[/bold cyan]')
+			phase_start = time.time()
+			self.checker.check_all_updates(
+				new_apps,
+				max_workers=self.settings.get('performance', {}).get('max_workers', 4),
+				extra_checkers=checker_map(self.plugins),
+			)
 
-            console.print(
-                '[bold magenta]🔒 Checking security vulnerabilities...[/bold magenta]')
-            phase_start = time.time()
-            advisory_file = os.path.join(data_dir(), 'advisories.json')
-            security_results = self.security.check_all(
-                new_apps, advisory_file,
-                extra_checkers=security_checker_map(self.plugins),
-            )
-            security_vulns, security_issues = _split_security_results(security_results)
-            if security_vulns:
-                console.print(
-                    f'[bold red]🔥 Found {len(security_vulns)} '
-                    f'security vulnerabilities.[/bold red]\n'
-                )
-            else:
-                console.print(
-                    '[bold green]🛡️ No security vulnerabilities found.[/bold green]\n')
-            for issue in security_issues:
-                console.print(f'[yellow]! {issue.get("message", "Security check skipped")}[/yellow]')
-            console.print(_phase_time_label(
-                'Checking security vulnerabilities', phase_start))
-            _pypi_fallback_latest(new_apps)
-        finally:
-            self._include_sources = prev_include
+			regular_updates = sum(
+				1 for a in new_apps if a.update_status == UpdateStatus.UPDATE_AVAILABLE
+			)
+			security_updates = sum(
+				1 for a in new_apps if a.update_status == UpdateStatus.VULNERABLE and a.has_update
+			)
+			total_updates = regular_updates + security_updates
+			if security_updates > 0:
+				console.print(
+					f'[bold magenta]📊 Detected {security_updates} '
+					f'security updates (urgent).[/bold magenta]'
+				)
+			else:
+				console.print(
+					f'[bold magenta]📊 Detected {total_updates} update candidates.[/bold magenta]\n'
+				)
+			console.print(_phase_time_label('Checking for updates', phase_start))
 
-        # Merge: drop any cached entries for newly-scanned sources, append fresh.
-        merged = [a for a in cached if a.source.lower() not in missing] + \
-            new_apps
-        merged = sorted(merged, key=lambda x: f'{x.source}{x.name}')
-        self._save_cache_with_context(merged, missing)
-        console.print(
-            f'[dim]💾 Cache updated ({len(merged)} items across '
-            f'{len({a.source.lower() for a in merged})} sources) '
-            f'{self._cache_expiry_hint()}[/dim]\n'
-        )
-        # Bare run with no source filter → return EVERYTHING; only filter when
-        # the caller explicitly scoped the run to specific sources.
-        if not self._include_sources:
-            return merged
-        return [a for a in merged if a.source.lower() in self._include_sources]
+			console.print('[bold magenta]🔒 Checking security vulnerabilities...[/bold magenta]')
+			phase_start = time.time()
+			advisory_file = os.path.join(data_dir(), 'advisories.json')
+			security_results = self.security.check_all(
+				new_apps,
+				advisory_file,
+				extra_checkers=security_checker_map(self.plugins),
+			)
+			security_vulns, security_issues = _split_security_results(security_results)
+			if security_vulns:
+				console.print(
+					f'[bold red]🔥 Found {len(security_vulns)} '
+					f'security vulnerabilities.[/bold red]\n'
+				)
+			else:
+				console.print('[bold green]🛡️ No security vulnerabilities found.[/bold green]\n')
+			for issue in security_issues:
+				console.print(
+					f'[yellow]! {issue.get("message", "Security check skipped")}[/yellow]'
+				)
+			console.print(_phase_time_label('Checking security vulnerabilities', phase_start))
+			_pypi_fallback_latest(new_apps)
+		finally:
+			self._include_sources = prev_include
 
-    # ── main workflow ──────────────────────────────────────────────────────
+		# Merge: drop any cached entries for newly-scanned sources, append fresh.
+		merged = [a for a in cached if a.source.lower() not in missing] + new_apps
+		merged = sorted(merged, key=lambda x: f'{x.source}{x.name}')
+		self._save_cache_with_context(merged, missing)
+		console.print(
+			f'[dim]💾 Cache updated ({len(merged)} items across '
+			f'{len({a.source.lower() for a in merged})} sources) '
+			f'{self._cache_expiry_hint()}[/dim]\n'
+		)
+		# Bare run with no source filter → return EVERYTHING; only filter when
+		# the caller explicitly scoped the run to specific sources.
+		if not self._include_sources:
+			return merged
+		return [a for a in merged if a.source.lower() in self._include_sources]
 
-    def run(self, args: Any) -> None:
-        """Full flow: scan → check → security → cache → history → display → export → update."""
-        from system_update.commands.run_cmd import RunCommand
-        RunCommand().execute(args, self)
+	# ── main workflow ──────────────────────────────────────────────────────
 
+	def run(self, args: Any) -> None:
+		"""Full flow: scan → check → security → cache → history → display → export → update."""
+		from system_update.commands.run_cmd import RunCommand
+
+		RunCommand().execute(args, self)

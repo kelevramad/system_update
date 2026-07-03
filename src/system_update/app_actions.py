@@ -262,6 +262,18 @@ class AppActionsMixin:
         if target_app.is_vulnerable:
             self._display_security_table([target_app])
 
+        if args.show_commands:
+            from rich.panel import Panel
+            from system_update.executors.commands import build_update_command
+            cmd = build_update_command(target_app)
+            if cmd:
+                console.print()
+                console.print('[bold cyan]💻 Manual Update Command:[/bold cyan]')
+                console.print(Panel(' '.join(cmd), title=f'Copy & paste to update {target_app.name}', border_style='cyan', expand=False))
+            else:
+                console.print(f"\n[yellow]⚠️ Manual update not supported/configured for package '{target_app.name}'.[/yellow]")
+            return
+
         if not yes and not dry_run:
             if not _confirm_default_no(
                     'Proceed with update? This will run the package manager command.',

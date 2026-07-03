@@ -1266,7 +1266,7 @@ wheels = [
 
 [[package]]
 name = "system-update-cli"
-version = "9.0.0"
+version = "9.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "click", version = "8.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },

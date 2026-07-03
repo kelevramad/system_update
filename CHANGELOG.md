@@ -15,6 +15,13 @@ This project is provided as-is for system administration and package management.
 
 ## 🆕 Latest Changes
 
+### v9.1.0 (July 2026)
+
+- **Feature - Plugin Command Builders**: Plugins can now provide update and rollback commands for `--show-commands` and `--rollback` via `register_updater(build_command=...)`. The `build_update_command()` and `build_rollback_command()` functions fall back to plugin-provided builders when the source isn't a built-in source.
+- **Plugin API**: Added `PluginCommandBuilderFunc` type, optional `build_command` field on `PluginUpdater`, and `updater_command_builders()` helper in `plugins.py`.
+- **Demo Plugin**: Updated reference plugin with `build_demo_command()` demonstrating upgrade and rollback command generation.
+- **Verification**: `uv run pytest`, `uv run ruff check .`, and `uv run python -m system_update --source demo --show-commands` are clean.
+
 ### v9.0.0 (July 2026)
 
 - **Breaking Change - Source Cleanup**: Removed built-in `registry`, `appx`, `msix`, `psmodules`, and `vsextensions` sources because they duplicated Winget output or represented niche inventories better handled outside the default scanner.

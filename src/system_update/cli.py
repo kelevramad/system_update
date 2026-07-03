@@ -250,6 +250,12 @@ def main(
 		help='🧪 Preview updates without executing them.',
 		rich_help_panel=PANEL_UPDATE,
 	),
+	show_commands: bool = typer.Option(
+		False,
+		'--show-commands',
+		help='💻 Show the manual commands to update packages/sources instead of applying them automatically.',
+		rich_help_panel=PANEL_UPDATE,
+	),
 	yes: bool = typer.Option(
 		False,
 		'--yes',
@@ -677,6 +683,7 @@ def main(
 		update_source=update_source,
 		update_all=update_all,
 		dry_run=dry_run,
+		show_commands=show_commands,
 		yes=yes,
 		no_cache=no_cache,
 		clear_cache=clear_cache,

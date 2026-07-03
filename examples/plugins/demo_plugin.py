@@ -102,6 +102,21 @@ def update_demo(app: AppInfo) -> bool:
 	return True
 
 
+def build_demo_command(action: str, app: AppInfo) -> Optional[List[str]]:
+	"""Return the argv for updating or rolling back ``app`` via the demo source.
+
+	For ``'upgrade'`` the command installs ``app.latest_version`` (the
+	newer release).  For ``'rollback'`` the caller sets
+	``app.latest_version`` to the *old* version it wants to restore.
+	"""
+	if app.source != SOURCE:
+		return None
+	version = app.latest_version
+	if not version:
+		return None
+	return ['demo', 'install', app.name, '--version', version]
+
+
 # ─── Security checker ───────────────────────────────────────────────────
 
 
@@ -174,10 +189,19 @@ def register_plugin(registry: PluginRegistry, context: PluginContext) -> None:
 
 	registry.register_scanner(SOURCE, scan_demo, description='Demo package source')
 	registry.register_checker(SOURCE, check_demo, description='Demo update checker')
-	registry.register_updater(SOURCE, update_demo, description='Demo package updater')
+	registry.register_updater(
+		SOURCE,
+		update_demo,
+		description='Demo package updater',
+		build_command=build_demo_command,
+	)
 	registry.register_security_checker(
-		SOURCE, security_check_demo, description='Demo vulnerability feed',
+		SOURCE,
+		security_check_demo,
+		description='Demo vulnerability feed',
 	)
 	registry.register_notifier(
-		'demo-log', notify_demo, description='Demo notification logger',
+		'demo-log',
+		notify_demo,
+		description='Demo notification logger',
 	)

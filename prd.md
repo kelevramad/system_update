@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 ## System Update CLI
 
-**Document Version:** 9.0.0
+**Document Version:** 9.1.0
 **Last Updated:** July 2, 2026
 **Author:** Kelevra Mad
-**Based On:** `src/system_update/` package (v9.0.0)
+**Based On:** `src/system_update/` package (v9.1.0)
 
 ---
 
@@ -885,6 +885,7 @@ Configuration files, scheduled tasks, rollback, interactive selection, remote ma
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 9.1.0 | July 2026 | Plugin command builders: plugins can provide update/rollback commands for `--show-commands` and `--rollback` via `register_updater(build_command=...)`. `build_update_command()` and `build_rollback_command()` fall back to plugin builders for unknown sources |
 | 9.0.0 | July 2026 | Breaking source cleanup: removed built-in `registry`, `appx`, `msix`, `psmodules`, and `vsextensions` scanners/checkers because they duplicated Winget output or represented niche inventories better handled outside the default scanner. Removed related update builders, config defaults, UI source styles/icons, CLI help entries, and tests |
 | 8.14.3 | July 2026 | Patch release for Rust update execution and cached summary metadata: Rust updates use `cargo install --force` with a longer timeout and no longer count same-version crates as updates; cache entries include scan time, per-source update counts, and deduplicated security summary data; source summary chips can show update counts |
 | 8.14.2 | July 2026 | Patch fix for global Python console-script installs: Python 3.10+ now declares `click>=8.2.0`, keeping Typer's generic `click.Choice` usage compatible outside `uv run`; refreshed lockfile metadata and verified CLI help plus focused CLI tests |

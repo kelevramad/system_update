@@ -164,3 +164,119 @@ def test_cli_options_validate_rejects_update_all_with_package():
 	opts = CLIOptions(update_all=True, package='git')
 	with pytest.raises(ValueError, match='--update-all'):
 		opts.validate()
+
+
+def test_show_commands_flag_in_help(help_output):
+	output = help_output['stdout'] + help_output['stderr']
+	assert '--show-commands' in output
+
+
+def test_cli_options_defaults_show_commands():
+	from argparse import Namespace
+	from system_update.cli_options import CLIOptions
+
+	opts = CLIOptions.from_namespace(Namespace(source='pip'))
+	assert opts.show_commands is False
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+def test_show_commands_bulk():
+	from unittest.mock import patch, MagicMock
+	from system_update import SystemUpdateApp
+	from system_update.models import AppInfo, UpdateStatus
+
+	with (
+		patch('system_update.PackageScanner.scan_winget') as mock_scan,
+		patch('system_update.UpdateChecker._check_winget_updates') as mock_check,
+		patch('system_update.console.print') as mock_print,
+		patch('system_update.HistoryDatabase.record_scan')
+	):
+		mock_scan.return_value = [
+			AppInfo(name='Git', source='Winget', version='1.0', latest_version='2.0', app_id='Git', update_status=UpdateStatus.UPDATE_AVAILABLE)
+		]
+		mock_check.return_value = 1
+		app = SystemUpdateApp()
+		args = MagicMock()
+		args.clear_cache = False
+		args.no_cache = True
+		args.source = 'winget'
+		args.import_files = None
+		args.interactive = False
+		args.update_all = False
+		args.show_commands = True
+		args.dry_run = False
+		args.package = None
+		args.update_source = None
+		args.yes = True
+		args.history = False
+		args.history_package = None
+		args.history_trends = False
+		args.history_stale = 0
+		args.report = False
+
+		app.run(args)
+
+		printed_texts = []
+		for call in mock_print.call_args_list:
+			if call[0]:
+				arg = call[0][0]
+				if hasattr(arg, 'renderable'):
+					printed_texts.append(str(arg.renderable))
+				else:
+					printed_texts.append(str(arg))
+
+		assert any('Manual Update Commands' in txt for txt in printed_texts)
+		assert any('winget upgrade --id Git' in txt for txt in printed_texts)
+		app.history_db.close()
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+def test_show_commands_single_package():
+	from unittest.mock import patch, MagicMock
+	from system_update import SystemUpdateApp
+	from system_update.models import AppInfo, UpdateStatus
+
+	with (
+		patch('system_update.PackageScanner.scan_winget') as mock_scan,
+		patch('system_update.UpdateChecker._check_winget_updates') as mock_check,
+		patch('system_update.console.print') as mock_print,
+		patch('system_update.HistoryDatabase.record_scan')
+	):
+		mock_scan.return_value = [
+			AppInfo(name='Git', source='Winget', version='1.0', latest_version='2.0', app_id='Git', update_status=UpdateStatus.UPDATE_AVAILABLE)
+		]
+		mock_check.return_value = 1
+		app = SystemUpdateApp()
+		args = MagicMock()
+		args.clear_cache = False
+		args.no_cache = True
+		args.source = 'winget'
+		args.import_files = None
+		args.interactive = False
+		args.update_all = False
+		args.show_commands = True
+		args.dry_run = False
+		args.package = 'Git'
+		args.update_source = None
+		args.yes = True
+		args.history = False
+		args.history_package = None
+		args.history_trends = False
+		args.history_stale = 0
+		args.report = False
+
+		app.run(args)
+
+		printed_texts = []
+		for call in mock_print.call_args_list:
+			if call[0]:
+				arg = call[0][0]
+				if hasattr(arg, 'renderable'):
+					printed_texts.append(str(arg.renderable))
+				else:
+					printed_texts.append(str(arg))
+
+		assert any('Manual Update Command' in txt for txt in printed_texts)
+		assert any('winget upgrade --id Git' in txt for txt in printed_texts)
+		app.history_db.close()
+

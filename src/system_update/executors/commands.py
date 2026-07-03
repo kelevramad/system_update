@@ -40,7 +40,8 @@ def _safe_argv_token(value: Optional[str], *, field: str) -> Optional[str]:
 		logger.warning(
 			'Refusing unsafe %s value %r — does not match argv allowlist; '
 			'cache file may be tampered with.',
-			field, value,
+			field,
+			value,
 		)
 		return None
 	return value
@@ -53,15 +54,25 @@ def _winget(action: CommandAction, app: AppInfo) -> Optional[Command]:
 		if not app_id or not version:
 			return None
 		return [
-			'winget', 'install', '--id', app_id, '-v', version,
-			'--accept-source-agreements', '--accept-package-agreements',
+			'winget',
+			'install',
+			'--id',
+			app_id,
+			'-v',
+			version,
+			'--accept-source-agreements',
+			'--accept-package-agreements',
 			'--force',
 		]
 	if not app_id:
 		return None
 	cmd: Command = [
-		'winget', 'upgrade', '--id', app_id,
-		'--accept-source-agreements', '--accept-package-agreements',
+		'winget',
+		'upgrade',
+		'--id',
+		app_id,
+		'--accept-source-agreements',
+		'--accept-package-agreements',
 	]
 	if version:
 		cmd.extend(['-v', version])
@@ -74,8 +85,14 @@ def _chocolatey(action: CommandAction, app: AppInfo) -> Optional[Command]:
 		if not version:
 			return None
 		return [
-			'choco', 'install', app.name, '--version', version,
-			'--allow-downgrade', '-y', '-f',
+			'choco',
+			'install',
+			app.name,
+			'--version',
+			version,
+			'--allow-downgrade',
+			'-y',
+			'-f',
 		]
 	cmd: Command = ['choco', 'upgrade', app.name, '-y']
 	if version:
@@ -131,12 +148,19 @@ def _pip(action: CommandAction, app: AppInfo) -> Optional[Command]:
 		if not app.latest_version:
 			return None
 		return [
-			_pip_interpreter(app), '-m', 'pip', 'install',
+			_pip_interpreter(app),
+			'-m',
+			'pip',
+			'install',
 			_spec(app.name, app.latest_version, separator='=='),
-			'--force-reinstall', '--no-deps',
+			'--force-reinstall',
+			'--no-deps',
 		]
 	cmd: Command = [
-		_pip_interpreter(app), '-m', 'pip', 'install',
+		_pip_interpreter(app),
+		'-m',
+		'pip',
+		'install',
 		_spec(app.name, app.latest_version, separator='=='),
 		'--upgrade',
 	]
@@ -173,9 +197,14 @@ def _pwsh_updater(app: AppInfo) -> Command:
 	packages with different upgrade semantics.
 	"""
 	return [
-		'winget', 'install', '--id', 'Microsoft.PowerShell',
-		'--source', 'winget',
-		'--accept-source-agreements', '--accept-package-agreements',
+		'winget',
+		'install',
+		'--id',
+		'Microsoft.PowerShell',
+		'--source',
+		'winget',
+		'--accept-source-agreements',
+		'--accept-package-agreements',
 		'--force',
 	]
 
@@ -208,21 +237,48 @@ _BUILDERS: Dict[str, Callable[[CommandAction, AppInfo], Optional[Command]]] = {
 	'dotnet': _dotnet,
 	'path': _path,
 }
-_ROLLBACK_SOURCES = frozenset({
-	'winget',
-	'chocolatey',
-	'npm',
-	'pnpm',
-	'bun',
-	'yarn',
-	'pip',
-})
+
+# Plugin-provided command builders keyed by source name.  Populated by
+# ``register_plugin_command_builders`` after plugins are loaded.
+_plugin_builders: Dict[str, Callable[[CommandAction, AppInfo], Optional[Command]]] = {}
+
+
+def register_plugin_command_builders(
+	builders: Dict[str, Callable[[str, AppInfo], Optional[Command]]],
+) -> None:
+	"""Register command builder functions from plugins.
+
+	Each builder receives ``(action, app)`` where *action* is ``'upgrade'``
+	or ``'rollback'`` and returns an argv list or ``None``.
+	"""
+	_plugin_builders.clear()
+	for source, builder in builders.items():
+		_plugin_builders[source.lower()] = builder  # type: ignore[assignment]
+
+
+_ROLLBACK_SOURCES = frozenset(
+	{
+		'winget',
+		'chocolatey',
+		'npm',
+		'pnpm',
+		'bun',
+		'yarn',
+		'pip',
+	}
+)
 
 
 def build_update_command(app: AppInfo) -> Optional[Command]:
 	"""Return the argv for updating ``app``, or ``None`` if unsupported."""
-	builder = _BUILDERS.get((app.source or '').lower())
-	return builder('upgrade', app) if builder else None
+	source = (app.source or '').lower()
+	builder = _BUILDERS.get(source)
+	if builder:
+		return builder('upgrade', app)
+	plugin_builder = _plugin_builders.get(source)
+	if plugin_builder:
+		return plugin_builder('upgrade', app)
+	return None
 
 
 def build_rollback_command(app: AppInfo) -> Optional[Command]:
@@ -233,8 +289,14 @@ def build_rollback_command(app: AppInfo) -> Optional[Command]:
 	supported for this source (e.g. PATH/scoop tools without
 	version pinning).
 	"""
-	builder = _BUILDERS.get((app.source or '').lower())
-	return builder('rollback', app) if builder else None
+	source = (app.source or '').lower()
+	builder = _BUILDERS.get(source)
+	if builder:
+		return builder('rollback', app)
+	plugin_builder = _plugin_builders.get(source)
+	if plugin_builder:
+		return plugin_builder('rollback', app)
+	return None
 
 
 def supports_rollback(source: str) -> bool:

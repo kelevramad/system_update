@@ -20,6 +20,7 @@ class CLIOptions:
 	update_source: Optional[str] = None
 	update_all: bool = False
 	dry_run: bool = False
+	show_commands: bool = False
 	yes: bool = False
 	no_cache: bool = False
 	clear_cache: bool = False
